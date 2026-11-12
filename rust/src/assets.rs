@@ -80,7 +80,11 @@ pub fn fetch(
 ) -> Result<Outcome, String> {
     let body = fetch_text(url, MAX_BODY_BYTES, Duration::from_secs(60))?;
     let path = save(dir, id, ext, &body)?;
-    if ext == "js" {
+    if ext == "js" && !is_shipped_body(id, &body) {
+        // A body equal to the one this build ships is not news: it is what the
+        // release asset holds for a current install. Marking it would stand the
+        // shipped copy down for no reason, and every install would do it once
+        // per interval.
         mark_downloaded(dir, id);
     }
     Ok(state_of(&path, &body, with_meta))
@@ -101,6 +105,13 @@ fn downloaded_marker(dir: &Path, id: &str) -> PathBuf {
 
 fn mark_downloaded(dir: &Path, id: &str) {
     let _ = std::fs::write(downloaded_marker(dir, id), b"");
+}
+
+/// Whether `body` is exactly what this build compiles in for `id`.
+fn is_shipped_body(id: &str, body: &str) -> bool {
+    BUILTIN_SCRIPTS
+        .iter()
+        .any(|&(bid, shipped)| bid == id && shipped == body)
 }
 
 /// True when the body on disk was downloaded, not shipped.
@@ -377,6 +388,23 @@ mod tests {
         assert!(!was_downloaded(&dir, id));
         install_builtin(&dir);
         assert_eq!(read_text(&dir, id, "js").as_deref(), Some(shipped));
+    }
+
+    /// Refreshing a shipped script on a current install fetches the body the
+    /// binary already carries. That must not count as "downloaded": the marker
+    /// would then stand the shipped copy down on every install, once per
+    /// interval, for a file that never changed.
+    #[test]
+    fn a_download_equal_to_the_shipped_body_is_not_a_download() {
+        let (id, shipped) = BUILTIN_SCRIPTS[0];
+        assert!(is_shipped_body(id, shipped));
+        assert!(!is_shipped_body(id, &format!("{shipped}\n")), "not byte-for-byte");
+        let dir = temp_dir("builtin-same-body");
+        assert_eq!(install_builtin(&dir), BUILTIN_SCRIPTS.len());
+        // What `fetch` decides after a successful download of the same bytes.
+        save(&dir, id, "js", shipped).unwrap();
+        assert!(!was_downloaded(&dir, id));
+        assert_eq!(install_builtin(&dir), 0, "nothing to rewrite either way");
     }
 
     /// The YouTube module only runs where YouTube runs, which is the one thing
