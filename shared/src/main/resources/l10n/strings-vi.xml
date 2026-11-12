@@ -202,6 +202,7 @@
     <string name="filter_desc_phishing">Chặn trang lừa đảo trực tuyến.</string>
     <string name="filter_desc_scamblock">Chặn trang lừa đảo và cờ bạc trá hình.</string>
     <string name="filter_desc_ubo_quick_fixes">Bản vá gấp cho các trang vừa hỏng vài ngày gần đây (YouTube, Twitch…), do uBlock Origin duy trì.</string>
+    <string name="filter_desc_ubo_unbreak">Sửa những trang bị vỡ hoặc chặn vì phát hiện trình chặn quảng cáo: các scriptlet gỡ chính đoạn mã dò của trang, do uBlock Origin duy trì.</string>
     <string name="filter_desc_badware">Cảnh báo phần mềm độc hại và rủi ro tải xuống.</string>
     <string name="filter_desc_dandelion_malware">Chặn tên miền phát tán mã độc và lừa đảo (Dandelion Sprout).</string>
     <string name="filter_desc_ag_dns">Bộ lọc DNS chính thức của AdGuard, nhẹ và toàn diện.</string>

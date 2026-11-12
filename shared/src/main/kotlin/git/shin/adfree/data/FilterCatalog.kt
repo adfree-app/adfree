@@ -128,6 +128,21 @@ object FilterCatalog {
             defaultEnabled = true,
         ),
         CatalogFilter(
+            id = "ubo-unbreak",
+            name = "uBlock Origin – Unbreak",
+            descriptionKey = Strings.filter_desc_ubo_unbreak,
+            group = FilterGroup.ADS,
+            url = "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/unbreak.txt",
+            homepage = "https://github.com/uBlockOrigin/uAssets",
+            // The anti-adblock half. Its rules are `+js(abort-on-property-read…)`
+            // and `+js(set-constant…)`: the page's own detector is what breaks,
+            // not a request. AdFree assembles those from AdGuard's embedded
+            // scriptlets, and uBO names them the same way, so the list works as
+            // written. On by default like uBO's own install — it only ever takes
+            // the wall down, it never blocks more.
+            defaultEnabled = true,
+        ),
+        CatalogFilter(
             id = "easylist",
             name = "EasyList",
             descriptionKey = Strings.filter_desc_easylist,

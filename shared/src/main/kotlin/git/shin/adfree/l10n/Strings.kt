@@ -191,6 +191,7 @@ object Strings {
     const val filter_desc_scamblock = "filter_desc_scamblock"
     const val filter_desc_badware = "filter_desc_badware"
     const val filter_desc_ubo_quick_fixes = "filter_desc_ubo_quick_fixes"
+    const val filter_desc_ubo_unbreak = "filter_desc_ubo_unbreak"
     const val filter_desc_dandelion_malware = "filter_desc_dandelion_malware"
     const val filter_desc_ag_dns = "filter_desc_ag_dns"
     const val filter_desc_oisd = "filter_desc_oisd"

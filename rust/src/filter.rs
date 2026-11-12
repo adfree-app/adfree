@@ -9938,6 +9938,33 @@ mod tests {
         assert!(fe.cosmetic_resources("https://other.test/").is_empty());
     }
 
+    /// uBlock Origin writes its scriptlets with a short name (`+js(aopr, …)`,
+    /// `+js(set, …)`) and the `+js` marker, AdGuard writes a long name inside a
+    /// comment. The embedded table lists uBO's names as aliases of AdGuard's
+    /// implementations, so the uBO lists work as written — which is the whole
+    /// point of shipping `unbreak.txt`: its 316 `+js` rules are the anti-adblock
+    /// half, and every one of them would be dropped if the aliases did not
+    /// resolve.
+    #[test]
+    fn ubo_scriptlet_syntax_assembles_from_the_same_implementations() {
+        // Two real lines out of uBlock Origin's unbreak list.
+        let fe = cosmetic_engine(
+            "br.de##+js(set, akamaiDisableServerIpLookup, noopFunc)\n             pythonjobshq.com##+js(aopr, Keen)\n",
+        );
+        let de = fe.cosmetic_resources("https://br.de/");
+        assert!(
+            de.scriptlets.contains("setConstant("),
+            "uBO's `set` is AdGuard's setConstant: {}",
+            de.scriptlets
+        );
+        let shop = fe.cosmetic_resources("https://pythonjobshq.com/");
+        assert!(
+            shop.scriptlets.contains("abortOnPropertyRead("),
+            "uBO's `aopr` is abortOnPropertyRead: {}",
+            shop.scriptlets
+        );
+    }
+
     #[test]
     fn scriptlet_exceptions_cancel_the_scriptlet_they_name() {
         let fe = cosmetic_engine(

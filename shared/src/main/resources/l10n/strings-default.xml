@@ -203,6 +203,7 @@
     <string name="filter_desc_phishing">Blocks online phishing pages.</string>
     <string name="filter_desc_scamblock">Blocks scam and disguised gambling sites.</string>
     <string name="filter_desc_ubo_quick_fixes">Emergency fixes for sites that broke in the last few days (YouTube, Twitch and similar), maintained by uBlock Origin.</string>
+    <string name="filter_desc_ubo_unbreak">Repairs for sites left broken or showing an anti-adblock wall: scriptlets that undo the page's own detection code, maintained by uBlock Origin.</string>
     <string name="filter_desc_badware">Warns about malicious software and download risks.</string>
     <string name="filter_desc_dandelion_malware">Blocks malware and scam domains (Dandelion Sprout).</string>
     <string name="filter_desc_ag_dns">Official AdGuard DNS filter: light and comprehensive.</string>

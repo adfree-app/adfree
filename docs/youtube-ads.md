@@ -95,6 +95,15 @@ run them.
    uBlock Origin ships its YouTube repairs within days of a DOM change; AdGuard
    Base lags there, and it is the list most likely to be needed next time
    YouTube shuffles its markup.
+   **`uBlock Origin – Unbreak`** is on by default beside it: its 316 `+js(…)`
+   rules are the anti-adblock half — `abort-on-property-read`, `set-constant`,
+   `json-prune` — which stop a page's own detector from seeing that its ads
+   never arrived. AdFree assembles them from AdGuard's embedded scriptlet table,
+   where uBO's short names (`aopr`, `set`) are aliases of AdGuard's
+   implementations; measured against the real list, 111 of 117 `+js` rules
+   assemble. The six that do not need `replace-node-text` (`rpnt`),
+   `trusted-prevent-fetch` or `trusted-prevent-xhr`, which the embedded table
+   only carries behind the trusted permission.
 
 ## Keeping the modules current between releases
 
