@@ -382,7 +382,7 @@
     <string name="protection_annoyances_lists_body">Each list covers one kind of nuisance; switch one off to let that banner or popup through again.</string>
     <string name="protection_annoyances_empty">No annoyance lists are added yet</string>
     <string name="protection_annoyances_summary">%1$d lists on</string>
-    <string name="protection_browsing_security_body">Every page domain is checked against the malware and phishing lists on this device. Which sites you visit never leaves the phone; the lists only refresh with the filter catalogue.</string>
+    <string name="protection_browsing_security_body">Every domain is checked against the malware and phishing lists on this device; the lists only refresh with the filter catalogue.</string>
 
     <!-- Firewall -->
     <string name="firewall_access_inherit">Inherit</string>
@@ -462,7 +462,7 @@
     <string name="network_dot_subtitle">Blocks DNS-over-TLS (port 853) so clients cannot bypass the filter</string>
     <string name="network_dot_private_dns">Strict Private DNS is on: the system keeps its own resolver, so port 853 is not blocked.</string>
     <string name="network_backup_title">Fallback DNS</string>
-    <string name="network_backup_body">One plain UDP query is sent when the selected server stays silent for 2 seconds. The system DNS keeps you online when the chosen server — or its TLS — is what broke.</string>
+    <string name="network_backup_body">A plain UDP query when the chosen server stays silent for 2 seconds. The system DNS keeps you online when that server or its TLS is what broke.</string>
     <string name="network_backup_system">System DNS</string>
     <string name="network_backup_system_subtitle">Use the network\'s own resolvers when the selected server is silent</string>
     <string name="network_backup_off">Off</string>
@@ -511,7 +511,7 @@
     <string name="lab_scan">Scan domain</string>
     <string name="lab_analyzing">Analyzing…</string>
     <string name="lab_how_title">How it works</string>
-    <string name="lab_how_body">• Matches the domain against the active lists.\n\n• Shows the matching rule, its list, and the estimated data saved.</string>
+    <string name="lab_how_body">• Matches the domain against the active lists.\n\n• Shows the matching rule, its list and the data saved.</string>
     <string name="lab_assessment">Assessment</string>
     <string name="lab_suggested_rules">Suggested rules</string>
     <string name="lab_add">Add</string>
@@ -561,7 +561,7 @@
     <string name="ext_add">Add extension</string>
     <string name="ext_store">Extension store</string>
     <string name="ext_store_subtitle">Search Greasy Fork • scripts run by @match</string>
-    <string name="ext_store_note">Scripts run the author\'s code inside the page. Install only from sources you trust; GM_xmlhttpRequest/GM_download still follow the page\'s CORS, and GM_setValue and @resource are not supported.</string>
+    <string name="ext_store_note">The author's code runs inside the page — install only from sources you trust. GM_xmlhttpRequest/GM_download follow the page's CORS; GM_setValue and @resource are not supported.</string>
     <string name="ext_store_search_hint">Search scripts…</string>
     <string name="ext_sort_relevance">Default</string>
     <string name="ext_sort_daily">Installs/day</string>
@@ -583,13 +583,13 @@
     <string name="ext_builtin_meta">Bundled with the app • %1$s</string>
     <string name="ext_size_meta">%1$d KB • %2$s</string>
     <string name="ext_not_downloaded_meta">Not downloaded • turn on to download</string>
-    <string name="ext_add_body">Paste the URL of a userscript file (.user.js). AdFree reads @match, @include, @exclude, @run-at and @noframes, and fetches @require when installing from a URL (a manually imported file keeps its content as-is; @require is not fetched). Supports unsafeWindow, GM_addStyle, GM_log, GM_info, GM_xmlhttpRequest/GM_download (following the page\'s CORS), GM_openInTab, GM_notification, GM_setClipboard and GM_addElement; GM_setValue and @resource are not supported.</string>
+    <string name="ext_add_body">Paste the URL of a userscript file (.user.js); @match, @include, @exclude, @run-at and @noframes are read, and @require is fetched when installing from a URL. Supports unsafeWindow, GM_addStyle, GM_log, GM_info, GM_xmlhttpRequest/GM_download (following the page's CORS), GM_openInTab, GM_notification, GM_setClipboard and GM_addElement; GM_setValue and @resource are not supported.</string>
     <string name="ext_security_warning">Extensions can read and modify the pages they run on. Install only from sources you trust.</string>
     <string name="ext_name_optional">Name (optional)</string>
     <string name="ext_url_label">URL (.user.js)</string>
     <string name="ext_pick_file">Choose file</string>
     <string name="ext_create_new">Create new</string>
-    <string name="ext_add_footnote">Note: extensions can access page data — install only scripts you understand and trust.</string>
+    <string name="ext_add_footnote">Extensions can read page data — install only scripts you trust.</string>
     <string name="ext_add_download">Add and download</string>
     <string name="ext_detail_enable_title">Enable this extension</string>
     <string name="ext_detail_master_off">Extensions are turned off, so this script does not run</string>
@@ -612,13 +612,13 @@
     <string name="ext_run_at_idle">When the page is idle</string>
     <string name="ext_run_at_body">When the page has a &lt;body&gt;</string>
     <string name="ext_screen_subtitle">Userscripts run on filtered HTTPS pages</string>
-    <string name="ext_screen_intro">Each script declares the pages it applies to with @match / @include. When all extensions are turned off, no script runs — even enabled ones.</string>
+    <string name="ext_screen_intro">Each script declares the pages it applies to with @match / @include. With all extensions off, no script runs.</string>
     <string name="ext_assistant_title">AdGuard Assistant</string>
-    <string name="ext_assistant_subtitle">Block an element, whitelist the page or report it — from a panel drawn over the page. The rules it builds go straight into your own rules.</string>
+    <string name="ext_assistant_subtitle">Block an element, whitelist the page or report it from a panel over the page; the rules it builds go into your own rules.</string>
     <string name="ext_assistant_install">Install</string>
     <string name="ext_assistant_installed">Installed — the panel appears on filtered pages</string>
     <string name="ext_browser_bridge_title">AdGuard extension for your browser</string>
-    <string name="ext_browser_bridge_subtitle">The toolbar panel of AdGuard\'s extension, driven by this app: protection on or off, filtering for the page, blocking an element, opening the filtering log. Install the extension from the Chrome Web Store, then connect it here.</string>
+    <string name="ext_browser_bridge_subtitle">The AdGuard extension's toolbar panel, driven by this app. Install it from the Chrome Web Store, then connect it here.</string>
     <string name="ext_browser_bridge_enable">Connect</string>
     <string name="ext_browser_bridge_installed">Connected — the extension talks to this app</string>
     <string name="ext_browser_bridge_done">Connected. Restart the browser so it picks up the extension</string>
@@ -670,7 +670,7 @@
     <string name="filters_user_rules_title">Your rules</string>
     <string name="filters_user_rules_meta">%1$d rules • %2$d exceptions</string>
     <string name="services_table_title">Services table</string>
-    <string name="services_table_subtitle">Names the company behind each domain in the Statistics breakdown, and what kind of service it is. Grouping the log is a query over the whole window, so the breakdown stays off until you switch it on.</string>
+    <string name="services_table_subtitle">Names the company and service behind each domain in Statistics. Grouping them scans the whole window, so it is off by default.</string>
     <string name="services_table_url_label">Subscription URL (optional)</string>
     <string name="services_table_reset">Built-in table</string>
     <string name="services_table_import">Import a file</string>
@@ -994,7 +994,7 @@
     <string name="log_detail_cert_subject">Certificate subject</string>
     <string name="log_detail_cert_issuer">Issued by</string>
     <string name="log_detail_cert_validity">Valid</string>
-    <string name="log_allowed_off_hint">Only what was blocked is recorded. Turn on “Log allowed requests too” in Settings to see every request this machine made.</string>
+    <string name="log_allowed_off_hint">Only blocked entries are shown. Turn on “Log allowed requests too” to see every request.</string>
     <string name="log_detail_connection">Connection ID</string>
     <string name="log_detail_transfer">Transferred</string>
     <string name="log_detail_transport">Network</string>
@@ -1045,7 +1045,7 @@
     <string name="settings_local_proxy_stopped">Not listening — %1$s</string>
     <string name="settings_local_proxy_stopped_quiet">Not listening</string>
     <string name="settings_local_proxy_filter_localhost_title">Filter localhost</string>
-    <string name="settings_local_proxy_filter_localhost_subtitle">Off leaves this machine\'s own conversations — a local dev server, the stub resolver — untouched by the filter</string>
+    <string name="settings_local_proxy_filter_localhost_subtitle">Off leaves this machine's own connections (local dev server, stub resolver) unfiltered.</string>
     <string name="settings_notifications_title">App notifications</string>
     <string name="settings_notifications_subtitle">Open the OS switches for protection, firewall and update channels</string>
     <string name="settings_group_automation">Automation</string>
@@ -1074,7 +1074,7 @@
     <string name="settings_log_warn">Warnings</string>
     <string name="settings_log_debug">Debug</string>
     <string name="settings_smart_filtering_title">Smart filtering</string>
-    <string name="settings_smart_filtering_subtitle">Off by default. When on, a host blocked 7 times in 10 seconds by the same app is let through for 60 seconds — that host is reachable while the window is open</string>
+    <string name="settings_smart_filtering_subtitle">Off by default. A host blocked 7 times in 10 seconds by the same app is let through for 60 seconds.</string>
     <string name="settings_block_mode_title">Block response</string>
     <string name="settings_block_mode_nxdomain">NXDOMAIN (not found)</string>
     <string name="settings_block_mode_zero">0.0.0.0</string>
@@ -1116,7 +1116,7 @@
     <string name="settings_stealth_gpc_title">Send Do Not Track and Global Privacy Control</string>
     <string name="settings_stealth_gpc_subtitle">Asks sites not to sell or share your data; many ignore it</string>
     <string name="settings_stealth_search_title">Hide the search query in links</string>
-    <string name="settings_stealth_search_subtitle">Scrubbed from the referer and from resources a results page loads — the search itself keeps its query</string>
+    <string name="settings_stealth_search_subtitle">Scrubbed from the referer and the resources a results page loads; the search box keeps its query.</string>
     <string name="settings_stealth_push_title">Block the Push Notifications API</string>
     <string name="settings_stealth_push_subtitle">Sites stop asking to send notifications; web push breaks</string>
     <string name="settings_stealth_geo_title">Block the Geolocation API</string>
@@ -1134,14 +1134,14 @@
     <string name="settings_stealth_preset_title">Privacy level</string>
     <string name="settings_stealth_preset_note">Picking a level writes the switches below and turns stealth mode on</string>
     <string name="settings_stealth_preset_standard_title">Standard</string>
-    <string name="settings_stealth_preset_standard_body">Tracking parameters and third-party cookies — the set a fresh install ships</string>
+    <string name="settings_stealth_preset_standard_body">Tracking parameters and third-party cookies</string>
     <string name="settings_stealth_preset_high_title">High</string>
     <string name="settings_stealth_preset_high_body">Adds the WebRTC guard, the third-party referer, the search query and Do Not Track</string>
     <string name="settings_stealth_preset_ultra_title">Ultra</string>
     <string name="settings_stealth_preset_ultra_body">Every switch, all cookies and ETag included — logins and caching break</string>
     <string name="settings_stealth_preset_custom_title">Custom</string>
     <string name="settings_stealth_preset_custom_body">The switches as you left them</string>
-    <string name="settings_stealth_preset_custom">The switches are set by hand — no level matches them exactly</string>
+    <string name="settings_stealth_preset_custom">Set by hand</string>
     <string name="settings_lab_title">Security lab</string>
     <string name="settings_lab_subtitle">Scan a domain through the engine to see the analysis</string>
     <string name="settings_restore_title">Restore this backup?</string>

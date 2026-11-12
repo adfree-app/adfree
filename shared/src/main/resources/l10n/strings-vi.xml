@@ -381,7 +381,7 @@
     <string name="protection_annoyances_lists_body">Mỗi danh sách ứng với một kiểu làm phiền; tắt một danh sách để kiểu đó hiện lại.</string>
     <string name="protection_annoyances_empty">Chưa có danh sách chặn làm phiền nào</string>
     <string name="protection_annoyances_summary">%1$d danh sách đang bật</string>
-    <string name="protection_browsing_security_body">Mỗi tên miền được đối chiếu với danh sách mã độc và lừa đảo ngay trên thiết bị. Những trang bạn truy cập không bao giờ rời khỏi máy; danh sách chỉ cập nhật cùng danh mục bộ lọc.</string>
+    <string name="protection_browsing_security_body">Mỗi tên miền được đối chiếu với danh sách mã độc và lừa đảo ngay trên máy; danh sách chỉ cập nhật cùng danh mục bộ lọc.</string>
 
     <!-- Firewall -->
     <string name="firewall_access_inherit">Kế thừa</string>
@@ -462,7 +462,7 @@
     <string name="network_dot_subtitle">Chặn DNS-over-TLS (cổng 853) để client không đi vòng qua bộ lọc</string>
     <string name="network_dot_private_dns">Private DNS nghiêm ngặt đang bật: hệ thống giữ resolver riêng, cổng 853 không bị chặn.</string>
     <string name="network_backup_title">DNS dự phòng</string>
-    <string name="network_backup_body">Một truy vấn UDP thuần được gửi khi máy chủ đã chọn không trả lời trong 2 giây. DNS của hệ thống giữ bạn online khi chính máy chủ — hoặc TLS của nó — gặp sự cố.</string>
+    <string name="network_backup_body">Truy vấn UDP thuần khi máy chủ đã chọn im lặng 2 giây. DNS hệ thống giữ bạn online khi máy chủ đó hoặc TLS của nó hỏng.</string>
     <string name="network_backup_system">DNS hệ thống</string>
     <string name="network_backup_system_subtitle">Dùng resolver của mạng hiện tại khi máy chủ đã chọn không phản hồi</string>
     <string name="network_backup_off">Tắt</string>
@@ -511,7 +511,7 @@
     <string name="lab_scan">Quét tên miền</string>
     <string name="lab_analyzing">Đang phân tích…</string>
     <string name="lab_how_title">Cách hoạt động</string>
-    <string name="lab_how_body">• Đối chiếu tên miền với các bộ lọc đang bật.\n\n• Hiển thị quy tắc khớp, danh sách nguồn và dung lượng tiết kiệm ước tính.</string>
+    <string name="lab_how_body">• Đối chiếu tên miền với các bộ lọc đang bật.\n\n• Hiện quy tắc khớp, danh sách nguồn và dung lượng tiết kiệm.</string>
     <string name="lab_assessment">Đánh giá</string>
     <string name="lab_suggested_rules">Quy tắc gợi ý</string>
     <string name="lab_add">Thêm</string>
@@ -561,7 +561,7 @@
     <string name="ext_add">Thêm tiện ích</string>
     <string name="ext_store">Kho tiện ích</string>
     <string name="ext_store_subtitle">Tìm trên Greasy Fork • script tự chạy theo @match</string>
-    <string name="ext_store_note">Script chạy mã của tác giả trong trang. Chỉ cài khi bạn tin tưởng nguồn; GM_xmlhttpRequest/GM_download vẫn theo CORS của trang, GM_setValue và @resource chưa hỗ trợ.</string>
+    <string name="ext_store_note">Mã của tác giả chạy trong trang — chỉ cài từ nguồn bạn tin. GM_xmlhttpRequest/GM_download vẫn theo CORS của trang; chưa hỗ trợ GM_setValue và @resource.</string>
     <string name="ext_store_search_hint">Tìm script…</string>
     <string name="ext_sort_relevance">Mặc định</string>
     <string name="ext_sort_daily">Cài/ngày</string>
@@ -583,13 +583,13 @@
     <string name="ext_builtin_meta">Cài sẵn trong ứng dụng • %1$s</string>
     <string name="ext_size_meta">%1$d KB • %2$s</string>
     <string name="ext_not_downloaded_meta">Chưa tải • Bật để tải về</string>
-    <string name="ext_add_body">Dán đường dẫn tới tệp userscript (.user.js). AdFree đọc @match, @include, @exclude, @run-at, @noframes và tải @require khi cài từ URL (tệp nhập tay giữ nguyên nội dung, @require không tự tải). Hỗ trợ unsafeWindow, GM_addStyle, GM_log, GM_info, GM_xmlhttpRequest/GM_download (theo CORS của trang), GM_openInTab, GM_notification, GM_setClipboard, GM_addElement; GM_setValue và @resource chưa hỗ trợ.</string>
+    <string name="ext_add_body">Dán URL tới tệp userscript (.user.js); @match, @include, @exclude, @run-at, @noframes được đọc và @require được tải khi cài từ URL. Hỗ trợ unsafeWindow, GM_addStyle, GM_log, GM_info, GM_xmlhttpRequest/GM_download (theo CORS của trang), GM_openInTab, GM_notification, GM_setClipboard, GM_addElement; chưa hỗ trợ GM_setValue và @resource.</string>
     <string name="ext_security_warning">Tiện ích đọc và sửa được nội dung trang nó chạy trên. Chỉ cài từ nguồn bạn tin cậy.</string>
     <string name="ext_name_optional">Tên (không bắt buộc)</string>
     <string name="ext_url_label">Đường dẫn (.user.js)</string>
     <string name="ext_pick_file">Chọn tệp</string>
     <string name="ext_create_new">Tạo mới</string>
-    <string name="ext_add_footnote">Lưu ý: tiện ích có thể truy cập dữ liệu trang — chỉ cài những script bạn hiểu và tin cậy.</string>
+    <string name="ext_add_footnote">Tiện ích đọc được dữ liệu trang — chỉ cài script bạn tin.</string>
     <string name="ext_add_download">Thêm và tải</string>
     <string name="ext_detail_enable_title">Bật tiện ích này</string>
     <string name="ext_detail_master_off">Tiện ích đang bị tắt nên script này không chạy</string>
@@ -612,13 +612,13 @@
     <string name="ext_run_at_idle">Khi trang rảnh</string>
     <string name="ext_run_at_body">Khi trang có &lt;body&gt;</string>
     <string name="ext_screen_subtitle">Userscript chạy trong trang HTTPS đã lọc</string>
-    <string name="ext_screen_intro">Mỗi script tự khai báo trang áp dụng bằng @match / @include. Khi tắt toàn bộ tiện ích thì không script nào chạy, kể cả script đang bật.</string>
+    <string name="ext_screen_intro">Mỗi script tự khai báo trang áp dụng bằng @match / @include. Tắt toàn bộ tiện ích thì không script nào chạy.</string>
     <string name="ext_assistant_title">Trợ lý AdGuard</string>
-    <string name="ext_assistant_subtitle">Chặn một phần tử, cho phép trang hoặc báo cáo trang — ngay trên một bảng nổi trong trang. Quy tắc tạo ra được thêm thẳng vào quy tắc của bạn.</string>
+    <string name="ext_assistant_subtitle">Chặn phần tử, cho phép trang hoặc báo cáo trang bằng bảng nổi trên trang; quy tắc tạo ra được thêm vào Quy tắc của bạn.</string>
     <string name="ext_assistant_install">Cài</string>
     <string name="ext_assistant_installed">Đã cài — bảng điều khiển hiện trên trang đã lọc</string>
     <string name="ext_browser_bridge_title">Tiện ích AdGuard cho trình duyệt</string>
-    <string name="ext_browser_bridge_subtitle">Bảng trên thanh công cụ của tiện ích AdGuard, do ứng dụng này điều khiển: bật/tắt bảo vệ, lọc cho trang đang mở, chặn một thành phần, mở nhật ký lọc. Cài tiện ích từ Chrome Web Store rồi kết nối ở đây.</string>
+    <string name="ext_browser_bridge_subtitle">Bảng trên thanh công cụ của tiện ích AdGuard, do ứng dụng này điều khiển. Cài từ Chrome Web Store rồi kết nối ở đây.</string>
     <string name="ext_browser_bridge_enable">Kết nối</string>
     <string name="ext_browser_bridge_installed">Đã kết nối — tiện ích đang nói chuyện với ứng dụng này</string>
     <string name="ext_browser_bridge_done">Đã kết nối. Khởi động lại trình duyệt để nó nhận tiện ích</string>
@@ -670,7 +670,7 @@
     <string name="filters_user_rules_title">Quy tắc của bạn</string>
     <string name="filters_user_rules_meta">%1$d quy tắc • %2$d ngoại lệ</string>
     <string name="services_table_title">Bảng dịch vụ</string>
-    <string name="services_table_subtitle">Ghi tên công ty đứng sau mỗi tên miền và loại dịch vụ ở phần Thống kê. Gom nhóm nhật ký phải quét toàn bộ khung thời gian nên bật tắt này mặc định tắt.</string>
+    <string name="services_table_subtitle">Ghi tên công ty và loại dịch vụ cho mỗi tên miền ở phần Thống kê. Việc gom nhóm quét cả khung thời gian nên mặc định tắt.</string>
     <string name="services_table_url_label">URL đăng ký (tuỳ chọn)</string>
     <string name="services_table_reset">Bảng tích hợp</string>
     <string name="services_table_import">Nhập từ tệp</string>
@@ -994,7 +994,7 @@
     <string name="log_detail_cert_subject">Chủ thể chứng chỉ</string>
     <string name="log_detail_cert_issuer">Nơi cấp chứng chỉ</string>
     <string name="log_detail_cert_validity">Hiệu lực</string>
-    <string name="log_allowed_off_hint">Nhật ký đang chỉ ghi lại những gì bị chặn. Bật “Ghi log cả request hợp lệ” trong phần Cài đặt để thấy toàn bộ yêu cầu máy này đã gửi.</string>
+    <string name="log_allowed_off_hint">Chỉ hiện mục bị chặn. Bật “Ghi log cả request hợp lệ” để xem mọi yêu cầu.</string>
     <string name="log_detail_connection">Mã kết nối</string>
     <string name="log_detail_transfer">Dữ liệu truyền</string>
     <string name="log_detail_transport">Mạng</string>
@@ -1045,7 +1045,7 @@
     <string name="settings_local_proxy_stopped">Không đang lắng nghe — %1$s</string>
     <string name="settings_local_proxy_stopped_quiet">Không đang lắng nghe</string>
     <string name="settings_local_proxy_filter_localhost_title">Lọc localhost</string>
-    <string name="settings_local_proxy_filter_localhost_subtitle">Tắt để các kết nối nội bộ của chính máy này — server dev local, trình phân giải cục bộ — không bị bộ lọc đụng tới</string>
+    <string name="settings_local_proxy_filter_localhost_subtitle">Tắt để kết nối nội bộ của máy này (server dev, stub resolver) không bị lọc.</string>
     <string name="settings_notifications_title">Thông báo ứng dụng</string>
     <string name="settings_notifications_subtitle">Mở công tắc hệ thống cho kênh bảo vệ, tường lửa và cập nhật</string>
     <string name="settings_group_automation">Tự động hóa</string>
@@ -1074,7 +1074,7 @@
     <string name="settings_log_warn">Cảnh báo</string>
     <string name="settings_log_debug">Gỡ lỗi</string>
     <string name="settings_smart_filtering_title">Lọc thông minh</string>
-    <string name="settings_smart_filtering_subtitle">Mặc định tắt. Khi bật, tên miền bị cùng một app chặn 7 lần trong 10 giây sẽ được cho qua 60 giây — trong thời gian đó tên miền này vẫn kết nối được</string>
+    <string name="settings_smart_filtering_subtitle">Mặc định tắt. Tên miền bị cùng một app chặn 7 lần trong 10 giây sẽ được cho qua 60 giây.</string>
     <string name="settings_block_mode_title">Trả lời khi chặn</string>
     <string name="settings_block_mode_nxdomain">NXDOMAIN (không tồn tại)</string>
     <string name="settings_block_mode_zero">0.0.0.0</string>
@@ -1116,7 +1116,7 @@
     <string name="settings_stealth_gpc_title">Gửi Do Not Track và Global Privacy Control</string>
     <string name="settings_stealth_gpc_subtitle">Yêu cầu trang web không bán hay chia sẻ dữ liệu của bạn; nhiều site bỏ qua</string>
     <string name="settings_stealth_search_title">Ẩn từ khoá tìm kiếm trong link</string>
-    <string name="settings_stealth_search_subtitle">Bị xoá khỏi referer và các tài nguyên mà trang kết quả tải về — bản thân ô tìm kiếm vẫn giữ từ khoá</string>
+    <string name="settings_stealth_search_subtitle">Xoá khỏi referer và tài nguyên trang kết quả tải về; ô tìm kiếm vẫn giữ từ khoá.</string>
     <string name="settings_stealth_push_title">Chặn API Push Notifications</string>
     <string name="settings_stealth_push_subtitle">Trang web không còn xin gửi thông báo; push trên web sẽ hỏng</string>
     <string name="settings_stealth_geo_title">Chặn API Geolocation</string>
@@ -1134,14 +1134,14 @@
     <string name="settings_stealth_preset_title">Mức riêng tư</string>
     <string name="settings_stealth_preset_note">Chọn một mức sẽ ghi các tuỳ chọn bên dưới và bật luôn chế độ tàng hình</string>
     <string name="settings_stealth_preset_standard_title">Tiêu chuẩn</string>
-    <string name="settings_stealth_preset_standard_body">Tham số tracking và cookie bên thứ ba — đúng bộ mà bản cài mới có</string>
+    <string name="settings_stealth_preset_standard_body">Theo dõi và cookie bên thứ ba</string>
     <string name="settings_stealth_preset_high_title">Cao</string>
     <string name="settings_stealth_preset_high_body">Thêm lá chắn WebRTC, referer bên thứ ba, từ khoá tìm kiếm và Do Not Track</string>
     <string name="settings_stealth_preset_ultra_title">Cực đại</string>
     <string name="settings_stealth_preset_ultra_body">Mọi tuỳ chọn, gồm cả chặn hết cookie và ETag — đăng nhập và cache sẽ hỏng</string>
     <string name="settings_stealth_preset_custom_title">Tuỳ chỉnh</string>
     <string name="settings_stealth_preset_custom_body">Các tuỳ chọn đúng như bạn đã đặt</string>
-    <string name="settings_stealth_preset_custom">Các tuỳ chọn đang đặt thủ công — không mức nào trùng khít</string>
+    <string name="settings_stealth_preset_custom">Tuỳ chọn đặt thủ công</string>
     <string name="settings_lab_title">Phòng thí nghiệm bảo mật</string>
     <string name="settings_lab_subtitle">Quét một tên miền qua engine để xem luồng phân tích</string>
     <string name="settings_restore_title">Khôi phục bản sao lưu?</string>
