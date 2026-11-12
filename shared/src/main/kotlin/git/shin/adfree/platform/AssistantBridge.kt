@@ -69,6 +69,8 @@ class AssistantBridge(
      * that stays behind the browser is a button that does nothing.
      */
     private val raiseWindow: () -> Unit = {},
+    /** Opens the platform's own filtering log; false when it has no window. */
+    private val openFilteringLog: () -> Boolean = { false },
     private val log: (String) -> Unit = {},
     /** Where the core publishes its endpoint; the helper finds it there too. */
     private val dataDir: String,
@@ -237,7 +239,14 @@ class AssistantBridge(
                     ok(id)
                 }
                 "openFilteringLog" -> {
-                    viewModel.onIntent(AdGuardIntent.SelectTab(AdGuardTab.ACTIVITY))
+                    // The extension means the log, and on a desktop the log is
+                    // the window AdGuard for Windows has: request-type tabs over
+                    // a table. Switching to the Activity tab put a card list
+                    // behind the browser instead, which reads as a button that
+                    // does nothing. A platform with no such window keeps the tab.
+                    if (!openFilteringLog()) {
+                        viewModel.onIntent(AdGuardIntent.SelectTab(AdGuardTab.ACTIVITY))
+                    }
                     raiseWindow()
                     ok(id)
                 }

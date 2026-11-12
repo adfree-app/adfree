@@ -57,6 +57,8 @@ class DesktopPlatformHost(
     private val privilegedPort: () -> Int = { DesktopPrivileges.DEFAULT_PROXY_PORT },
     /** Shows the window again; set by the shell once it exists. */
     private val onRaiseWindow: () -> Unit = {},
+    /** Opens the filtering log window; set by the shell once it exists. */
+    private val onOpenFilteringLog: () -> Boolean = { false },
 ) : PlatformHost {
 
     /** Toasts the window pipes into the scaffold's snackbar host. */
@@ -124,6 +126,9 @@ class DesktopPlatformHost(
         NativeMessagingHosts.installedAndUsable()
 
     override fun raiseWindow() = onRaiseWindow()
+
+    // The desktop has the log AdGuard's extension means: its own window.
+    override fun openFilteringLog() = onOpenFilteringLog()
 
     override fun installBrowserExtensionBridge(): String? {
         val host = NativeMessagingHosts.findHostBinary()

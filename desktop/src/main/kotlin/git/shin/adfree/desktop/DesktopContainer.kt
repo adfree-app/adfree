@@ -91,6 +91,13 @@ class DesktopContainer(
      */
     var onShowWindow: () -> Unit = {}
 
+    /**
+     * Opens the filtering log window and says whether it did. The extension's
+     * "open filtering log" asks for this window, not for the Activity tab of a
+     * window that may be behind the browser.
+     */
+    var onShowFilteringLog: () -> Boolean = { false }
+
     val platformHost = DesktopPlatformHost(
         File(dataRoot, "adfree-ca.pem"),
         privileges = privileges,
@@ -101,6 +108,7 @@ class DesktopContainer(
         // the probe has to look at the one the unit was told to take.
         privilegedPort = { repository.settings.value.localProxy.tcpPort },
         onRaiseWindow = { onShowWindow() },
+        onOpenFilteringLog = { onShowFilteringLog() },
     )
     val fileHost = DesktopFileHost()
     val inventory = DesktopAppInventory()
@@ -201,6 +209,7 @@ class DesktopContainer(
             appVersion = coreEngine.version,
             locale = { L10n.locale() },
             raiseWindow = { platformHost.raiseWindow() },
+            openFilteringLog = { platformHost.openFilteringLog() },
             log = { System.err.println("[bridge] $it") },
             // The core publishes its endpoint here and the helper looks for it
             // here, so both sides name the same directory the store lives in.

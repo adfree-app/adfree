@@ -51,7 +51,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -70,6 +69,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -142,6 +142,13 @@ private fun appLabelFor(appNames: Map<String, String>, packageName: String?): St
 
 /** One screen of filtered cards; past that the scroll trigger takes over. */
 private const val MIN_FILTERED_ROWS = 15
+
+/**
+ * How many pages the filter may pull on its own before it leaves the rest to
+ * scrolling. Without a ceiling a rare type keeps asking for a page after every
+ * row that arrives, and the footer spinner never stops.
+ */
+private const val MAX_AUTO_FILL_PAGES = 6
 
 // The log table's column widths, shared by the header and the rows so the two
 // can never drift apart. AdGuard's own order — Name, Rule, Filter, Type,
@@ -223,14 +230,23 @@ fun FilteringLogScreen(
 
     // Status and search filtering run over the mirrored window, so a query
     // whose matches are rarer than a page would leave too few rows to scroll
-    // (or none at all). Pull older pages until the matches fill a few screens.
+    // (or none at all). Pull older pages until the matches fill a few screens —
+    // but only so many: a type like Javascript or DNS can match once in a
+    // hundred rows, and while the log is tailing, "fewer than a screen of
+    // matches" becomes true again every few seconds. That used to mean a page
+    // query and a spinner each time, which read as the list reloading itself
+    // under the user's hand. Six pages is a screen of matches for a type that
+    // matches one row in ten; past that the list scrolls like any other.
     val filterActive = state.statusFilter != null ||
         state.logTypeFilter != LogTypeTab.ALL ||
         state.selectedAppFilter != null || state.searchQuery.isNotBlank()
+    var autoFilled by remember(filterActive) { mutableIntStateOf(0) }
     LaunchedEffect(filterActive, state.filteredLogs.size, state.logs.size, state.logTotal) {
-        if (filterActive && state.filteredLogs.size < MIN_FILTERED_ROWS &&
+        if (filterActive && autoFilled < MAX_AUTO_FILL_PAGES &&
+            state.filteredLogs.size < MIN_FILTERED_ROWS &&
             state.logs.size < state.logTotal
         ) {
+            autoFilled++
             viewModel.onIntent(AdGuardIntent.LoadMoreLogs)
         }
     }
@@ -833,9 +849,11 @@ fun FilteringLogScreen(
                                 }
 
                                 // The screen mirrors a window of the database log; the scroll
-                                // trigger above grows it, so the tail is a quiet hint. Once
-                                // the in-RAM cap is hit, say so instead of spinning forever.
-                                if (state.logs.size < state.logTotal) {
+                                // trigger above grows it, so the tail is quiet — it used to
+                                // draw an endless spinner, which is what made a filtered list
+                                // look like it was reloading itself. Only the cap, which is a
+                                // fact and not an animation, is worth a line.
+                                if (state.logs.size >= AdGuardRepository.LOG_ROW_CAP) {
                                     item(key = "log_infinite_footer") {
                                         Column(
                                             modifier = Modifier
@@ -844,22 +862,14 @@ fun FilteringLogScreen(
                                                 .testTag("log_infinite_footer"),
                                             horizontalAlignment = Alignment.CenterHorizontally
                                         ) {
-                                            if (state.logs.size >= AdGuardRepository.LOG_ROW_CAP) {
-                                                Text(
-                                                    text = L10n.format(Strings.log_window_capped,
-                                                        state.logs.size,
-                                                        state.logTotal,
-                                                    ),
-                                                    fontSize = 11.sp,
-                                                    color = AdGuardTextMuted
-                                                )
-                                            } else {
-                                                CircularProgressIndicator(
-                                                    modifier = Modifier.size(18.dp),
-                                                    color = AdGuardGreenPrimary,
-                                                    strokeWidth = 2.dp
-                                                )
-                                            }
+                                            Text(
+                                                text = L10n.format(Strings.log_window_capped,
+                                                    state.logs.size,
+                                                    state.logTotal,
+                                                ),
+                                                fontSize = 11.sp,
+                                                color = AdGuardTextMuted
+                                            )
                                         }
                                     }
                                 }
@@ -898,6 +908,8 @@ fun FilteringLogScreen(
                                 viewModel.onIntent(AdGuardIntent.RunThreatScan(domain))
                             },
                             onClose = { viewModel.onIntent(AdGuardIntent.InspectLog(null)) },
+                            // Docked: the pane's own width is the budget.
+                            compact = true,
                         )
                     }
                 }
@@ -1414,6 +1426,12 @@ private fun LogDetailBody(
     onAnalyzeWithAi: (String) -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * Docked in the side pane rather than a sheet: the pane is 360 dp, so the
+     * 24 dp gutters a full-width sheet can afford leave a value column narrower
+     * than the URLs it has to hold.
+     */
+    compact: Boolean = false,
 ) {
     val platform = currentPlatformHost()
     val clipboard = LocalClipboardManager.current
@@ -1440,7 +1458,7 @@ private fun LogDetailBody(
         modifier = modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp, vertical = 16.dp)
+            .padding(horizontal = if (compact) 16.dp else 24.dp, vertical = 16.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1477,7 +1495,7 @@ private fun LogDetailBody(
                     color = AdGuardTextMuted
                 )
                 Text(
-                    text = log.displayName,
+                    text = log.displayName.softBreakable(),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     fontFamily = FontFamily.Monospace,
@@ -1877,6 +1895,20 @@ private fun LogRuleSwitchRow(
     }
 }
 
+/**
+ * A long value with somewhere to break.
+ *
+ * Compose breaks a line at spaces, and a URL has none: in the 360 dp pane
+ * `https://authentication.falais.com/api/privacy/data/rules/exclusions` wrapped
+ * in the middle of a path segment, on a boundary the eye cannot see, which reads
+ * as a rendering fault rather than a wrap. A zero-width space after each
+ * separator is invisible and gives the line a place to go. The copy button reads
+ * the model, not this string, so nothing invisible reaches the clipboard.
+ */
+private fun String.softBreakable(): String =
+    if ('\u200B' in this) this
+    else replace("/", "/\u200B").replace("?", "?\u200B").replace("&", "&\u200B")
+
 @Composable
 fun DetailRow(label: String, value: String) {
     // Two columns hold a status or a cipher; they cannot hold a URL, a DNS
@@ -1891,7 +1923,7 @@ fun DetailRow(label: String, value: String) {
         ) {
             Text(text = label, fontSize = 11.sp, color = AdGuardTextMuted)
             Text(
-                text = value,
+                text = value.softBreakable(),
                 fontSize = 11.5.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = AdGuardTextPrimary,
@@ -1914,7 +1946,7 @@ fun DetailRow(label: String, value: String) {
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
-                text = value,
+                text = value.softBreakable(),
                 fontSize = 11.5.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = AdGuardTextPrimary,

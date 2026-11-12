@@ -157,6 +157,17 @@ interface PlatformHost {
      * has one foreground activity and needs no such verb.
      */
     fun raiseWindow() = Unit
+
+    /**
+     * Opens the filtering log and says whether it opened a surface of its own.
+     *
+     * AdGuard's browser assistant offers "open filtering log", and on a desktop
+     * that log *is* the separate window — the AdGuard-for-Windows table with the
+     * request-type tabs — not a tab inside the app's window, which may be
+     * hidden or behind the browser. A platform with only the tab answers false
+     * and the caller falls back to switching to it.
+     */
+    fun openFilteringLog(): Boolean = false
 }
 
 /** Kept separate from [PlatformHost] so a desktop host can reuse the parts it can honour. */

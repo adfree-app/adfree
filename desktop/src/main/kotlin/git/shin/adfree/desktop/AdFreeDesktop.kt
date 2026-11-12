@@ -235,6 +235,15 @@ fun main() {
             container.onShowWindow = showWindow
             onDispose { container.onShowWindow = {} }
         }
+        // The assistant's "open filtering log" lands on the popup the tray
+        // opens, not on a tab: the same window, whichever door is used.
+        DisposableEffect(Unit) {
+            container.onShowFilteringLog = {
+                showFilteringLog = true
+                true
+            }
+            onDispose { container.onShowFilteringLog = { false } }
+        }
 
         // Pausing stops the filtering but not the listeners, and the flag the
         // window reads is the persisted protection record: without writing it
