@@ -1135,10 +1135,13 @@ fn line_starts(text: &str) -> Vec<u32> {
 
 /// Version of the cache file's own header. Bump it when the header layout or
 /// the key inputs change; a list update is covered by the key itself.
+// 8: `:watch-attr()` rules ride the payload, and uBO's untrusted spellings of
+// `replace-node-text` resolve to the scriptlet body. A version-7 cache holds
+// neither, and a cache built before 7 holds no procedural `:has()` either.
 // 7: `:has()` with a procedural argument is read here now, and the renamed
 // operators (`:nth-ancestor`, `-abp-contains`, `:contains`) are rewritten
 // before the crate sees them. A version-6 cache holds neither.
-const ENGINE_CACHE_VERSION: u32 = 7;
+const ENGINE_CACHE_VERSION: u32 = 8;
 const ENGINE_CACHE_MAGIC: [u8; 4] = *b"AFEC";
 const ENGINE_CACHE_HEADER: usize = 16;
 const ENGINE_CACHE_FILE: &str = "engine.dat";
@@ -3650,6 +3653,7 @@ const CHAIN_OPERATORS: &[(&str, &str)] = &[
     (":has-text", "has-text"),
     (":contains", "has-text"),
     (":upward", "upward"),
+    (":watch-attr", "watch-attr"),
     (":xpath", "xpath"),
     (":has", "has"),
 ];
@@ -3757,13 +3761,21 @@ fn unquote(arg: &str) -> &str {
     arg
 }
 
-/// Does this selector carry a `:has()` whose argument needs the page runtime?
+/// Is this selector one the crate cannot hold, so the page runtime has to?
 ///
-/// `:has(> .slot)` is plain CSS and the crate already hides with it; only an
-/// argument holding another procedural operator (what abpvn writes for
-/// metruyencv.com: `:-abp-has(small:-abp-contains(QUẢNG CÁO))`) has to be
-/// evaluated here.
-fn has_procedural_argument(selector: &str) -> bool {
+/// Two shapes qualify, and only these two — a rule the crate *can* read is left
+/// to it, so nothing is applied twice:
+///
+/// * `:has()` whose argument holds another procedural operator, what abpvn
+///   writes for metruyencv.com: `:-abp-has(small:-abp-contains(QUẢNG CÁO))`.
+///   `:has(> .slot)` is plain CSS and the crate already hides with it.
+/// * `:watch-attr(attr)`, which no CSS parser accepts and the crate therefore
+///   drops whole; the runtime reads it as "run this rule again when the
+///   attribute changes".
+fn needs_page_runtime(selector: &str) -> bool {
+    if selector.contains(":watch-attr(") {
+        return true;
+    }
     for name in [":has(", ":-abp-has("] {
         let mut from = 0;
         while let Some(found) = selector[from..].find(name) {
@@ -3867,7 +3879,7 @@ fn scan_nested_cosmetics(text: &str, scan: &mut NestedCosmeticScan) {
         // A rule with no domain is generic: the crate answers those from the
         // page's own class and id tokens, and a per-page payload is not where
         // they belong.
-        if before.is_empty() || !has_procedural_argument(selector) {
+        if before.is_empty() || !needs_page_runtime(selector) {
             continue;
         }
         if marker.starts_with("#@") {
@@ -7395,6 +7407,7 @@ fn categorise(rule: Option<&str>, host: &str) -> u8 {
 
 #[cfg(test)]
 mod tests {
+
     /// A dnsmasq list (installed as a hosts row) and an adblock DNS list agree
     /// about the same domain in two syntaxes; the second copy is dropped.
     #[test]
@@ -10094,6 +10107,49 @@ mod tests {
         let page = fe.cosmetic_resources_for_host("shop.test");
         assert!(page.procedural.is_empty(), "{:?}", page.procedural);
         assert!(page.hide_selectors.iter().any(|s| s == ".box:has(> .slot)"));
+    }
+
+    /// `:watch-attr()` is not CSS, so the crate drops the whole rule; the
+    /// runtime reads it as "run this rule again when the attribute changes".
+    #[test]
+    fn a_watch_attr_rule_becomes_a_payload_entry() {
+        let fe = cosmetic_engine(
+            "! Title: watch\nshop.test##.box:has-text(ads):watch-attr(data-ad)\n",
+        );
+        let page = fe.cosmetic_resources_for_host("shop.test");
+        let entry = page
+            .procedural
+            .iter()
+            .find(|entry| entry.contains("\"type\":\"watch-attr\""))
+            .unwrap_or_else(|| panic!("no watch entry: {:?}", page.procedural));
+        assert!(entry.contains("\"arg\":\"data-ad\""), "{entry}");
+        assert!(entry.contains("has-text"), "{entry}");
+        // The crate cannot read the selector, so it must not also hold it.
+        assert!(!page.hide_selectors.iter().any(|s| s.contains("watch-attr")));
+        assert!(fe
+            .cosmetic_resources_for_host("other.test")
+            .procedural
+            .is_empty());
+    }
+
+    /// uBO ships `replace-node-text` / `rpnt` as the untrusted spellings of its
+    /// trusted scriptlet; a list asking for either has to get the body.
+    #[test]
+    fn replace_node_text_is_reachable_by_its_uBO_names() {
+        for name in ["replace-node-text", "rpnt", "trusted-rpnt", "trusted-replace-node-text"] {
+            let fe = cosmetic_engine(&format!(
+                "! Title: rpnt\nshop.test##+js({name}, #text, ads, \"\")\n"
+            ));
+            let page = fe.cosmetic_resources_for_host("shop.test");
+            // The assembled source carries the scriptlet's own function name,
+            // which is what tells apart "the body ran" from "the call was
+            // dropped and the page got nothing".
+            assert!(
+                page.scriptlets.contains("trustedReplaceNodeText"),
+                "{name}: {}",
+                page.scriptlets
+            );
+        }
     }
 
     /// `:nth-ancestor()` is what uBO called `:upward()` before it renamed it.

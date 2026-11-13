@@ -558,6 +558,56 @@ describe('procedural rules', () => {
     expect(page.errors).toEqual([]);
   });
 
+  test('watch-attr runs the rule again when the attribute changes', async () => {
+    const page = await openPage({
+      html: {
+        body: '<div class="box" data-ad="no">Quảng cáo</div><div class="box" data-ad="yes">Nội dung</div>',
+      },
+      payload: {
+        procedural: [
+          {
+            selector: [
+              { type: 'css-selector', arg: '.box' },
+              { type: 'matches-attr', arg: 'data-ad=yes' },
+              // uBO's operator: the rule is re-run when this attribute moves,
+              // which is how a page that flips an attribute to reveal its ad
+              // gets covered after the first pass missed it.
+              { type: 'watch-attr', arg: 'data-ad' },
+            ],
+            action: { type: 'remove' },
+          },
+        ],
+      },
+    });
+    // The first pass sees one match and leaves the other box alone.
+    await expect.poll(() => page.page.evaluate(() => document.querySelectorAll('.box').length)).toBe(1);
+    // An attribute-only change is not a child-list change: nothing but the
+    // watcher can notice it.
+    await page.page.evaluate(() => document.querySelector('.box').setAttribute('data-ad', 'yes'));
+    await expect.poll(() => page.page.evaluate(() => document.querySelectorAll('.box').length)).toBe(0);
+    expect(page.errors).toEqual([]);
+  });
+
+  test('watch-attr does not narrow what the chain already matched', async () => {
+    const page = await openPage({
+      html: { body: '<div class="ad">one</div><div class="keep">two</div>' },
+      payload: {
+        procedural: [
+          {
+            selector: [
+              { type: 'css-selector', arg: '.ad' },
+              { type: 'watch-attr', arg: 'class' },
+            ],
+            action: { type: 'remove-class', arg: 'ad' },
+          },
+        ],
+      },
+    });
+    await expect.poll(() => page.page.evaluate(() => document.querySelectorAll('.ad').length)).toBe(0);
+    expect(await page.page.evaluate(() => document.querySelectorAll('.keep').length)).toBe(1);
+    expect(page.errors).toEqual([]);
+  });
+
   test('an xpath step works', async () => {
     const page = await openPage({
       html: { body: '<div class="ad-slot">one</div><div class="ad-slot">two</div>' },

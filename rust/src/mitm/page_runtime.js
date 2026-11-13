@@ -316,6 +316,12 @@
     return kept;
   };
 
+  // Attributes a `:watch-attr()` rule wants watched, and whether one asked for
+  // all of them. They are collected while the rules run; the observer asks for
+  // them once it knows (see `syncWatchedAttrs` below).
+  const watchedAttrs = new Set();
+  let watchAllAttrs = false;
+
   // One selector chain, run against `root`: the document for a rule's own
   // chain, an element for the argument of `:has()`. Returns the surviving set,
   // or `null` when no step has narrowed anything yet.
@@ -342,6 +348,16 @@
       } else if (type === 'matches-path') {
         if (!pathMatches(arg)) {
           return null;
+        }
+      } else if (type === 'watch-attr') {
+        // A pass-through: it narrows nothing, it asks for this rule to be run
+        // again when the attribute changes. Pages that rewrite an attribute in
+        // place (a `<div>` becoming visible by rules of its own) are the whole
+        // point of the operator.
+        if (typeof arg === 'string' && arg) {
+          watchedAttrs.add(arg);
+        } else {
+          watchAllAttrs = true;
         }
       } else if (type === 'upward') {
         current ??= new Set(queryAll(root, '*'));
@@ -427,6 +443,11 @@
     }
   };
 
+  // Set by the observer block below once it exists: the rules that run first
+  // are the ones that say which attributes to watch, so the observer is
+  // configured after them, not before.
+  let applyWatchedAttrs = null;
+
   const runProcedural = () => {
     for (const rule of procedural) {
       try {
@@ -434,6 +455,9 @@
       } catch {
         /* skip this rule */
       }
+    }
+    if (applyWatchedAttrs) {
+      applyWatchedAttrs();
     }
   };
 
@@ -819,8 +843,11 @@
     document.documentElement
   ) {
     let pendingRun = false;
+    let observed = null;
+    let observedKey = '';
+    let observer = null;
     try {
-      const observer = new MutationObserver((records) => {
+      observer = new MutationObserver((records) => {
         // Keep our stylesheet alive if the page removes it. A constructable
         // stylesheet has no node to remove, so only the element path needs it.
         if (styleEl && !styleEl.isConnected) {
@@ -848,7 +875,34 @@
           }, 250);
         }
       });
-      observer.observe(document.documentElement, { childList: true, subtree: true });
+      // A `:watch-attr()` rule can ask for an attribute after the observer is
+      // already running, and `attributeFilter` cannot be widened in place: the
+      // watcher is dropped and re-attached with the wider filter. Watching the
+      // whole document for one attribute is what the rule asked for.
+      applyWatchedAttrs = () => {
+        const key = `${watchAllAttrs ? '*' : ''}|${[...watchedAttrs].sort().join(',')}`;
+        if (key === observedKey) {
+          return;
+        }
+        const options = { childList: true, subtree: true };
+        if (watchAllAttrs || watchedAttrs.size) {
+          options.attributes = true;
+          if (!watchAllAttrs) {
+            options.attributeFilter = [...watchedAttrs];
+          }
+        }
+        try {
+          if (observed) {
+            observed.disconnect();
+          }
+          observer.observe(document.documentElement, options);
+          observed = observer;
+          observedKey = key;
+        } catch {
+          /* no observer: the rules still ran once */
+        }
+      };
+      applyWatchedAttrs();
     } catch {
       /* no observer: static rules still applied */
     }
