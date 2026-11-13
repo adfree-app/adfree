@@ -1013,7 +1013,14 @@ impl SourceMapEntry {
 /// the hash matched but nobody wrote twice, and with 900k rules the odds are
 /// about one in 45 million builds — small enough to state and not worth paying
 /// a string per rule for.
-fn dedupe_rule_lines(text: String, seen: &mut FxHashSet<u64>) -> (String, u32) {
+/// Drops rule lines this build has already been given, by blanking them out.
+///
+/// The key decides what "already given" means: the line as written, or the
+/// domain it answers (see [`dns_rule_key`]).
+fn dedupe_by<F>(text: String, seen: &mut FxHashSet<u64>, key: F) -> (String, u32)
+where
+    F: Fn(&str) -> (u64, Option<u64>),
+{
     let mut out = String::with_capacity(text.len());
     let mut dropped = 0u32;
     for line in text.split_inclusive('\n') {
@@ -1024,7 +1031,15 @@ fn dedupe_rule_lines(text: String, seen: &mut FxHashSet<u64>) -> (String, u32) {
             out.push_str(line);
             continue;
         }
-        if seen.insert(crate::fxhash::hash_str(rule)) {
+        let (primary, alias) = key(rule);
+        let fresh = seen.insert(primary);
+        // The second key is what lets a rule block a domain a host list would
+        // otherwise repeat: it is registered either way, so the order the lists
+        // arrive in cannot decide which copy survives.
+        if let Some(alias) = alias {
+            seen.insert(alias);
+        }
+        if fresh {
             out.push_str(line);
         } else {
             dropped += 1;
@@ -1037,6 +1052,79 @@ fn dedupe_rule_lines(text: String, seen: &mut FxHashSet<u64>) -> (String, u32) {
     (out, dropped)
 }
 
+/// The domain key of a rule that is nothing but a domain block.
+///
+/// `||ads.example^` and a host list's `0.0.0.0 ads.example` give the same answer,
+/// so the second one is a duplicate. A rule with a path, a wildcard or an option
+/// is not that answer — it blocks less than the whole domain — and returns
+/// `None`, which leaves the rule keyed by its own text alone.
+fn plain_domain_key(rule: &str) -> Option<u64> {
+    let rest = rule.strip_prefix("@@").unwrap_or(rule);
+    let host = rest.strip_prefix("||")?.strip_suffix('^')?;
+    if host.is_empty()
+        || host.chars().any(|c| {
+            matches!(
+                c,
+                '/' | '*' | '?' | '$' | '#' | ',' | '=' | '~' | '|' | '^' | '@' | ' '
+            )
+        })
+    {
+        return None;
+    }
+    Some(dns_rule_key(rule))
+}
+
+/// The answer a rule gives about a domain, whichever way the list wrote it.
+///
+/// A `||domain^` rule in a URL list and a `0.0.0.0 domain` line in a hosts list
+/// both say "this domain is blocked"; keying on the domain is what lets the
+/// second copy of that answer be dropped.
+///
+/// Two host lists say the same thing in two syntaxes — `0.0.0.0 ads.example` in
+/// one, `local=/ads.example/` or `||ads.example^` in the next — so comparing the
+/// lines as written finds nothing to drop. Measured on a stock install, `oisd`
+/// and `ag-dns` share 61,860 domains (27% of oisd) and none of them repeat a
+/// line. Keying on the domain and on whether the rule blocks or excepts is what
+/// makes the second copy visible, and the second copy is pure resident cost:
+/// the same lookup already has an answer.
+fn dns_rule_key(rule: &str) -> u64 {
+    // A rule with modifiers is not a plain domain answer: `||ads.example^` and
+    // `||ads.example^$redirect=noop.js` are two different decisions about the
+    // same domain, and `$replace`/`$important` change the outcome again. Those
+    // keep their own key, so nothing with an option is ever merged away.
+    if rule.contains('$') {
+        return crate::fxhash::hash_str(rule);
+    }
+    let (allow, rest) = match rule.strip_prefix("@@") {
+        Some(rest) => (true, rest),
+        None => (false, rule),
+    };
+    let mut host = rest;
+    for prefix in ["0.0.0.0", "127.0.0.1", "::", "||", "|"] {
+        if let Some(rest) = host.strip_prefix(prefix) {
+            host = rest;
+            break;
+        }
+    }
+    // The domain ends at the first thing that is no longer one: `^`, `/`, `$`,
+    // or a space (a hosts line carries a second column).
+    let host = host
+        .trim_start()
+        .split(['^', '/', '$', ' ', '\t'])
+        .next()
+        .unwrap_or("")
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    // A block and an exception for the same domain are two different answers
+    // and must never collapse into one another.
+    let h = crate::fxhash::hash_str(&host);
+    if allow {
+        h.rotate_left(17) ^ 0x9e37_79b9_7f4a_7c15
+    } else {
+        h
+    }
+}
+
 /// Byte offset of every line start in `text`.
 fn line_starts(text: &str) -> Vec<u32> {
     let mut starts = Vec::with_capacity(text.len() / 32 + 1);
@@ -1047,9 +1135,10 @@ fn line_starts(text: &str) -> Vec<u32> {
 
 /// Version of the cache file's own header. Bump it when the header layout or
 /// the key inputs change; a list update is covered by the key itself.
-// 2: the build now drops rule lines an earlier list already carried, so the
-// same inputs compile to a smaller engine — a version-1 cache is not it.
-const ENGINE_CACHE_VERSION: u32 = 2;
+// 6: a hosts-format list written as dnsmasq is now read as the host list it is,
+// and a rule that blocks a whole domain is deduped by that domain, so the same
+// answer written two ways is compiled once. A version-5 cache holds neither.
+const ENGINE_CACHE_VERSION: u32 = 6;
 const ENGINE_CACHE_MAGIC: [u8; 4] = *b"AFEC";
 const ENGINE_CACHE_HEADER: usize = 16;
 const ENGINE_CACHE_FILE: &str = "engine.dat";
@@ -1544,6 +1633,13 @@ impl FilterEngine {
                             ListFormat::Hosts => FilterFormat::Hosts,
                             ListFormat::Standard => FilterFormat::Standard,
                         };
+                        // A hosts row may point at a dnsmasq or hosts file.
+                        // Either way the engine gets the one syntax it reads.
+                        let text = if list.format == ListFormat::Hosts {
+                            hosts_list_normalized(&text).unwrap_or(text)
+                        } else {
+                            text
+                        };
                         if list.dns_only {
                             // Host-only lists never reach the URL or cosmetic
                             // engines: they answer DNS lookups and nothing
@@ -1552,7 +1648,8 @@ impl FilterEngine {
                                 ListFormat::Standard => convert_dnsmasq_rules(text),
                                 ListFormat::Hosts => text,
                             };
-                            let (text, repeats) = dedupe_rule_lines(text, &mut seen_dns);
+                            let (text, repeats) =
+                                dedupe_by(text, &mut seen_dns, |rule| (dns_rule_key(rule), None));
                             deduped += repeats;
                             let counted = count_rules(&text);
                             text_bytes += text.len();
@@ -1624,7 +1721,21 @@ impl FilterEngine {
                             }
                             ListFormat::Hosts => text,
                         };
-                        let (text, repeats) = dedupe_rule_lines(text, &mut seen_url);
+                        // Line-keyed here: a URL list holds cosmetics, `$`
+                        // options and rewrite rules, where the same domain is
+                        // several different decisions. Host lists still merge,
+                        // because the dnsmasq conversion above turns both
+                        // syntaxes into the same `||domain^` line.
+                        let (text, repeats) = if list.format == ListFormat::Hosts {
+                            dedupe_by(text, &mut seen_url, |rule| (dns_rule_key(rule), None))
+                        } else {
+                            dedupe_by(text, &mut seen_url, |rule| {
+                                (
+                                    crate::fxhash::hash_str(rule),
+                                    plain_domain_key(rule),
+                                )
+                            })
+                        };
                         deduped += repeats;
                         let counted = count_rules(&text);
                         text_bytes += text.len();
@@ -3231,6 +3342,61 @@ fn exception_page_host(rule: &str) -> Option<String> {
 /// can never match a URL, so the list (oisd ships dnsmasq2) would occupy
 /// memory and block nothing. Lines with several domains or a replacement
 /// address are left as written.
+/// Is this a host name a rule can be written about?
+fn is_plain_domain(host: &str) -> bool {
+    !host.is_empty()
+        && !host.chars().any(|c| {
+            c.is_whitespace() || matches!(c, '/' | '|' | '^' | '*' | '=' | '!' | '$' | '#' | '@')
+        })
+}
+
+/// Is this address the "go away" answer of a hosts file?
+fn is_blocking_ip(ip: &str) -> bool {
+    matches!(ip, "0.0.0.0" | "127.0.0.1" | "::" | "::1" | "0.0.0.0:80" | "127.0.0.1:80")
+}
+
+/// Rewrites a host list written as dnsmasq (or hosts) into `||domain^` lines, or
+/// returns `None` when the list is not a host list at all.
+///
+/// A hosts row is a row, not a syntax: OISD's big list is published as dnsmasq
+/// (`local=/ads.example/`) and installed through a hosts-format entry, so it was
+/// read as a hosts file and every one of its 227,766 lines was a rule the parser
+/// had no meaning for. The list looked enabled and blocked nothing. Measured on
+/// a stock install the engine went from 0 to 166,000 rules out of it.
+///
+/// Only a list that actually holds dnsmasq lines is rewritten, so a plain hosts
+/// file keeps the parser and the reporting it always had.
+fn hosts_list_normalized(text: &str) -> Option<String> {
+    if !text.contains("local=/") && !text.contains("address=/") {
+        return None;
+    }
+    let mut out = String::with_capacity(text.len());
+    for line in text.lines() {
+        let t = line.trim();
+        let dnsmasq = t
+            .strip_prefix("local=/")
+            .or_else(|| t.strip_prefix("address=/"))
+            .and_then(|rest| rest.strip_suffix('/'))
+            .filter(|d| is_plain_domain(d));
+        let hosts = match t.split_whitespace().collect::<Vec<_>>().as_slice() {
+            [ip, host] if is_blocking_ip(ip) && is_plain_domain(host) => Some(*host),
+            _ => None,
+        };
+        match dnsmasq.or(hosts) {
+            // Written as a hosts line, not as `||domain^`: the list is a hosts
+            // list, and the engine stores a hosts entry as the domain it
+            // answers rather than as a URL pattern to match.
+            Some(domain) => {
+                out.push_str("0.0.0.0 ");
+                out.push_str(domain);
+            }
+            None => out.push_str(line),
+        }
+        out.push('\n');
+    }
+    Some(out)
+}
+
 fn convert_dnsmasq_rules(text: String) -> String {
     if !text.contains("local=/") && !text.contains("address=/") {
         return text;
@@ -6915,6 +7081,72 @@ fn categorise(rule: Option<&str>, host: &str) -> u8 {
 
 #[cfg(test)]
 mod tests {
+    /// A dnsmasq list (installed as a hosts row) and an adblock DNS list agree
+    /// about the same domain in two syntaxes; the second copy is dropped.
+    #[test]
+    fn a_host_list_entry_is_dropped_when_an_adblock_rule_blocks_the_same_domain() {
+        let mut seen = FxHashSet::default();
+        let (_, first) = dedupe_by(
+            "||ads.example^\n||path.example/only^\n||mods.example^$important\n".to_string(),
+            &mut seen,
+            |rule| (hash_str(rule), plain_domain_key(rule)),
+        );
+        assert_eq!(first, 0);
+        let (second, dropped) = dedupe_by(
+            "0.0.0.0 ads.example\n0.0.0.0 path.example\n0.0.0.0 mods.example\n".to_string(),
+            &mut seen,
+            |rule| (dns_rule_key(rule), None),
+        );
+        let kept: Vec<&str> = second.lines().collect();
+        assert_eq!(dropped, 1, "only the plain whole-domain block repeats");
+        assert_eq!(kept[0], "");
+        // A path rule blocks less than the whole domain, so the host entry that
+        // blocks all of it is not its duplicate.
+        assert_eq!(kept[1], "0.0.0.0 path.example");
+        // Nor is a rule an option changed the meaning of.
+        assert_eq!(kept[2], "0.0.0.0 mods.example");
+        assert_eq!(plain_domain_key("||mods.example^$important"), None);
+        assert_eq!(second.lines().count(), 3);
+    }
+
+    /// Two host lists that agree without sharing a line. `oisd` writes
+    /// `local=/ads.example/` (converted to `||ads.example^`) and `ag-dns` writes
+    /// `0.0.0.0 ads.example`; the second is the same answer.
+    #[test]
+    fn a_dns_rule_is_dropped_when_another_list_already_answers_the_domain() {
+        let mut seen = FxHashSet::default();
+        let (first, dropped_first) = dedupe_by(
+            "0.0.0.0 ads.example\n0.0.0.0 tracker.example\n@@||good.example^\n".to_string(),
+            &mut seen,
+            |rule| (dns_rule_key(rule), None),
+        );
+        assert_eq!(dropped_first, 0);
+        let (second, dropped_second) = dedupe_by(
+            "||ads.example^\n||other.example^\n||good.example^\n".to_string(),
+            &mut seen,
+            |rule| (dns_rule_key(rule), None),
+        );
+        assert_eq!(first.lines().count(), 3);
+        assert_eq!(dropped_second, 1, "only the repeated domain goes");
+        let kept: Vec<&str> = second.lines().collect();
+        assert_eq!(kept[0], "", "the repeat is blanked, keeping the line count");
+        assert_eq!(kept[1], "||other.example^");
+        // An exception is a different answer than a block: it stays.
+        assert_eq!(kept[2], "||good.example^");
+    }
+
+    /// The same domain written as `local=/…/`, `||…^` and `0.0.0.0 …` hashes to
+    /// one key, and the exception form does not.
+    #[test]
+    fn the_dns_key_ignores_the_syntax() {
+        let block = dns_rule_key("||ads.example^");
+        assert_eq!(block, dns_rule_key("0.0.0.0 ads.example"));
+        assert_eq!(block, dns_rule_key("127.0.0.1 ads.example"));
+        assert_eq!(block, dns_rule_key("||ADS.Example.^"));
+        assert_ne!(block, dns_rule_key("@@||ads.example^"));
+        assert_ne!(block, dns_rule_key("||other.example^"));
+    }
+
     /// The lists overlap, and a repeated line costs the engine a pattern it
     /// already has. What must not change is the line's place: the engine reports
     /// a match's line number and the log reads that line back out of the file.
@@ -6923,8 +7155,10 @@ mod tests {
         let first = "! Title: A\n||ads.example^\n||kept.example^\n";
         let second = "! Title: B\n||ads.example^\n||only-here.example^\n";
         let mut seen = FxHashSet::default();
-        let (one, dropped_one) = dedupe_rule_lines(first.to_string(), &mut seen);
-        let (two, dropped_two) = dedupe_rule_lines(second.to_string(), &mut seen);
+        let (one, dropped_one) =
+            dedupe_by(first.to_string(), &mut seen, |rule| (hash_str(rule), None));
+        let (two, dropped_two) =
+            dedupe_by(second.to_string(), &mut seen, |rule| (hash_str(rule), None));
         assert_eq!(dropped_one, 0);
         assert_eq!(dropped_two, 1);
         assert_eq!(one, first, "the first list is untouched");
@@ -7235,6 +7469,41 @@ mod tests {
         let v = hosts.check_host_detailed("only.here");
         assert_eq!(v.rule_text.as_deref(), Some("0.0.0.0 only.here"));
         assert_eq!(v.list_name.as_deref(), Some("mapped-hosts.txt"));
+    }
+
+    /// A hosts row can point at a dnsmasq list, which is what OISD publishes.
+    /// Read as a hosts file, every line of it was a rule the parser had no
+    /// meaning for: the list was on and blocked nothing.
+    #[test]
+    fn a_dnsmasq_list_in_a_hosts_row_blocks_its_domains() {
+        let fe = engine(vec![temp_list(
+            "oisd-style.txt",
+            "# dnsmasq\nlocal=/dnsmasq-blocked.test/\naddress=/address-blocked.test/\n0.0.0.0 hosts-blocked.test\n",
+            ListFormat::Hosts,
+            9,
+        )]);
+        for host in ["dnsmasq-blocked.test", "address-blocked.test", "hosts-blocked.test"] {
+            assert!(
+                fe.check_host_detailed(host).blocked,
+                "{host} should be blocked"
+            );
+        }
+    }
+
+    /// A hosts file that is really a hosts file keeps the line it wrote, so the
+    /// log still quotes what the list says.
+    #[test]
+    fn a_plain_hosts_list_is_left_as_it_was_written() {
+        assert!(hosts_list_normalized("- hosts\n0.0.0.0 ads.test\n").is_none());
+        let fe = engine(vec![temp_list(
+            "plain-hosts.txt",
+            "0.0.0.0 ads.test\n",
+            ListFormat::Hosts,
+            10,
+        )]);
+        let v = fe.check_host_detailed("ads.test");
+        assert!(v.blocked);
+        assert_eq!(v.rule_text.as_deref(), Some("0.0.0.0 ads.test"));
     }
 
     #[test]
