@@ -608,6 +608,87 @@ describe('procedural rules', () => {
     expect(page.errors).toEqual([]);
   });
 
+  test('matches-prop reads a property path, regex segment and all', async () => {
+    const page = await openPage({
+      html: {
+        body:
+          '<img id="wide" src="a.png"><img id="tall" src="b.png">' +
+          '<div id="react"></div>',
+      },
+      payload: {
+        procedural: [
+          {
+            selector: [
+              { type: 'css-selector', arg: 'img' },
+              // `naturalWidth` is a property, never an attribute.
+              { type: 'matches-prop', arg: 'naturalWidth=2' },
+            ],
+            action: { type: 'remove' },
+          },
+          {
+            selector: [
+              { type: 'css-selector', arg: '#react' },
+              // A segment written as `/re/` names a property of the object,
+              // which is how the lists reach into minified React internals.
+              { type: 'matches-prop', arg: '"/__reactFiber/.memoizedProps.placeholder"="true"' },
+            ],
+            action: { type: 'remove' },
+          },
+        ],
+      },
+    });
+    await page.page.evaluate(() => {
+      // 1x1 PNGs: one 2 px wide, one 3 px wide.
+      const png = (w) =>
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+      void png;
+      const wide = document.getElementById('wide');
+      Object.defineProperty(wide, 'naturalWidth', { value: 2 });
+      Object.defineProperty(document.getElementById('tall'), 'naturalWidth', { value: 3 });
+      const react = document.getElementById('react');
+      react.__reactFiber$abc = { memoizedProps: { placeholder: 'true' } };
+      // A property set on an element is not a DOM mutation, so the rules only
+      // see it once something does change.
+      document.body.appendChild(document.createElement('span'));
+    });
+    await expect.poll(() => page.page.evaluate(() => document.getElementById('wide') === null)).toBe(true);
+    expect(await page.page.evaluate(() => document.getElementById('tall') !== null)).toBe(true);
+    await expect.poll(() => page.page.evaluate(() => document.getElementById('react') === null)).toBe(true);
+    expect(page.errors).toEqual([]);
+  });
+
+  test('matches-media applies the rule only when the query holds', async () => {
+    const page = await openPage({
+      html: { body: '<div class="wide">a</div><div class="narrow">b</div>' },
+      payload: {
+        procedural: [
+          {
+            selector: [
+              { type: 'css-selector', arg: '.wide' },
+              { type: 'matches-media', arg: '(min-width: 800px)' },
+            ],
+            action: { type: 'remove' },
+          },
+          {
+            selector: [
+              { type: 'css-selector', arg: '.narrow' },
+              { type: 'matches-media', arg: '(max-width: 100px)' },
+            ],
+            action: { type: 'remove' },
+          },
+        ],
+      },
+    });
+    await page.page.waitForTimeout(300);
+    const kept = await page.page.evaluate(() => ({
+      wide: document.querySelectorAll('.wide').length,
+      narrow: document.querySelectorAll('.narrow').length,
+    }));
+    // The test window is wider than 800 px and wider than 100 px.
+    expect(kept).toEqual({ wide: 0, narrow: 1 });
+    expect(page.errors).toEqual([]);
+  });
+
   test('an xpath step works', async () => {
     const page = await openPage({
       html: { body: '<div class="ad-slot">one</div><div class="ad-slot">two</div>' },

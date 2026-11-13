@@ -1135,13 +1135,15 @@ fn line_starts(text: &str) -> Vec<u32> {
 
 /// Version of the cache file's own header. Bump it when the header layout or
 /// the key inputs change; a list update is covered by the key itself.
+// 9: `:matches-prop()` / `:matches-property()` / `:matches-media()` rules ride
+// the payload too. A version-8 cache holds none of them.
 // 8: `:watch-attr()` rules ride the payload, and uBO's untrusted spellings of
 // `replace-node-text` resolve to the scriptlet body. A version-7 cache holds
 // neither, and a cache built before 7 holds no procedural `:has()` either.
 // 7: `:has()` with a procedural argument is read here now, and the renamed
 // operators (`:nth-ancestor`, `-abp-contains`, `:contains`) are rewritten
 // before the crate sees them. A version-6 cache holds neither.
-const ENGINE_CACHE_VERSION: u32 = 8;
+const ENGINE_CACHE_VERSION: u32 = 9;
 const ENGINE_CACHE_MAGIC: [u8; 4] = *b"AFEC";
 const ENGINE_CACHE_HEADER: usize = 16;
 const ENGINE_CACHE_FILE: &str = "engine.dat";
@@ -1605,6 +1607,7 @@ impl FilterEngine {
         let mut path_scan = PathScan::default();
         let mut js_scan = JsScan::default();
         let mut nested_scan = NestedCosmeticScan::default();
+        let mut scriptlet_scan = ScriptletScan::default();
         let mut generic_style_scan = GenericStyleScan::default();
         let mut html_scan = HtmlScan::default();
         let mut app_scan = AppScan::default();
@@ -1714,6 +1717,7 @@ impl FilterEngine {
                                 scan_modifier_rules(&text, &mut url_scan);
                                 scan_js_rules(&text, &mut js_scan);
                                 scan_nested_cosmetics(&text, &mut nested_scan);
+                                scriptlet_scan.scan(&text);
                                 // Style injections are page-wide and, unlike
                                 // selectors, never validated against the page:
                                 // they come from trusted lists only, like the
@@ -1804,6 +1808,7 @@ impl FilterEngine {
             scan_modifier_rules(&joined, &mut url_scan);
             scan_js_rules(&joined, &mut js_scan);
             scan_nested_cosmetics(&joined, &mut nested_scan);
+            scriptlet_scan.scan(&joined);
             scan_generic_style_rules(&joined, &mut generic_style_scan);
             scan_html_rules(&joined, &mut html_scan);
             // User rules have no list row: id 0 is the source map's own
@@ -1893,6 +1898,7 @@ impl FilterEngine {
                 rules.dropped,
             ));
         }
+        scriptlet_scan.log();
         let nested_cosmetics = build_nested_cosmetics(nested_scan);
         if let Some(rules) = nested_cosmetics.as_ref() {
             crate::logbuf::push(&format!(
@@ -3637,6 +3643,15 @@ fn build_js_rules(scan: JsScan) -> Option<JsRules> {
     })
 }
 
+/// Operators no CSS parser accepts and the crate therefore drops whole; a rule
+/// carrying one is the page runtime's, whatever else its selector says.
+const RUNTIME_ONLY_OPERATORS: &[&str] = &[
+    ":watch-attr(",
+    ":matches-prop(",
+    ":matches-property(",
+    ":matches-media(",
+];
+
 /// The cosmetic operators this crate does not model, in the order they must be
 /// recognised (a longer name before the prefix it starts with), each with the
 /// operator the page runtime does understand.
@@ -3645,11 +3660,14 @@ const CHAIN_OPERATORS: &[(&str, &str)] = &[
     (":-abp-has", "has"),
     (":matches-css-before", "matches-css-before"),
     (":matches-css-after", "matches-css-after"),
+    (":matches-property", "matches-prop"),
     (":min-text-length", "min-text-length"),
     (":nth-ancestor", "upward"),
     (":matches-css", "matches-css"),
     (":matches-attr", "matches-attr"),
     (":matches-path", "matches-path"),
+    (":matches-media", "matches-media"),
+    (":matches-prop", "matches-prop"),
     (":has-text", "has-text"),
     (":contains", "has-text"),
     (":upward", "upward"),
@@ -3733,7 +3751,7 @@ fn parse_cosmetic_chain(selector: &str) -> Option<Vec<serde_json::Value>> {
                         let nested = parse_cosmetic_chain(arg)?;
                         serde_json::json!({"type": "has", "arg": nested})
                     }
-                    other => serde_json::json!({"type": other, "arg": unquote(arg.trim())}),
+                    other => serde_json::json!({"type": other, "arg": step_argument(other, arg)}),
                 };
                 steps.push(value);
                 rest = rest[end..].trim();
@@ -3748,6 +3766,16 @@ fn parse_cosmetic_chain(selector: &str) -> Option<Vec<serde_json::Value>> {
         None
     } else {
         Some(steps)
+    }
+}
+
+/// The operators whose argument is a page-side expression, quoting included:
+/// `:matches-prop("\/__reactFiber\/.prop"="true")` must keep both quotes,
+/// while `:has-text("Quảng cáo")` wants only the text.
+fn step_argument<'a>(kind: &str, arg: &'a str) -> &'a str {
+    match kind {
+        "matches-prop" | "matches-media" | "matches-attr" | "watch-attr" => arg.trim(),
+        _ => unquote(arg.trim()),
     }
 }
 
@@ -3773,7 +3801,10 @@ fn unquote(arg: &str) -> &str {
 ///   drops whole; the runtime reads it as "run this rule again when the
 ///   attribute changes".
 fn needs_page_runtime(selector: &str) -> bool {
-    if selector.contains(":watch-attr(") {
+    if RUNTIME_ONLY_OPERATORS
+        .iter()
+        .any(|operator| selector.contains(operator))
+    {
         return true;
     }
     for name in [":has(", ":-abp-has("] {
@@ -3847,6 +3878,106 @@ fn build_nested_cosmetics(scan: NestedCosmeticScan) -> Option<NestedCosmetics> {
     Some(NestedCosmetics {
         rules: scan.rules,
         exceptions: scan.exceptions,
+    })
+}
+
+/// The scriptlet calls the loaded lists make, and the ones this build has no
+/// body for.
+///
+/// A `+js(name)` whose name resolves to no resource is dropped in silence: the
+/// rule looks installed, the list looks on, and the site keeps its ad. The
+/// engine has no callback for that, so the names are read here — the same
+/// `##+js(` / `#%#//scriptlet(` shapes [`scrub_untrusted`] recognises — and
+/// compared against the resource table.
+#[derive(Default)]
+struct ScriptletScan {
+    /// Name as written -> how many calls use it.
+    used: HashMap<String, u32>,
+    missing: HashMap<String, u32>,
+}
+
+impl ScriptletScan {
+    fn scan(&mut self, text: &str) {
+        for line in text.lines() {
+            if !line.contains("+js(") && !line.contains("//scriptlet(") {
+                continue;
+            }
+            for name in scriptlet_names(line) {
+                *self.used.entry(name.clone()).or_default() += 1;
+                if !known_scriptlet_names().contains(&name) {
+                    *self.missing.entry(name).or_default() += 1;
+                }
+            }
+        }
+    }
+
+    fn log(&self) {
+        if self.missing.is_empty() {
+            return;
+        }
+        let mut names: Vec<(&String, &u32)> = self.missing.iter().collect();
+        names.sort_by_key(|(_, count)| std::cmp::Reverse(**count));
+        let list = names
+            .iter()
+            .map(|(name, count)| format!("{name} ({count})"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        crate::logbuf::push(&format!(
+            "filter: {} of {} scriptlet names no list can run here: {list}",
+            self.missing.len(),
+            self.used.len(),
+        ));
+    }
+}
+
+/// The scriptlet names one rule line calls, as the resource table spells them.
+fn scriptlet_names(line: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    // uBO: `##+js(name, arg, …)` and its exception `#@#+js(name)`.
+    let mut from = 0;
+    while let Some(found) = line[from..].find("+js(") {
+        let start = from + found + 4;
+        let rest = &line[start..];
+        let end = rest.find([',', ')']).unwrap_or(rest.len());
+        let name = rest[..end].trim().trim_matches(['\'', '"']);
+        if !name.is_empty() {
+            names.push(name.to_string());
+        }
+        from = start + end;
+    }
+    // AdGuard: `#%#//scriptlet('name', …)`.
+    let mut from = 0;
+    while let Some(found) = line[from..].find("//scriptlet(") {
+        let start = from + found + "//scriptlet(".len();
+        let rest = &line[start..];
+        let name = rest
+            .trim_start()
+            .trim_start_matches(['\'', '"'])
+            .split(['\'', '"', ',', ')'])
+            .next()
+            .unwrap_or("")
+            .trim();
+        if !name.is_empty() {
+            names.push(name.to_string());
+        }
+        from = start;
+    }
+    names
+}
+
+/// Every name [`scriptlet_resources`] can answer to, with and without the `.js`
+/// the table stores them under.
+fn known_scriptlet_names() -> &'static HashSet<String> {
+    static NAMES: OnceLock<HashSet<String>> = OnceLock::new();
+    NAMES.get_or_init(|| {
+        let mut names = HashSet::new();
+        for resource in scriptlet_resources() {
+            for name in std::iter::once(&resource.name).chain(resource.aliases.iter()) {
+                names.insert(name.clone());
+                names.insert(name.trim_end_matches(".js").to_string());
+            }
+        }
+        names
     })
 }
 
@@ -10130,6 +10261,86 @@ mod tests {
             .cosmetic_resources_for_host("other.test")
             .procedural
             .is_empty());
+    }
+
+    /// AdGuard lists reach into minified React internals with this operator:
+    /// `div[class]:matches-property("/__reactFiber/.return.memoizedProps.x"="true")`.
+    #[test]
+    fn a_matches_property_rule_keeps_its_quoting() {
+        let fe = cosmetic_engine(
+            "! Title: prop\n\
+             o2.pl#?#div[class]:matches-property(\"/__reactFiber/.return.memoizedProps.placeholder\"=\"true\")\n\
+             tv.pl#?#img:matches-property(naturalWidth=/^3[0-2][0-9]/)\n",
+        );
+        let o2 = fe.cosmetic_resources_for_host("o2.pl");
+        let entry = o2
+            .procedural
+            .iter()
+            .find(|entry| entry.contains("matches-prop"))
+            .unwrap_or_else(|| panic!("no prop entry: {:?}", o2.procedural));
+        // Wood-cut: both quotes of the chain and of the value survive, so the
+        // runtime can tell a regex segment from a property name.
+        assert!(
+            entry.contains("__reactFiber/.return.memoizedProps.placeholder"),
+            "{entry}"
+        );
+        // Both quotes survive: as JSON they are escaped, as a value they are
+        // what tells a regex segment from a property name.
+        assert!(entry.contains("\\\"true\\\""), "{entry}");
+        let tv = fe.cosmetic_resources_for_host("tv.pl");
+        assert!(
+            tv.procedural
+                .iter()
+                .any(|entry| entry.contains("naturalWidth=/^3[0-2][0-9]/")),
+            "{:?}",
+            tv.procedural
+        );
+    }
+
+    /// A scriptlet call whose name resolves to no body is dropped in silence;
+    /// the scan has to name it, in both spellings the lists use.
+    #[test]
+    fn scriptlet_calls_are_read_in_both_spellings() {
+        // `scriptlet_names` reads one line; `scan` walks the whole list.
+        assert_eq!(
+            scriptlet_names("a.test##+js(set-constant, x, true)"),
+            vec!["set-constant".to_string()]
+        );
+        assert_eq!(
+            scriptlet_names("b.test#%#//scriptlet('ubo-json-edit', 'x')"),
+            vec!["ubo-json-edit".to_string()]
+        );
+        assert_eq!(
+            scriptlet_names("c.test#@#+js(rpnt, #text, ads)"),
+            vec!["rpnt".to_string()]
+        );
+
+        let mut scan = ScriptletScan::default();
+        scan.scan("a.test##+js(set-constant, x, true)\n");
+        scan.scan("b.test#%#//scriptlet('ubo-json-edit', 'x')\n");
+        assert_eq!(scan.used.len(), 2);
+        assert_eq!(scan.missing.keys().collect::<Vec<_>>(), vec!["ubo-json-edit"]);
+        // The alias the table carries is a name that *does* resolve.
+        let mut known = ScriptletScan::default();
+        known.scan("c.test##+js(rpnt, #text, ads)\n");
+        assert!(known.missing.is_empty(), "{:?}", known.missing);
+    }
+
+    /// `:matches-media()` is a condition on the viewport, so the whole rule
+    /// belongs to the runtime — the crate cannot read it at all.
+    #[test]
+    fn a_matches_media_rule_becomes_a_payload_entry() {
+        let fe = cosmetic_engine(
+            "! Title: media\nshop.test##.box:has-text(ads):matches-media((min-width: 800px))\n",
+        );
+        let page = fe.cosmetic_resources_for_host("shop.test");
+        let entry = page
+            .procedural
+            .iter()
+            .find(|entry| entry.contains("\"type\":\"matches-media\""))
+            .unwrap_or_else(|| panic!("no media entry: {:?}", page.procedural));
+        assert!(entry.contains("min-width: 800px"), "{entry}");
+        assert!(!page.hide_selectors.iter().any(|s| s.contains("matches-media")));
     }
 
     /// uBO ships `replace-node-text` / `rpnt` as the untrusted spellings of its

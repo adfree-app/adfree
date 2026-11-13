@@ -266,6 +266,158 @@
     return String(actual).trim() === want;
   };
 
+  // `:matches-property()` (AdGuard) / `:matches-prop()` (uBO): read a property
+  // path off the element and compare the value it ends at. A path segment
+  // written as `/re/` names a property rather than being one, which is how the
+  // lists reach into minified React internals:
+  // `div:matches-property("/__reactFiber/.return.memoizedProps.placeholder"="true")`.
+  const unquotePart = (text) => {
+    const trimmed = text.trim();
+    for (const quote of ['"', "'"]) {
+      if (trimmed.length > 1 && trimmed.startsWith(quote) && trimmed.endsWith(quote)) {
+        return trimmed.slice(1, -1);
+      }
+    }
+    return trimmed;
+  };
+
+  const asRegExp = (text) => {
+    if (typeof text !== 'string' || text.length < 3 || !text.startsWith('/')) {
+      return null;
+    }
+    const end = text.lastIndexOf('/');
+    if (end < 1) {
+      return null;
+    }
+    try {
+      return new RegExp(text.slice(1, end), text.slice(end + 1));
+    } catch {
+      return null;
+    }
+  };
+
+  // Splits `chain=value` at the first `=` that is neither quoted nor inside a
+  // regular expression; `value` is `null` when the operator only tests for the
+  // property's presence.
+  const splitPropertyArgument = (text) => {
+    let quote = null;
+    let inRegex = false;
+    for (let i = 0; i < text.length; i += 1) {
+      const ch = text[i];
+      if (ch === '\\') {
+        i += 1;
+      } else if (quote) {
+        if (ch === quote) quote = null;
+      } else if (inRegex) {
+        if (ch === '/') inRegex = false;
+      } else if (ch === '"' || ch === "'") {
+        quote = ch;
+      } else if (ch === '/') {
+        inRegex = true;
+      } else if (ch === '=') {
+        return [text.slice(0, i), text.slice(i + 1)];
+      }
+    }
+    return [text, null];
+  };
+
+  const propertySegments = (text) => {
+    const segments = [];
+    let current = '';
+    let quote = null;
+    let inRegex = false;
+    for (let i = 0; i < text.length; i += 1) {
+      const ch = text[i];
+      if (ch === '\\') {
+        current += ch + (text[i + 1] ?? '');
+        i += 1;
+      } else if (quote) {
+        current += ch;
+        if (ch === quote) quote = null;
+      } else if (inRegex) {
+        current += ch;
+        if (ch === '/') inRegex = false;
+      } else if (ch === '"' || ch === "'") {
+        quote = ch;
+        current += ch;
+      } else if (ch === '/') {
+        inRegex = true;
+        current += ch;
+      } else if (ch === '.') {
+        segments.push(current);
+        current = '';
+      } else {
+        current += ch;
+      }
+    }
+    segments.push(current);
+    return segments.map(unquotePart).filter((segment) => segment !== '');
+  };
+
+  const propertyAt = (el, segments) => {
+    let value = el;
+    for (const segment of segments) {
+      if (value === null || value === undefined) {
+        return undefined;
+      }
+      const asKey = asRegExp(segment);
+      if (!asKey) {
+        value = value[segment];
+        continue;
+      }
+      // A regular expression picks the first property of the object, walking
+      // the prototype chain, whose name it matches.
+      let key;
+      let object = value;
+      while (object && object !== Object.prototype && key === undefined) {
+        key = Object.getOwnPropertyNames(object).find(
+          (name) => name !== 'constructor' && asKey.test(name)
+        );
+        object = Object.getPrototypeOf(object);
+      }
+      if (key === undefined) {
+        return undefined;
+      }
+      value = value[key];
+    }
+    return value;
+  };
+
+  const matchesProperty = (el, arg) => {
+    try {
+      const [chain, wanted] = splitPropertyArgument(String(arg ?? ''));
+      const segments = propertySegments(unquotePart(chain));
+      if (!segments.length) {
+        return false;
+      }
+      const value = propertyAt(el, segments);
+      if (value === undefined) {
+        return false;
+      }
+      if (wanted === null) {
+        return true;
+      }
+      const expected = unquotePart(wanted);
+      const asValue = asRegExp(expected);
+      if (asValue) {
+        return asValue.test(String(value));
+      }
+      return String(value) === expected;
+    } catch {
+      /* a property that throws is a property that does not match */
+      return false;
+    }
+  };
+
+  const matchesMedia = (arg) => {
+    try {
+      return window.matchMedia(String(arg)).matches;
+    } catch {
+      /* an unreadable media query matches nothing */
+      return false;
+    }
+  };
+
   const pathMatches = (arg) => {
     try {
       return new RegExp(arg).test(location.pathname);
@@ -349,6 +501,12 @@
         if (!pathMatches(arg)) {
           return null;
         }
+      } else if (type === 'matches-media') {
+        // A condition on the page, not on the element: it either holds for the
+        // whole rule or the rule does not apply on this viewport.
+        if (!matchesMedia(arg)) {
+          return null;
+        }
       } else if (type === 'watch-attr') {
         // A pass-through: it narrows nothing, it asks for this rule to be run
         // again when the attribute changes. Pages that rewrite an attribute in
@@ -411,6 +569,8 @@
           current = filter(current, (el) => (el.textContent || '').length >= min);
         } else if (type === 'matches-attr') {
           current = filter(current, (el) => matchesAttr(el, arg));
+        } else if (type === 'matches-prop') {
+          current = filter(current, (el) => matchesProperty(el, arg));
         } else if (type === 'matches-css') {
           current = filter(current, (el) => matchesCss(el, null, arg));
         } else if (type === 'matches-css-before') {
