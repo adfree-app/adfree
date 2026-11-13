@@ -2114,3 +2114,50 @@ fn blocked_and_redirect_answers_are_shaped_for_a_browser() {
     assert!(redirect_response("https://example.com/x.js").is_none());
     assert!(redirect_response("data:application/javascript;base64,!!!").is_none());
 }
+
+/// A `$redirect` the crate cannot bind is still a redirect: the rule asked for
+/// a stub, not for a block.
+///
+/// uBO and AdGuard keep redirect resources and scriptlets in separate tables,
+/// so `google-ima.js` is both an IMA stub and a scriptlet name. The crate keeps
+/// one table, the scriptlet wins the ident, and the engine reports the rule as
+/// a block with no body. Serving the table's own stub keeps the unbreak list
+/// meaning what it says: the page's player gets an IMA API instead of a
+/// missing script.
+#[test]
+fn a_redirect_the_crate_cannot_bind_is_answered_from_the_table() {
+    let filter = engine_with(
+        "ima-redirect",
+        "||imasdk.googleapis.com/js/sdkloader/ima3.js$script,domain=espn.com,redirect=google-ima.js\n",
+    );
+    let host = "imasdk.googleapis.com";
+    let url = "https://imasdk.googleapis.com/js/sdkloader/ima3.js";
+    let mut head =
+        b"GET /js/sdkloader/ima3.js HTTP/1.1\r\nHost: imasdk.googleapis.com\r\n\r\n".to_vec();
+    let end = head.len();
+    let decision = super::decide::decide_request(
+        &super::decide::RequestContext {
+            filter: &filter,
+            host,
+            url,
+            method: "GET",
+            target: "/js/sdkloader/ima3.js",
+            source: "https://www.espn.com/",
+            request_type: "script",
+            apps: &[],
+            page_url: None,
+            closes: false,
+        },
+        &mut head,
+        end,
+    );
+    let answer = decision.answer.expect("the request is answered here");
+    let (head_text, body) = split_local(&answer.response);
+    assert!(head_text.starts_with("HTTP/1.1 200 OK\r\n"), "{head_text}");
+    assert!(
+        head_text.contains("Content-Type: application/javascript\r\n"),
+        "{head_text}"
+    );
+    let text = String::from_utf8_lossy(&body);
+    assert!(text.contains("AdsManagerLoadedEvent"), "{text}");
+}

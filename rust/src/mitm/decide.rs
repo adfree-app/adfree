@@ -315,6 +315,17 @@ pub(crate) fn decide_request(
         .redirect
         .as_deref()
         .and_then(redirect_response)
+        // A redirect the engine could not bind — the name is also a
+        // scriptlet's, or carries AdGuard's `:priority` suffix — is served
+        // from the engine's own table rather than degraded to a hard block
+        // the list never asked for.
+        .or_else(|| {
+            verdict
+                .rule_text
+                .as_deref()
+                .and_then(crate::filter::unserved_redirect)
+                .and_then(|data_url| redirect_response(&data_url))
+        })
         .unwrap_or_else(blocked_response);
     if method == "HEAD" {
         // A HEAD answer is headers only. The length of the body the same

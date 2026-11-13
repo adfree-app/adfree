@@ -309,11 +309,11 @@ const REDIRECT_TABLE: &[(&str, &[&str], MimeType, RedirectBody)] = &[
     // tell an ad blocker apart (AdSense's loader, GPT, APS, the FuckAdBlock /
     // BlockAdBlock library) and gets a stub that behaves.
     //
-    // The `.js` spellings of these names are the *scriptlet* bundle's (the
-    // engine drops a redirect whose ident is already taken, silently), so the
-    // aliases stay off: the lists ask for the extension-less AdGuard names,
-    // and `#%#//scriptlet('prevent-fab-3.2.0')` keeps resolving to the
-    // scriptlet it always did.
+    // The `.js` spellings of these names belong to the *scriptlet* bundle —
+    // the crate keeps one resource table for both, and a redirect whose ident
+    // a scriptlet already holds is dropped silently. The aliases stay off for
+    // that reason, and the spellings the lists do use are served by
+    // [`unserved_redirect`] instead, from the table below.
     (
         "googlesyndication-adsbygoogle",
         &[],
@@ -439,6 +439,147 @@ fn redirect_resources() -> &'static Vec<Resource> {
     })
 }
 
+/// Redirect names a list asks for that the engine cannot bind to a resource.
+///
+/// Two shapes end up here, and both would otherwise degrade to a hard block —
+/// the opposite of what the list asked for:
+///
+/// * The `.js` spelling of a stub whose ident the scriptlet bundle already
+///   holds (`google-ima.js`, `fingerprint2.js`, `amazon_apstag.js`). uBO and
+///   AdGuard keep redirects and scriptlets in separate tables, so the two
+///   names coexist there; the crate keeps one, and the engine drops the
+///   redirect. The bodies are the same stubs, so the missing binding is ours
+///   to make at answer time.
+/// * AdGuard's `:priority` suffix (`amazon_apstag.js:5`), which is not part of
+///   the resource name at all.
+const REDIRECT_ALIASES: &[(&str, &str)] = &[
+    // uBO's `google-ima.js`: the IMA SDK stub the unbreak list swaps in.
+    ("google-ima.js", "google-ima3"),
+    // uBO's `fingerprint2.js`, the stub for FingerprintJS 2.
+    ("fingerprint2.js", "fingerprintjs2"),
+    // uBO's `amazon_apstag.js`, the stub for Amazon's header bidding.
+    ("amazon_apstag.js", "amazon-apstag"),
+    // uBO's GTM name, a spelling of the analytics stub.
+    ("googletagmanager_gtm.js", "google-analytics"),
+    // `sensors-analytics.js` is Google Analytics 4's sensor library: the
+    // analytics stub publishes the same `gtag` / `dataLayer` globals.
+    ("sensors-analytics.js", "google-analytics"),
+    // uBO spells some resources as the path they replace, not as a file name.
+    ("google-analytics.com/analytics.js", "google-analytics"),
+    ("googletagmanager.com/gtm.js", "google-analytics"),
+    ("amazon-adsystem.com/aax2/amzn_ads.js", "amazon-apstag"),
+    // The underscore is uBO's; the hyphen is AdGuard's.
+    ("googletagservices_gpt.js", "googletagservices-gpt"),
+    ("prebid-ads.js", "prebid-ads"),
+    // The dotted spellings of the media stubs and of the image stub.
+    ("noop-1s.mp4", "noopmp4-1s"),
+    ("noop-0.1s.mp3", "noopmp3-0.1s"),
+    ("32x32.png", "2x2.png"),
+];
+
+/// The redirect resources that exist to keep a page's own code working, not to
+/// silence a request: the ad SDKs, analytics and fingerprinting libraries a
+/// site calls into and breaks without.
+///
+/// A host that one of these is swapped into must survive the DNS layer. That
+/// layer sees a hostname and nothing else, so a plain `||imasdk.googleapis.com^`
+/// would sinkhole the host before the unbreak list's `$script,redirect=…` rule
+/// — which is the whole reason the rule exists — ever sees a URL. Deferring the
+/// host keeps the block (a request that matches nothing is answered empty) and
+/// hands the decision to the layer that has the path.
+const STUB_RESOURCES: &[&str] = &[
+    "googlesyndication-adsbygoogle",
+    "google-ima3",
+    "googletagservices-gpt",
+    "amazon-apstag",
+    "google-analytics",
+    "google-analytics-ga",
+    "gemius",
+    "prebid-ads",
+    "fingerprintjs2",
+    "fingerprintjs3",
+    "ati-smarttag",
+    "metrika-yandex-tag",
+    "metrika-yandex-watch",
+    "scorecardresearch-beacon",
+    "prevent-fab-3.2.0",
+];
+
+/// The hostname a rule is anchored to (`||host/…`, `|https://host/…`).
+fn rule_host(line: &str) -> Option<&str> {
+    let rest = line.strip_prefix("||").or_else(|| {
+        line.strip_prefix("|https://")
+            .or_else(|| line.strip_prefix("|http://"))
+    })?;
+    let end = rest
+        .find(|c: char| c == '/' || c == '^' || c == '$' || c == '|')
+        .unwrap_or(rest.len());
+    let host = &rest[..end];
+    if host.is_empty() || host.contains('*') {
+        return None;
+    }
+    Some(host)
+}
+
+/// The name a `$redirect` option actually means: AdGuard's `:priority` suffix
+/// taken off, and the `.js` spellings the engine cannot bind mapped to the
+/// resource that carries the same body.
+fn resolve_redirect_name(name: &str) -> &str {
+    let name = name.split(':').next().unwrap_or(name);
+    REDIRECT_ALIASES
+        .iter()
+        .find(|(spelling, _)| *spelling == name)
+        .map(|(_, target)| *target)
+        .unwrap_or(name)
+}
+
+/// The `data:` URL for a `$redirect` the engine could not serve.
+///
+/// `rule` is the matched rule's own text. The engine already answered every
+/// redirect it could bind; this is for the names in [`REDIRECT_ALIASES`], and
+/// it returns the same `data:<mime>;base64,<body>` shape, so the caller needs
+/// no second answer path. `None` means there is nothing to serve and the
+/// request is blocked as before.
+pub fn unserved_redirect(rule: &str) -> Option<String> {
+    let mut name = None;
+    // `redirect=` is always an option of the rule, so it follows a `,` or the
+    // `$` that opens the option list; both spellings of the keyword count.
+    for key in ["redirect=", "redirect-rule="] {
+        let mut from = 0;
+        while let Some(at) = rule[from..].find(key) {
+            let start = from + at + key.len();
+            let value = rule[start..]
+                .split([',', ' ', '\t'])
+                .next()
+                .unwrap_or("")
+                .trim();
+            if !value.is_empty() {
+                name = Some(value);
+                break;
+            }
+            from = start;
+        }
+        if name.is_some() {
+            break;
+        }
+    }
+    let name = name?;
+    let target = resolve_redirect_name(name);
+    if target == name {
+        // Not an alias: the engine had the name and answered, or nothing has
+        // it and a block is the honest outcome.
+        return None;
+    }
+    let resource = redirect_resources()
+        .iter()
+        .find(|r| r.name == target)?;
+    let mime = match &resource.kind {
+        ResourceType::Mime(mime) => mime.to_string(),
+        _ => "application/javascript".to_string(),
+    };
+    Some(format!("data:{mime};base64,{}", resource.content))
+}
+
 /// The names and aliases the table can actually serve. Used by the build-time
 /// audit: a name a list asks for that is absent here degrades to a hard block,
 /// and the log says so instead of leaving the list author to guess.
@@ -450,6 +591,9 @@ fn known_redirect_names() -> &'static HashSet<String> {
             .flat_map(|resource| {
                 std::iter::once(resource.name.clone()).chain(resource.aliases.iter().cloned())
             })
+            // A name `unserved_redirect` can answer is not missing, whatever
+            // the engine itself can bind.
+            .chain(REDIRECT_ALIASES.iter().map(|(spelling, _)| spelling.to_string()))
             .collect()
     })
 }
@@ -460,6 +604,8 @@ fn known_redirect_names() -> &'static HashSet<String> {
 #[derive(Default)]
 struct RedirectScan {
     missing: BTreeSet<String>,
+    /// Hosts a stub resource is swapped into; see [`STUB_RESOURCES`].
+    stub_hosts: HashSet<String>,
 }
 
 impl RedirectScan {
@@ -470,17 +616,29 @@ impl RedirectScan {
             if line.is_empty() || line.starts_with(['!', '[', '#']) {
                 continue;
             }
-            for (at, _) in line.match_indices("$redirect") {
-                let rest = &line[at + 1..];
-                let Some(value) = rest
+            // `redirect=` is one option among many: `$script,domain=a.com,
+            // redirect=noop.js` names it in the third position, and a scan
+            // that only read the first would miss every such rule.
+            let Some((_, options)) = line.split_once('$') else {
+                continue;
+            };
+            for option in options.split(',') {
+                let option = option.trim();
+                let Some(value) = option
                     .strip_prefix("redirect=")
-                    .or_else(|| rest.strip_prefix("redirect-rule="))
+                    .or_else(|| option.strip_prefix("redirect-rule="))
                 else {
                     continue;
                 };
-                let name = value.split([',', ' ', '\t']).next().unwrap_or("").trim();
+                let name = value.split([' ', '\t']).next().unwrap_or("").trim();
+                let name = name.split(':').next().unwrap_or(name);
                 if !name.is_empty() && !known.contains(name) {
                     self.missing.insert(name.to_string());
+                }
+                if STUB_RESOURCES.contains(&resolve_redirect_name(name)) {
+                    if let Some(host) = rule_host(line) {
+                        self.stub_hosts.insert(host.to_ascii_lowercase());
+                    }
                 }
             }
         }
@@ -1298,6 +1456,10 @@ struct Compiled {
     /// Cosmetic switches from the loaded exceptions, by hostname (see
     /// [`scan_cosmetic_exceptions`]). Empty on a stock engine.
     cosmetic_switches: HashMap<String, CosmeticSwitches>,
+    /// Hosts a stub resource is swapped into (see [`STUB_RESOURCES`]). A plain
+    /// block on one of these is left to the URL layer, which is the only layer
+    /// that can tell the stub's path from the rest of the host.
+    stub_hosts: HashSet<String>,
     /// `$replace` rules, found by [`scan_replace_rules`]. `None` when no
     /// loaded list carries one.
     replace: Option<ReplaceEngine>,
@@ -1511,6 +1673,7 @@ impl FilterEngine {
                 dns_sources: Vec::new(),
                 rule_count: 0,
                 cosmetic_switches: HashMap::new(),
+                stub_hosts: HashSet::new(),
                 replace: None,
                 modifier_rules: None,
                 cookie_rules: None,
@@ -2038,6 +2201,7 @@ impl FilterEngine {
             dns_sources,
             rule_count,
             cosmetic_switches: cosmetic_exceptions.resolve(),
+            stub_hosts: std::mem::take(&mut redirect_scan.stub_hosts),
             replace,
             modifier_rules,
             cookie_rules,
@@ -7339,7 +7503,13 @@ fn evaluate_main(compiled: &Compiled, host: &str) -> HostVerdict {
         category,
         // A `$redirect` rule blocks *and* answers: the DNS layer must step
         // aside for it, and only a registered resource counts.
-        redirect: result.redirect.is_some(),
+        //
+        // A plain block on a host a stub is swapped into steps aside too: the
+        // stub rule carries the path, and a hostname cannot. The block stands
+        // — the URL layer answers anything the stub rule does not cover — but
+        // the decision belongs to the layer that can read the request.
+        redirect: result.redirect.is_some()
+            || compiled.stub_hosts.contains(normalise_host(host)),
     }
 }
 
@@ -9729,6 +9899,100 @@ mod tests {
         let rule = Replace::parse("nonsense");
         assert!(!rule.runs());
         assert_eq!(rule.apply(b"nonsense"), None);
+    }
+
+    /// A stub host is not sinkholed: the rule that swaps the stub in carries a
+    /// path, and the DNS layer never sees one.
+    ///
+    /// AdGuard Base blocks `||imasdk.googleapis.com^` outright while the
+    /// unbreak list turns one file on that host into an IMA stub. Answering
+    /// the hostname alone resolved that contradiction in favour of the block,
+    /// which broke the player the unbreak rule was written for.
+    #[test]
+    fn a_stub_host_is_left_to_the_url_layer() {
+        let rules = "||imasdk.googleapis.com^\n\
+            ||imasdk.googleapis.com/js/sdkloader/ima3.js$script,domain=espn.com,\
+            redirect=google-ima.js\n";
+        let fe = cosmetic_engine(rules);
+        let host = fe.check_host("imasdk.googleapis.com");
+        assert!(host.blocked, "{host:?}");
+        assert!(
+            host.redirect,
+            "the block stands, but the URL layer decides it: {host:?}"
+        );
+        // The same question at URL level: the stub's own file is answered with
+        // the stub, anything else on the host is still a block.
+        let ima = fe.check_url(
+            "https://imasdk.googleapis.com/js/sdkloader/ima3.js",
+            "https://www.espn.com/",
+            "script",
+            "GET",
+            &[],
+        );
+        assert!(ima.blocked);
+        assert!(unserved_redirect(ima.rule_text.as_deref().unwrap_or("")).is_some());
+        let other = fe.check_url(
+            "https://imasdk.googleapis.com/js/other.js",
+            "https://www.espn.com/",
+            "script",
+            "GET",
+            &[],
+        );
+        assert!(other.blocked, "{other:?}");
+        assert!(other.redirect.is_none(), "{other:?}");
+
+        // A host with no stub keeps the blunt answer: no path to preserve.
+        let fe = cosmetic_engine("||tracker.test^\n");
+        let host = fe.check_host("tracker.test");
+        assert!(host.blocked, "{host:?}");
+        assert!(!host.redirect, "{host:?}");
+    }
+
+    /// uBO and AdGuard keep redirect resources and scriptlets in two tables,
+    /// so `google-ima.js` can be both a stub and a scriptlet name. The crate
+    /// keeps one: the scriptlet wins the ident, the redirect is dropped, and a
+    /// rule that asked for a stub turns into a hard block — the opposite of
+    /// what the list meant. The unbreak list asks for exactly that on the IMA
+    /// SDK, whose absence breaks the player rather than the ad.
+    #[test]
+    fn a_redirect_the_engine_cannot_bind_is_served_from_the_table() {
+        use base64::engine::general_purpose::STANDARD;
+        use base64::Engine as _;
+        let body_of = |data_url: &str| {
+            let b64 = data_url.rsplit(',').next().expect("a data URL carries a body");
+            String::from_utf8(STANDARD.decode(b64).expect("base64")).expect("utf8")
+        };
+        let rule = "||imasdk.googleapis.com/js/sdkloader/ima3.js$script,domain=espn.com,\
+            redirect=google-ima.js";
+        let fe = cosmetic_engine(rule);
+        let v = fe.check_url(
+            "https://imasdk.googleapis.com/js/sdkloader/ima3.js",
+            "https://www.espn.com/",
+            "script",
+            "GET",
+            &[],
+        );
+        assert!(v.blocked, "{v:?}");
+        assert!(
+            v.redirect.is_none(),
+            "the crate has no body for a name a scriptlet holds: {v:?}"
+        );
+        let served = unserved_redirect(rule).expect("the table carries the same stub");
+        assert!(
+            served.starts_with("data:application/javascript;base64,"),
+            "{served}"
+        );
+        let ima = body_of(&served);
+        assert!(ima.contains("AdsManagerLoadedEvent"), "{ima}");
+
+        // AdGuard's `:priority` suffix is not part of the resource name.
+        let apstag = unserved_redirect("||a.test^$redirect=amazon_apstag.js:5")
+            .expect("the apstag stub is served");
+        let body = body_of(&apstag);
+        assert!(body.contains("window.apstag"), "{body}");
+        // A spelling no stub carries stays a block: there is nothing to serve.
+        assert!(unserved_redirect("||a.test^$redirect=nope.js").is_none());
+        assert!(unserved_redirect("||a.test^").is_none());
     }
 
     #[test]
@@ -12185,3 +12449,4 @@ mod tests {
         assert!(other.hide_selectors.iter().any(|s| s == ".ad"));
     }
 }
+
