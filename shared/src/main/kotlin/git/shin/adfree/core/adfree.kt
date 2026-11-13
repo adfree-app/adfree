@@ -879,6 +879,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_adfree_core_checksum_func_core_script_text(
     ): Int
+    external fun uniffi_adfree_core_checksum_func_core_scripts_revision(
+    ): Int
     external fun uniffi_adfree_core_checksum_func_core_scripts_save(
     ): Int
     external fun uniffi_adfree_core_checksum_func_core_services_fetch(
@@ -1138,6 +1140,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_adfree_core_fn_func_core_script_text(`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_adfree_core_fn_func_core_scripts_revision(uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
     external fun uniffi_adfree_core_fn_func_core_scripts_save(`value`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
     external fun uniffi_adfree_core_fn_func_core_services_fetch(`url`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1530,6 +1534,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_adfree_core_checksum_func_core_script_text() and 0xFFFF) != 46210) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_adfree_core_checksum_func_core_scripts_revision() and 0xFFFF) != 19786) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_adfree_core_checksum_func_core_scripts_save() and 0xFFFF) != 31369) {
@@ -8134,6 +8141,23 @@ public object FfiConverterSequenceTypeUidApps: FfiConverterRustBuffer<List<UidAp
     
         
         FfiConverterString.lower(`id`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * How many times the userscript store changed the list this run.
+         *
+         * The store's button runs in the browser and installs without the app's UI in
+         * the loop, so the screen holding its own copy of the list needs a signal that
+         * the copy went stale.
+         */ fun `coreScriptsRevision`(): kotlin.ULong {
+            return FfiConverterULong.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_adfree_core_fn_func_core_scripts_revision(
+    
+        _status)
 }
     )
     }

@@ -129,6 +129,9 @@ pub fn local_origin_addr() -> std::net::IpAddr {
 /// The page runtime itself, compiled into the binary.
 pub const PAGE_RUNTIME: &str = include_str!("page_runtime.js");
 
+/// The store button's code, injected only into the pages of a script store.
+pub const STORE_RUNTIME: &str = include_str!("../../assets/store.js");
+
 /// What a caller must do with the bytes a step produced.
 #[derive(Default, Debug)]
 pub struct Outcome {
@@ -2912,6 +2915,16 @@ pub fn take_local_request(
             "application/javascript; charset=utf-8",
             IMMUTABLE_CACHE,
             PAGE_RUNTIME.as_bytes(),
+            gzip,
+            false,
+        ));
+    }
+    if target == crate::store_api::STORE_SCRIPT_PATH {
+        buffer.drain(..head);
+        return Some(local_response(
+            "application/javascript; charset=utf-8",
+            IMMUTABLE_CACHE,
+            STORE_RUNTIME.as_bytes(),
             gzip,
             false,
         ));

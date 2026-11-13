@@ -408,6 +408,10 @@ class AdGuardViewModel(
                 for (on in coreEngine.takeAssistantSwitches()) {
                     if (tunnel.isTunnelUp() != on) toggleProtection()
                 }
+                // The userscript store's button installs from the browser, so
+                // the list can change without an intent: this is the same
+                // handover as the assistant's, one comparison when it has not.
+                repository.syncScriptsFromStore()
                 delay(ASSISTANT_POLL_MS)
             }
         }

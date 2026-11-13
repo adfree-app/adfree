@@ -2376,6 +2376,25 @@ class AdGuardRepository(
      * user added. Bodies live under `filesDir/scripts/`, so nothing is ever
      * re-downloaded on a restart.
      */
+    /** The revision whose script list the UI is already showing. */
+    private var scriptsRevision: ULong? = null
+
+    /**
+     * Re-reads the script list when the store button installed or removed one.
+     *
+     * Called from the app's poll loop: the browser can add a script without any
+     * intent passing through here, and a screen that kept its own copy would go
+     * on showing the list it opened with. One comparison when nothing changed.
+     */
+    fun syncScriptsFromStore() {
+        val revision = engine.scriptsRevision()
+        if (revision == scriptsRevision) return
+        val first = scriptsRevision == null
+        scriptsRevision = revision
+        if (first) return
+        loadScriptsState(engine.stateLoad().scripts)
+    }
+
     fun loadScriptsState(saved: ScriptState = engine.stateLoad().scripts) {
         scope.launch {
             val stored = saved.scripts

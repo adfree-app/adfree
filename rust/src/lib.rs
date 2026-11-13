@@ -55,6 +55,7 @@ pub mod socks5;
 pub mod state;
 pub mod stats;
 pub mod store;
+pub mod store_api;
 pub mod trust;
 pub mod udpnat;
 pub mod udpproxy;

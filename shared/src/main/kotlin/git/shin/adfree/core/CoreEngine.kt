@@ -393,6 +393,16 @@ class CoreEngine(
     fun servicesRemove(): Boolean =
         runCatching { git.shin.adfree.core.coreServicesRemove() }.getOrDefault(false)
 
+    /**
+     * How many times the userscript store changed the script list this run.
+     *
+     * The store's button runs in the browser, so an install happens with no
+     * intent from this app at all; the revision is how a screen holding its own
+     * copy learns that the copy is stale.
+     */
+    fun scriptsRevision(): ULong =
+        runCatching { git.shin.adfree.core.coreScriptsRevision() }.getOrDefault(0uL)
+
     /** Downloads one userscript body into the store (`scripts/<id>.js`). */
     fun scriptFetch(id: String, url: String): git.shin.adfree.core.DownloadOutcome =
         runCatching { git.shin.adfree.core.coreScriptFetch(id, url) }

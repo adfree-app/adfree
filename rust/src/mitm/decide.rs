@@ -642,6 +642,31 @@ impl Injector<'_> {
             );
         }
 
+        // The store button: a page on a script repository gets an extra
+        // control beside its own install link, and the token that lets it reach
+        // the app. Both are per response because the token is per run and the
+        // installed list changes as the user clicks.
+        if let Some(host) = self.host {
+            if crate::store_api::is_store_host(host) {
+                let payload = crate::store_api::page_payload(host);
+                out.extend_from_slice(
+                    format!("<script{}>window.__adfree_store=", http::nonce_attr(nonce)).as_bytes(),
+                );
+                out.extend_from_slice(payload.as_bytes());
+                out.extend_from_slice(b";</script>");
+                out.extend_from_slice(
+                    http::script_tag(
+                        &local_asset(&versioned_path(
+                            crate::store_api::STORE_SCRIPT_PATH,
+                            content_hash(crate::mitm::proxy::STORE_RUNTIME.as_bytes()),
+                        )),
+                        false,
+                        nonce,
+                    )
+                    .as_bytes(),
+                );
+            }
+        }
         if !self.script_src.is_empty() {
             // Not deferred: `@run-at document-start` only means anything if
             // the tag is fetched and executed while the parser is still in the

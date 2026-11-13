@@ -1067,7 +1067,7 @@ mod tests {
         let reply = forward_over_tcp(&query, address, FORWARD_TIMEOUT_MS).expect("answer");
         let parsed = crate::dns::parse_query(&reply).expect("parse");
         assert_eq!(parsed.id, 0x4242, "the client's own id rides back");
-        assert!(parsed.is_query() == false, "an answer, not a query");
+        assert!(!parsed.is_query(), "an answer, not a query");
         assert_eq!(server.join().expect("thread"), query.len());
     }
 

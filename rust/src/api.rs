@@ -669,6 +669,16 @@ pub fn core_apply_config(private_dns_strict: bool) -> crate::state::model::Confi
     )
 }
 
+/// How many times the userscript store changed the list this run.
+///
+/// The store's button runs in the browser and installs without the app's UI in
+/// the loop, so the screen holding its own copy of the list needs a signal that
+/// the copy went stale.
+#[uniffi::export]
+pub fn core_scripts_revision() -> u64 {
+    guard(0, crate::store_api::revision)
+}
+
 /// Pauses or resumes filtering while the tunnel keeps running. Transient:
 /// the persisted protection record is untouched, and a process restart
 /// resumes filtering.
