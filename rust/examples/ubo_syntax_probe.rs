@@ -38,6 +38,8 @@ example.com#%#//scriptlet('set-constant', 'adsEnabled', 'false')
 example.com#%#//scriptlet('abort-on-property-read', 'detectAdBlock')
 example.com#%#//scriptlet('watch-attr', 'src', '.ad') // uBO-only operator
 example.com##div:nth-ancestor(3)
+example.com#?#.text-center:-abp-has(small:-abp-contains(QUANG CAO))
+example.com#?#div:has-text(Ad):-abp-has(> .slot)
 example.com##div:has-attr(data-ad)
 ";
     let path = dir.join("ubo-probe.txt");
