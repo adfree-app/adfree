@@ -496,6 +496,21 @@ fn add_nonce_to_policy(value: &str, nonce: Option<&str>, host_source: &str) -> S
         }
         out.push_str(directive);
         let name = name_of(directive);
+        // Trusted Types: the runtime builds its scriptlets into a `TrustedScript`
+        // through a policy of its own. A `trusted-types` allowlist is a list of
+        // policy *names*, and one that does not name ours blocks the policy
+        // itself — the page then keeps enforcing the sink and every scriptlet is
+        // dropped (YouTube, with "This document requires 'TrustedScript'
+        // assignment" as the only trace).
+        if name == "trusted-types" {
+            let listed: Vec<&str> = directive.split_whitespace().skip(1).collect();
+            let open = listed.iter().any(|s| *s == "*");
+            if !open && !listed.contains(&TRUSTED_TYPES_POLICY) {
+                out.push(' ');
+                out.push_str(TRUSTED_TYPES_POLICY);
+            }
+            continue;
+        }
         let mut wanted: Vec<Carrier> = Vec::new();
         match name.as_str() {
             "script-src" | "script-src-elem" => wanted.push(Carrier::Script),
@@ -534,6 +549,13 @@ fn add_nonce_to_policy(value: &str, nonce: Option<&str>, host_source: &str) -> S
     }
     out
 }
+
+/// The Trusted Types policy name the page runtime creates for itself.
+///
+/// Kept next to the policy rewrite so the two cannot drift: the runtime creates
+/// a policy with this name, and this is the name the page's `trusted-types`
+/// allowlist learns.
+pub const TRUSTED_TYPES_POLICY: &str = "adfree";
 
 /// What the injected page needs the policy to allow.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -2469,9 +2491,36 @@ mod tests {
         assert_eq!(out.matches("'nonce-abc123'").count(), 1, "{out}");
     }
 
+    /// A page that enforces Trusted Types names the policies it accepts. Our
+    /// runtime needs one of its own to turn a scriptlet into a `TrustedScript`,
+    /// and a list that does not name it blocks the policy itself — the sink
+    /// stays enforced and every scriptlet is dropped.
     #[test]
-    fn an_empty_policy_is_not_invented_into_something() {
-        let head = b"HTTP/1.1 200 OK\r\nContent-Security-Policy: \r\n\r\n";
+    fn trusted_types_policies_learn_our_name() {
+        let head = b"HTTP/1.1 200 OK\r\nContent-Security-Policy: require-trusted-types-for 'script'; \
+            trusted-types yt-policy dompurify\r\n\r\n";
+        let out = String::from_utf8(csp_with_nonce(head, "abc123", "https://192.0.2.1"))
+            .unwrap()
+            .replace("\\\n", "")
+            .replace("  ", " ");
+        assert!(
+            out.contains("trusted-types yt-policy dompurify adfree"),
+            "{out}"
+        );
+        // A policy that accepts them all already names ours in spirit; writing
+        // the name beside the wildcard would be noise, not permission.
+        let head = b"HTTP/1.1 200 OK\r\nContent-Security-Policy: trusted-types *\r\n\r\n";
+        let out = String::from_utf8(csp_with_nonce(head, "abc123", "https://192.0.2.1")).unwrap();
+        assert_eq!(out.matches("trusted-types *").count(), 1, "{out}");
+        assert!(!out.contains("adfree"), "{out}");
+        // And one that already names it is left alone.
+        let head = b"HTTP/1.1 200 OK\r\nContent-Security-Policy: trusted-types adfree\r\n\r\n";
+        let out = String::from_utf8(csp_with_nonce(head, "abc123", "https://192.0.2.1")).unwrap();
+        assert_eq!(out.matches("adfree").count(), 1, "{out}");
+    }
+
+    #[test]
+    fn an_empty_policy_is_not_invented_into_something() {        let head = b"HTTP/1.1 200 OK\r\nContent-Security-Policy: \r\n\r\n";
         let out = String::from_utf8(csp_with_nonce(head, "abc123", "https://192.0.2.1")).unwrap();
         assert!(out.contains("Content-Security-Policy: \r\n"), "{out}");
     }

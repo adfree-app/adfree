@@ -123,6 +123,39 @@
     }
   };
 
+  // Trusted Types: a document that enforces `require-trusted-types-for
+  // 'script'` refuses a *string* assigned to a script's text, nonce or not —
+  // YouTube enforces it, and every scriptlet for the site died there with
+  // "This document requires 'TrustedScript' assignment" in the console. A
+  // policy of our own turns the source into the type the sink wants; the proxy
+  // lists its name in the page's `trusted-types` directive, so creating it is
+  // never what the policy rejects.
+  const TRUSTED_TYPES_POLICY = 'adfree';
+  const scriptPolicy = (() => {
+    try {
+      const tt = window.trustedTypes;
+      if (!tt || typeof tt.createPolicy !== 'function') {
+        return null;
+      }
+      return tt.createPolicy(TRUSTED_TYPES_POLICY, {
+        createScript: (source) => source,
+      });
+    } catch {
+      return null;
+    }
+  })();
+  // A string where a policy exists would be the one thing the page refuses.
+  const asScript = (code) => {
+    if (!scriptPolicy) {
+      return code;
+    }
+    try {
+      return scriptPolicy.createScript(code);
+    } catch {
+      return code;
+    }
+  };
+
   // Tags this runtime creates carry the nonce the proxy put on its own: a
   // `<style>` or a `<script>` built from JS is subject to `style-src` /
   // `script-src` like any other, and a strict policy drops an un-nonced one.
@@ -188,7 +221,9 @@
   if (data.scriptlets) {
     try {
       const el = withNonce(document.createElement('script'));
-      el.textContent = `try {\n${data.scriptlets}\n} catch { /* a broken scriptlet stays inside */ }`;
+      el.textContent = asScript(
+        `try {\n${data.scriptlets}\n} catch { /* a broken scriptlet stays inside */ }`
+      );
       (document.head || document.documentElement).appendChild(el);
       el.remove();
     } catch {
@@ -204,7 +239,9 @@
     for (const script of data.jsrules) {
       try {
         const el = withNonce(document.createElement('script'));
-        el.textContent = `try {\n${script}\n} catch { /* a broken rule stays inside */ }`;
+        el.textContent = asScript(
+          `try {\n${script}\n} catch { /* a broken rule stays inside */ }`
+        );
         (document.head || document.documentElement).appendChild(el);
         el.remove();
       } catch {
