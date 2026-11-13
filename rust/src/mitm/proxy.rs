@@ -342,6 +342,9 @@ pub struct ProxySession {
     /// is how a refused certificate looks from here: the client saw the leaf
     /// and left without a request (see [`Self::on_client_eof`]).
     client_plain_bytes: usize,
+    /// Set once this flow has told the refusal memory that its client really
+    /// talked to this host, so the bookkeeping happens once per flow.
+    served_noted: bool,
     /// The upstream settings, kept only while the active half was armed with
     /// ECH: a server that rejects the offer gets one retry from these. `None`
     /// means the upstream is plain (or already retried once).
@@ -701,6 +704,7 @@ impl ProxySession {
             untrusted: None,
             client_fingerprint: None,
             client_plain_bytes: 0,
+            served_noted: false,
             upstream_plain: None,
             client_discard: None,
             apps: Vec::new(),
@@ -756,6 +760,7 @@ impl ProxySession {
             untrusted: None,
             client_fingerprint: None,
             client_plain_bytes: 0,
+            served_noted: false,
             upstream_plain: None,
             client_discard: None,
             apps: Vec::new(),
@@ -824,6 +829,7 @@ impl ProxySession {
             untrusted: None,
             client_fingerprint: None,
             client_plain_bytes: 0,
+            served_noted: false,
             upstream_plain: None,
             client_discard: None,
             apps: Vec::new(),
@@ -1002,11 +1008,16 @@ impl ProxySession {
         // would silently switch HTTPS filtering off for the one program that
         // matters most. Only a real alert — the client saying it refused the
         // certificate — is allowed to speak for an app.
+        //
+        // Nor may the shape speak for other hosts: a pair learned this way is
+        // confined to the host it was seen on (`note_weak`), because two
+        // preconnects from one browser are indistinguishable from two refusals
+        // and would otherwise switch the injection off for every site it visits.
         let fingerprint = self.client_fingerprint.clone().unwrap_or_default();
         let learned = self
             .untrusted
             .as_deref()
-            .is_some_and(|untrusted| untrusted.note(&name, &fingerprint));
+            .is_some_and(|untrusted| untrusted.note_weak(&name, &fingerprint));
         if learned {
             crate::logbuf::push(&format!(
                 "mitm {name}: client closed without a request after the handshake, splicing \
@@ -1363,6 +1374,16 @@ impl ProxySession {
         // Anything the client says after its handshake is a request, and a
         // client that says nothing before hanging up refused the certificate.
         self.client_plain_bytes += plain.len();
+        if !plain.is_empty() && !self.served_noted {
+            // From here on this pair has accepted our certificate for this
+            // host, so a silent close later in the session is a preconnect
+            // being dropped, not a refusal (see `UntrustedClients::note_served`).
+            self.served_noted = true;
+            if let (Some(untrusted), Some(name)) = (self.untrusted.as_deref(), self.captured.as_deref()) {
+                let fingerprint = self.client_fingerprint.clone().unwrap_or_default();
+                untrusted.note_served(name, &fingerprint);
+            }
+        }
         let mut outcome = Outcome::default();
         if tls::server_handshaking(&session.server) {
             // Our own handshake answers go back to the client.

@@ -42,6 +42,11 @@ const MAX_HOSTS: usize = 256;
 /// connection per host for that is pointless.
 const HOSTS_TO_GENERALISE: usize = 2;
 
+/// How many `(host, client)` pairs that carried a request may be remembered.
+/// Only read to veto a weak inference, so it can be generously sized while
+/// still bounded.
+const MAX_SERVED: usize = 4096;
+
 /// The `state` row the learned pairs survive a restart in.
 const STATE_KEY: &str = "mitm.untrusted_clients";
 
@@ -53,6 +58,10 @@ pub struct UntrustedClients {
     /// The hosts each fingerprint has refused, which is what tells one bad
     /// connection apart from a client whose trust store does not hold the CA.
     hosts_by_fingerprint: Mutex<HashMap<String, HashSet<String>>>,
+    /// The `(host, fingerprint)` pairs that have carried at least one real
+    /// request. A pair in here has already proved it accepts this certificate:
+    /// whatever a later silent close means, it does not mean that.
+    served: Mutex<HashSet<(String, String)>>,
     /// The database the set is written back to, once the platform has handed
     /// the data root down. Without it the set lives as long as the engine,
     /// which is what a platform that never calls `set_store` gets.
@@ -100,6 +109,113 @@ impl UntrustedClients {
             .entry(fingerprint.to_string())
             .or_default()
             .insert(host.to_string());
+    }
+
+    /// Records that this pair talked to the origin through us.
+    ///
+    /// The evidence a certificate refusal leaves behind — a closed socket with
+    /// no request — is the same shape a browser's speculative preconnect
+    /// leaves, and a preconnect is followed by a real connection to the same
+    /// host that works. Serving that connection is what tells the two apart, so
+    /// it is remembered before any silent close is believed.
+    pub(crate) fn note_served(&self, host: &str, fingerprint: &str) {
+        if host.is_empty() || host == "?" || fingerprint.is_empty() {
+            return;
+        }
+        let mut served = self.served.lock().unwrap_or_else(|e| e.into_inner());
+        if served.len() < MAX_SERVED {
+            served.insert((host.to_string(), fingerprint.to_string()));
+        }
+    }
+
+    /// Records a refusal inferred from the *shape* of a connection rather than
+    /// from an alert, and never lets it speak for other hosts.
+    ///
+    /// A client that completed our handshake and then closed without a request
+    /// may have refused the certificate — OpenSSL-based stacks do exactly this
+    /// and take the alert with them — but a browser preconnect looks identical.
+    /// The inference is therefore weaker evidence, and is confined to the one
+    /// pair: it can never generalise to "this client refuses everywhere", which
+    /// would cost a browser its filtering on every other host on the strength
+    /// of two speculative connections.
+    pub(crate) fn note_weak(&self, host: &str, fingerprint: &str) -> bool {
+        if host.is_empty() || host == "?" || fingerprint.is_empty() {
+            return false;
+        }
+        // It already talked to us here: that is the certificate being accepted,
+        // and the close was a preconnect being dropped.
+        if self.served.lock().unwrap_or_else(|e| e.into_inner())
+            .contains(&(host.to_string(), fingerprint.to_string()))
+        {
+            return false;
+        }
+        let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
+        if !entries.contains_key(host) && entries.len() >= MAX_HOSTS {
+            return false;
+        }
+        let learned = entries
+            .entry(host.to_string())
+            .or_default()
+            .insert(fingerprint.to_string());
+        drop(entries);
+        if learned {
+            self.save();
+        }
+        learned
+    }
+
+    /// Drops what was learned about one host, or everything.
+    ///
+    /// The verdict outlives the reason it was learned: a CA reinstalled into a
+    /// client's trust store, or a pair learned from a preconnect, leaves a host
+    /// spliced with no visible cause and no way back. Returns how many hosts
+    /// were forgotten.
+    pub fn forget(&self, host: Option<&str>) -> usize {
+        let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
+        let dropped = match host {
+            Some(host) => entries.remove(host).map(|_| 1).unwrap_or(0),
+            None => {
+                let len = entries.len();
+                entries.clear();
+                len
+            }
+        };
+        drop(entries);
+        if let Some(host) = host {
+            self.served
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .retain(|(h, _)| h != host);
+        } else {
+            self.served
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clear();
+        }
+        if dropped > 0 {
+            self.rebuild_fingerprints();
+            self.save();
+        }
+        dropped
+    }
+
+    /// Re-derives the per-client host counts from the pairs that remain.
+    fn rebuild_fingerprints(&self) {
+        let entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
+        let mut by_fingerprint: HashMap<String, HashSet<String>> = HashMap::new();
+        for (host, fingerprints) in entries.iter() {
+            for fingerprint in fingerprints {
+                by_fingerprint
+                    .entry(fingerprint.clone())
+                    .or_default()
+                    .insert(host.clone());
+            }
+        }
+        drop(entries);
+        *self
+            .hosts_by_fingerprint
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = by_fingerprint;
     }
 
     /// True when this client has refused the CA on enough hosts that it is the
@@ -175,6 +291,10 @@ impl UntrustedClients {
             .unwrap_or_else(|e| e.into_inner())
             .clear();
         self.hosts_by_fingerprint
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        self.served
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clear();
@@ -288,6 +408,58 @@ mod tests {
         // A host already present keeps learning new clients.
         assert!(set.note("h0.example", "other-fp"));
         assert_eq!(MAX_HOSTS, set.snapshot().len());
+    }
+
+    /// A silent close is weak evidence and must stay confined to its host: a
+    /// browser's preconnects look exactly like a refusal, and two of them would
+    /// otherwise cost that browser its filtering on every other site.
+    #[test]
+    fn a_silent_close_never_generalises_to_other_hosts() {
+        let set = UntrustedClients::new();
+        assert!(set.note_weak("one.example", "chrome-fp"));
+        assert!(set.note_weak("two.example", "chrome-fp"));
+        assert!(set.refuses("one.example", "chrome-fp"));
+        // The strong inference would have condemned the whole client here.
+        assert!(!set.refuses("three.example", "chrome-fp"));
+    }
+
+    /// A pair that has carried a request accepts the certificate; whatever a
+    /// later close means, it is not a refusal.
+    #[test]
+    fn a_pair_that_already_talked_to_us_is_never_learned_from_a_close() {
+        let set = UntrustedClients::new();
+        set.note_served("shop.example", "chrome-fp");
+        assert!(!set.note_weak("shop.example", "chrome-fp"));
+        assert!(!set.refuses("shop.example", "chrome-fp"));
+        // Another client on the same host is still judged on its own close.
+        assert!(set.note_weak("shop.example", "node-fp"));
+    }
+
+    /// An alert is the client saying it refused the certificate, and that one
+    /// may speak for the client everywhere.
+    #[test]
+    fn an_alert_still_generalises() {
+        let set = UntrustedClients::new();
+        assert!(set.note("one.example", "node-fp"));
+        assert!(set.note("two.example", "node-fp"));
+        assert!(set.refuses("anything.example", "node-fp"));
+    }
+
+    /// A verdict outlives its reason — a reinstalled CA, a preconnect learned
+    /// by mistake — so there has to be a way back that leaves other hosts alone.
+    #[test]
+    fn forgetting_one_host_leaves_the_others_spliced() {
+        let set = UntrustedClients::new();
+        set.note("one.example", "node-fp");
+        set.note("two.example", "node-fp");
+        assert_eq!(1, set.forget(Some("one.example")));
+        assert!(!set.refuses("one.example", "node-fp"));
+        assert!(set.refuses("two.example", "node-fp"));
+        // Two learned pairs generalised; one left is not a trust store verdict.
+        assert!(!set.refuses("three.example", "node-fp"));
+        assert_eq!(1, set.forget(None));
+        assert_eq!(0, set.forget(None));
+        assert!(set.is_empty());
     }
 
     /// A restart must not cost the same app another failed handshake: what was
