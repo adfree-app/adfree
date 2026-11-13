@@ -5,8 +5,9 @@
 //! on top of TLS: the response rewriter that injects scripts into HTML.
 
 use super::proxy::{
-    blocked_response, closing_response, content_hash, local_asset, origin_form, rebuilt_head,
-    redirect_response, request_facts, request_url, rewritable, swallow_body, take_local_request,
+    blocked_response, closing_response, content_hash, local_asset,
+    origin_form, rebuilt_head, redirect_response, request_facts, request_url, rewritable,
+    swallow_body, take_local_request, with_cors,
     ClientDiscard, ProxySession, RequestBody, HIDE_PATH,
 };
 use super::*;
@@ -2160,4 +2161,57 @@ fn a_redirect_the_crate_cannot_bind_is_answered_from_the_table() {
     );
     let text = String::from_utf8_lossy(&body);
     assert!(text.contains("AdsManagerLoadedEvent"), "{text}");
+}
+
+#[test]
+fn a_blocked_answer_carries_the_cross_origin_answer() {
+    // A page's `fetch()` to a blocked URL fails the CORS check before it can
+    // read the status, which is both console noise and a signal an anti-adblock
+    // probe can wait for. The block itself is unchanged: still empty.
+    let head = b"GET /auction HTTP/1.1\r\nHost: pbs.example\r\nOrigin: https://site.example\r\n\
+Accept: */*\r\n\r\n";
+    let answer = with_cors(blocked_response(), head);
+    let text = String::from_utf8_lossy(&answer);
+    assert!(text.starts_with("HTTP/1.1 204 No Content\r\n"), "{text}");
+    assert!(text.contains("Access-Control-Allow-Origin: https://site.example"), "{text}");
+    assert!(text.contains("Access-Control-Allow-Credentials: true"), "{text}");
+    assert!(text.contains("Timing-Allow-Origin: https://site.example"), "{text}");
+    assert!(text.contains("Content-Length: 0"), "{text}");
+
+    // A request with no origin is not a cross-origin read: it gets the plain
+    // block, with no header that means anything to a cache.
+    let same_origin = b"GET /auction HTTP/1.1\r\nHost: pbs.example\r\n\r\n";
+    let plain = String::from_utf8_lossy(&with_cors(blocked_response(), same_origin)).to_string();
+    assert!(!plain.contains("Access-Control"), "{plain}");
+    assert!(!plain.contains("Vary"), "{plain}");
+
+    // A preflight may only claim the headers it asked for, or the browser
+    // fails it and the block is visible again.
+    let preflight = b"OPTIONS /auction HTTP/1.1\r\nHost: pbs.example\r\n\
+Origin: https://site.example\r\nAccess-Control-Request-Headers: content-type,x-custom\r\n\r\n";
+    let text = String::from_utf8_lossy(&with_cors(blocked_response(), preflight)).to_string();
+    assert!(
+        text.contains("Access-Control-Allow-Headers: content-type,x-custom"),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_stub_served_to_a_fetch_is_readable() {
+    // `$redirect=nooptext` on an `$xhr` is a replacement the page is meant to
+    // read: without the CORS answer the stub is a network error instead.
+    let stub = redirect_response("data:text/plain;base64,").expect("stub");
+    let cross = with_cors(
+        stub.clone(),
+        b"POST /a HTTP/1.1\r\nHost: ads.example\r\nOrigin: https://site.example\r\n\r\n",
+    );
+    let text = String::from_utf8_lossy(&cross);
+    assert!(text.starts_with("HTTP/1.1 200 OK"), "{text}");
+    assert!(text.contains("Access-Control-Allow-Origin: https://site.example"), "{text}");
+    // The body is untouched: only the head grew.
+    let body_of = |r: &[u8]| {
+        let end = r.windows(4).position(|w| w == b"\r\n\r\n").map(|i| i + 4).unwrap_or(0);
+        r[end..].to_vec()
+    };
+    assert_eq!(body_of(&cross), body_of(&stub));
 }

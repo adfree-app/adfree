@@ -3252,6 +3252,76 @@ pub(super) fn blocked_response() -> Vec<u8> {
     b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nCache-Control: no-store\r\n\r\n".to_vec()
 }
 
+/// The CORS answer a locally written response owes a cross-origin caller.
+///
+/// A `fetch()` to a blocked URL fails the browser's CORS check before the
+/// status is ever read, so a plain `204` shows up in the console as
+/// "No 'Access-Control-Allow-Origin' header is present" — and an anti-adblock
+/// probe that only ever sees failed requests learns exactly what blocking
+/// looks like. Echoing the requesting origin makes the same block read as an
+/// empty successful answer, which is what a block is for a page: nothing.
+/// `Vary` keeps a cache from handing this answer to another origin.
+fn cors_headers(head: &[u8]) -> String {
+    let mut origin: Option<&str> = None;
+    let mut requested: Option<&str> = None;
+    for line in head.split(|&b| b == b'\n').take_while(|line| !line.is_empty()) {
+        let Ok(line) = std::str::from_utf8(line) else {
+            continue;
+        };
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        let value = value.trim();
+        if value.is_empty() {
+            continue;
+        }
+        match name.trim() {
+            n if n.eq_ignore_ascii_case("origin") => origin = Some(value),
+            n if n.eq_ignore_ascii_case("access-control-request-headers") => {
+                requested = Some(value)
+            }
+            _ => {}
+        }
+    }
+    let Some(origin) = origin else {
+        return String::new();
+    };
+    // A preflight names the headers it wants; a blocked answer may only claim
+    // the ones actually asked for, or the preflight fails and the block is
+    // visible again.
+    let allow = requested.unwrap_or("*");
+    format!(
+        "Access-Control-Allow-Origin: {origin}\r\n\
+         Access-Control-Allow-Credentials: true\r\n\
+         Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS\r\n\
+         Access-Control-Allow-Headers: {allow}\r\n\
+         Access-Control-Max-Age: 600\r\n\
+         Timing-Allow-Origin: {origin}\r\n\
+         Vary: Origin\r\n"
+    )
+}
+
+/// Adds the CORS answer to a response this proxy wrote for a blocked request:
+/// a `$redirect` stub served to a `fetch()` is readable only with it, and an
+/// unreadable stub makes the page treat the replacement as a failure.
+pub(super) fn with_cors(response: Vec<u8>, head: &[u8]) -> Vec<u8> {
+    let cors = cors_headers(head);
+    if cors.is_empty() {
+        return response;
+    }
+    // `head_end` points past the blank line that closes the head, and the two
+    // bytes before it are that blank line: the new headers go between the last
+    // header's own line break and it, never after it.
+    let Some(end) = header_end(&response).map(|end| end.saturating_sub(2)) else {
+        return response;
+    };
+    let mut out = Vec::with_capacity(response.len() + cors.len());
+    out.extend_from_slice(&response[..end]);
+    out.extend_from_slice(cors.as_bytes());
+    out.extend_from_slice(&response[end..]);
+    out
+}
+
 /// The answer a `$urltransform` rule gets when it moves the request to another
 /// origin.
 ///

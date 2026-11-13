@@ -12,7 +12,7 @@ use crate::filter::{CookiePlan, FilterEngine, HlsPlan, HtmlPlan, JsonprunePlan, 
 
 use super::http;
 use super::proxy::{
-    blocked_response, closing_response, content_hash, escape_for_script, header_end,
+    blocked_response, closing_response, content_hash, escape_for_script, header_end, with_cors,
     hide_stylesheet, local_asset, origin_form, rebuilt_head, redirect_response, rewritable,
     transform_redirect_response, versioned_path, PAGE_RUNTIME, PAGE_SCRIPT_PATH,
 };
@@ -327,6 +327,10 @@ pub(crate) fn decide_request(
                 .and_then(|data_url| redirect_response(&data_url))
         })
         .unwrap_or_else(blocked_response);
+    // A page that asked cross-origin must be able to read the answer: a stub
+    // it cannot read is a stub it treats as a failure, and a block it cannot
+    // read is the network error every anti-adblock probe waits for.
+    response = with_cors(response, &head[..head_end]);
     if method == "HEAD" {
         // A HEAD answer is headers only. The length of the body the same
         // request would have carried is already in the head, so dropping
