@@ -471,14 +471,22 @@ fn serve_one(listener: &Listener, query: &Inquiry, stop: &AtomicBool) {
             None => Served::Forwarded(forward_query(&query.body, stop, plain)),
         }
     } else {
-        let mut verdict = core.filter_engine().check_host(&host);
+        let filter = core.filter_engine();
+        let mut verdict = filter.check_host(&host);
         if verdict.blocked && verdict.rule_text.is_none() {
-            verdict = core.filter_engine().check_host_detailed(&host);
+            verdict = filter.check_host_detailed(&host);
         }
+        // A host a `$redirect` answers — or one a stub resource is swapped
+        // into, which the rule can only say with a path — is not refused here.
+        // The answer is a resource the HTTPS path serves, and only that path
+        // sees the request line the rule is written against. Without TLS
+        // termination there is nothing to serve it, so such a host is
+        // sinkholed as usual rather than let through unanswered.
+        let deferred = verdict.redirect && core.mitm_ready(&cfg);
         // A page the user took out of filtering: a query names no page, so the
         // exemption is remembered rather than looked up, and the resolver
         // stands down while it holds (see [`crate::page_exception`]).
-        if verdict.blocked && !core.filter_engine().excepted_page_open() {
+        if verdict.blocked && !deferred && !filter.excepted_page_open() {
             Served::Blocked {
                 message: dns::block_message(&parsed, cfg.block_mode).unwrap_or_default(),
                 rule: verdict.rule_text.unwrap_or_default(),
