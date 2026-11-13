@@ -87,6 +87,36 @@ const MAX_JS_RULES: usize = 64;
 /// one page. The corpus puts five on AdGuard Base; the cap is only there to
 /// keep a hand-written list from filling the payload.
 const MAX_GENERIC_STYLES: usize = 64;
+
+/// Counters for ad-block detectors the catalogue does not answer yet.
+///
+/// `adblock` has no built-in list of its own, and the catalogue lags behind the
+/// vendors: AdGuard Base's counter for nextchessmove.com looks for
+/// `head.appendChild.bind`, while the page now runs freestar's “ad block
+/// recovery” detector (`v1.5.2`, inline in the page's own markup), which shows
+/// “Looks like your ad blocker is on.” over a page that works fine. Its bait
+/// element carries every class an ad slot has (`ad`, `banner-ad`,
+/// `banner_ad`, …) plus a `data-freestar-ad` attribute, so our own hiding
+/// rules are what make it conclude the block is on; there is no selector that
+/// tells the bait apart from a real slot.
+///
+/// The counter is one HTML filter: the detector's `<script>` is cut out of the
+/// response, so the overlay is never built. `fs.cdi` is the detector's own
+/// `localStorage` key and travels in its source, which survives the CSS-module
+/// hashes in its markup; `max-length` has to be spelled out because the default
+/// (8192) is smaller than the script.
+///
+/// These lines are compiled with the user rules (the only text AdGuard keeps
+/// for a list that is not on disk, and a trusted one, which `$$` needs); they
+/// are attributed to “User Custom Filter” in the log like any other rule a
+/// subscription did not name.
+const BUILTIN_COUNTERS: &[&str] = &[
+    // freestar “ad block recovery” (nextchessmove.com runs it inline; other
+    // freestar sites get their own line when one is reported): `fs.cdi` is its
+    // config-domain index. Scoped per site on purpose — a document-wide rule
+    // makes every page carry a plan, and a page with a plan cannot stream.
+    "nextchessmove.com$$script[tag-content=\"fs.cdi\"][max-length=\"262144\"]",
+];
 const MAX_SCRIPTLET_BYTES: usize = 128 * 1024;
 const MAX_GENERIC_SELECTORS: usize = 3000;
 /// How many `$path` subsets keep their side engine. A page usually matches
@@ -1791,14 +1821,23 @@ impl FilterEngine {
             }
         }
 
+        // The built-in counters ([`BUILTIN_COUNTERS`]) travel with the user
+        // rules: that is the one text the engine compiles for a list that is
+        // not a file, and the only trusted one, which `$$` needs. They go
+        // *before* the user's own lines so a rule the user writes for the same
+        // page is never nullable by ours.
+        let mut source_rules = String::new();
+        for rule in BUILTIN_COUNTERS {
+            source_rules.push_str(rule);
+            source_rules.push('\n');
+        }
+        for rule in user_rules.iter().filter(|r| !r.trim().is_empty()) {
+            source_rules.push_str(rule);
+            source_rules.push('\n');
+        }
         // User rules go last: they must be able to win over any subscription.
-        if !user_rules.is_empty() {
-            let joined = user_rules
-                .iter()
-                .filter(|r| !r.trim().is_empty())
-                .cloned()
-                .collect::<Vec<_>>()
-                .join("\n");
+        if !source_rules.trim().is_empty() {
+            let joined = source_rules.trim_end().to_string();
             if let Some(key) = cache_key.as_mut() {
                 key.add_user_rules(&joined);
             }
@@ -9396,7 +9435,9 @@ mod tests {
     fn html_rules_edit_the_pages_they_cover() {
         let fe = cosmetic_engine("shop.test$$div[class=\"ad\"]\n");
         assert!(fe.has_html_rules());
-        assert_eq!(fe.html_rules_count(), 1);
+        // The list's rule plus the built-in counters ([`BUILTIN_COUNTERS`]),
+        // which are compiled with the user rules on every engine.
+        assert_eq!(fe.html_rules_count(), 1 + BUILTIN_COUNTERS.len() as u64);
         // An HTML filtering rule is not a URL, header or cookie rule, and it
         // edits instead of blocking.
         assert!(!fe.has_url_rules() && !fe.has_header_rules() && !fe.has_cookie_rules());
@@ -9416,7 +9457,7 @@ mod tests {
         assert!(cuts(&fe, "https://other.test/", "", "document").is_none());
         let fe = cosmetic_engine("shop.test$$div[class=\"ad\"]\nshop.test$@$div[class=\"ad\"]\n");
         assert!(cuts(&fe, url, "", "document").is_none());
-        assert_eq!(fe.html_rules_count(), 1);
+        assert_eq!(fe.html_rules_count(), 1 + BUILTIN_COUNTERS.len() as u64);
     }
 
     #[test]
@@ -9444,7 +9485,7 @@ mod tests {
              [$path=/watch/]shop.test$$div[class=\"ad\"]\n",
         );
         assert!(fe.has_html_rules());
-        assert_eq!(fe.html_rules_count(), 2);
+        assert_eq!(fe.html_rules_count(), 2 + BUILTIN_COUNTERS.len() as u64);
         // A subresource asks about the document it came from.
         let plan = cuts(&fe, "https://cdn.test/x.js", "https://shop.test/", "script")
             .expect("the page's rules cover its subresources");
@@ -9458,6 +9499,37 @@ mod tests {
             .expect("the uBO rule still covers any page")
             .apply(b"<div class=\"ad\">x</div>")
             .is_none());
+    }
+
+    /// The freestar counter cuts the ad-block detector out of the page, and
+    /// only out of the sites it names.
+    ///
+    /// The detector is inline in the page and shows an overlay over content
+    /// that works fine, because its bait element carries every class an ad
+    /// slot has. It is the HTML filter's job to take the script out before the
+    /// browser parses it; anything left behind runs.
+    #[test]
+    fn the_builtin_counter_removes_the_freestar_detector() {
+        let fe = cosmetic_engine("");
+        let page = "https://nextchessmove.com/";
+        let html = concat!(
+            "<html><head><title>t</title>",
+            "<script>(function(){var cd=localStorage.getItem(\"fs.cdi\");",
+            "if(failed)throw new Error(\"fs-adb-err\")})();</script>",
+            "<script>var page = 1;</script></head><body>x</body></html>"
+        );
+        let plan = cuts(&fe, page, "", "document").expect("the counter covers the page");
+        let (body, applied) = plan.apply(html.as_bytes()).expect("the detector goes");
+        let body = String::from_utf8(body).expect("utf8");
+        assert!(!body.contains("fs-adb-err"), "{body}");
+        assert!(body.contains("var page = 1"), "the page's own scripts stay: {body}");
+        assert_eq!(applied.len(), 1, "{applied:?}");
+        // Another site is not covered by it.
+        let other = cuts(&fe, "https://example.test/", "", "document");
+        assert!(
+            other.map(|plan| plan.apply(html.as_bytes()).is_none()) != Some(false),
+            "the counter must not touch another site"
+        );
     }
 
     #[test]
