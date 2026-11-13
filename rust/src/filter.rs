@@ -7539,6 +7539,41 @@ fn categorise(rule: Option<&str>, host: &str) -> u8 {
 #[cfg(test)]
 mod tests {
 
+    /// `trusted-replace-argument` with a `replace:` value must leave a
+    /// non-string argument alone.
+    ///
+    /// AdGuard Base tells both `thestreet.com` and `nextchessmove.com` to run
+    /// `//scriptlet('trusted-replace-argument', 'Element.prototype.setAttribute',
+    /// '1', 'replace:/.+error-report.+//g')`. The upstream `replace:` branch
+    /// assigns the replacement to the argument whatever its type, so a page
+    /// that passes a *number* to `setAttribute` — nextchessmove.com builds its
+    /// whole board that way — gets an empty attribute value: 64 squares with
+    /// `x="" width=""` and one giant piece drawn over the board. The `replace:`
+    /// marker only ever rewrites strings, so a non-string argument has to pass
+    /// through untouched. This guards the patched entry against a regeneration
+    /// of the table from the unpatched source.
+    #[test]
+    fn a_replace_scriptlet_leaves_non_string_arguments_untouched() {
+        let entry = scriptlet_resources()
+            .iter()
+            .find(|r| r.name == "trusted-replace-argument.js")
+            .expect("the table carries trusted-replace-argument");
+        let source = BASE64.decode(&entry.content).unwrap_or_default();
+        let source = String::from_utf8_lossy(&source);
+        assert!(
+            !source.contains(
+                "shouldReplaceArgument?argumentToReplace.replace(replaceRegexValue,constantValue):constantValue"
+            ),
+            "the patched branch is gone; the table was regenerated from upstream"
+        );
+        assert!(
+            source.contains(
+                "shouldReplaceArgument?argumentToReplace.replace(replaceRegexValue,constantValue):shouldReplaceArgument?argumentToReplace:constantValue"
+            ),
+            "a non-string argument must not be replaced by the `replace:` value"
+        );
+    }
+
     /// A dnsmasq list (installed as a hosts row) and an adblock DNS list agree
     /// about the same domain in two syntaxes; the second copy is dropped.
     #[test]
