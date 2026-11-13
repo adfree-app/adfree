@@ -10,6 +10,7 @@ noticed.
 | --- | --- | --- | --- |
 | `rust/src/assets.rs::fetch_text` | filter lists, userscripts, `@require` bodies | overall 60 s, 32 MiB cap, `BoundedResolver` 10 s for the name | **name resolution had no bound at all** — fixed |
 | `AdGuardRepository.scriptStoreClient` | Greasy Fork search/pages, `addScript` body fetch | connect 15 s, read 20 s, call 60 s | call timeout was 0 (infinite) — fixed |
+| selected resolver | Quad9 (`9.9.9.9`) — switched from AdGuard DNS on 2026-11-13; `rust/examples/set_dns.rs` changes it without the UI | | |
 | `AppUpdateChecker.client` | GitHub releases API, APK download | connect 15 s, read 30 s, call 180 s | call timeout was 0 (infinite) — fixed |
 | `AdGuardRepository` → `core_filter_fetch` / `core_script_fetch` / `core_services_fetch` | same `fetch_text` above | inherits | — |
 | `platform/AssistantBridge` | answers the browser extension over a local socket | `read_frame`, no idle timeout | left as is: the popup holds the connection open for pushes, so an idle timeout would drop it |
@@ -76,6 +77,32 @@ Two more holes were closed in the same place:
   server is the lossy one, the retry above is what keeps lookups answering.
   Switching it (`core_set_dns_server` / the settings screen) is the user's
   lever, not a fallback this code invents.
+
+## Under load, and what is left
+
+Sixty concurrent page fetches through the proxy, twice: 45/45 answered for
+reachable hosts, and the fd, thread and RSS counts of the process did not move
+(119/71/537 MB before, 115/69/537 MB after sixty more). Every fetch to
+`www.gnu.org` failed at 10 s in the same window — `curl` without the proxy fails
+the same way from this network, so that one is the far end refusing, not us.
+
+A DNS lookup past the in-flight cap used to be dropped in silence, which under a
+lookup storm reads as a resolver that stopped working. It says so once now, like
+the connection cap does.
+
+`panic = "abort"` is set for release: a panic anywhere in the core takes the
+whole app down, not just one connection. The hot paths were checked for panics
+on wire data (lengths, header slicing, ECH parsing): the only `unwrap`s left are
+`Mutex::lock()` results, which cannot poison under `abort`.
+
+Still open, deliberately:
+
+* `resolve_authority` in the plain-HTTP proxy path resolves through the system
+  resolver with no bound. It runs only for an explicit `CONNECT host:port` (not
+  for redirected traffic), on that connection's own thread, and the system
+  resolver is not the stub, so a slow answer costs one request.
+* A `getaddrinfo` that hangs leaks one thread in `BoundedResolver`. It cannot be
+  interrupted; the wait is what is bounded.
 
 ## Not the app: the free-pi connect failure
 

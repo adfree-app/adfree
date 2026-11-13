@@ -362,7 +362,15 @@ pub(crate) fn serve_loop(listeners: Vec<Listener>, stop: Arc<AtomicBool>) {
                 in_flight.fetch_sub(1, Ordering::Relaxed);
                 // Past the cap: silence, and the client's own retry comes back
                 // when a worker has retired. Dropping a query is cheaper for
-                // the machine than answering it late.
+                // the machine than answering it late — but the log has to say
+                // so once, or a lookup storm reads as a broken resolver.
+                static ANNOUNCED: AtomicBool = AtomicBool::new(false);
+                if !ANNOUNCED.swap(true, Ordering::Relaxed) {
+                    crate::logbuf::push(&format!(
+                        "proxy: {IN_FLIGHT} DNS queries are still waiting upstream; \
+                         dropping new ones until a worker retires"
+                    ));
+                }
                 continue;
             }
             let listener = std::sync::Arc::clone(&listeners[index]);
