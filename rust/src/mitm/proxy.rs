@@ -338,6 +338,12 @@ pub struct ProxySession {
     /// been read. Stored on the session because the refusal arrives *after*
     /// the pending state is gone.
     client_fingerprint: Option<String>,
+    /// Whether the client's hello offered `http/1.1` in ALPN. Browsers always
+    /// do; a program using a bundled TLS stack usually offers nothing at all.
+    /// Kept because the two need opposite answers to a silent close: for a
+    /// browser it is a preconnect being dropped, for the other it may be the
+    /// only evidence of a refused certificate.
+    client_alpn_http1: Option<bool>,
     /// How many application bytes the client sent after its handshake. Zero
     /// is how a refused certificate looks from here: the client saw the leaf
     /// and left without a request (see [`Self::on_client_eof`]).
@@ -703,6 +709,7 @@ impl ProxySession {
             https_skip_apps: Arc::new(HashSet::new()),
             untrusted: None,
             client_fingerprint: None,
+            client_alpn_http1: None,
             client_plain_bytes: 0,
             served_noted: false,
             upstream_plain: None,
@@ -759,6 +766,7 @@ impl ProxySession {
             https_skip_apps: Arc::new(HashSet::new()),
             untrusted: None,
             client_fingerprint: None,
+            client_alpn_http1: None,
             client_plain_bytes: 0,
             served_noted: false,
             upstream_plain: None,
@@ -828,6 +836,7 @@ impl ProxySession {
             https_skip_apps: Arc::new(HashSet::new()),
             untrusted: None,
             client_fingerprint: None,
+            client_alpn_http1: None,
             client_plain_bytes: 0,
             served_noted: false,
             upstream_plain: None,
@@ -1014,6 +1023,17 @@ impl ProxySession {
         // preconnects from one browser are indistinguishable from two refusals
         // and would otherwise switch the injection off for every site it visits.
         let fingerprint = self.client_fingerprint.clone().unwrap_or_default();
+        // A hello that offers `http/1.1` in ALPN comes from an HTTP client with
+        // a browser-grade stack, and those do not fail quietly: a refused
+        // certificate gives the user an error page, not a dropped socket. What
+        // this shape describes instead is Chrome preconnecting to the host it
+        // is about to navigate to and dropping the sockets it does not use —
+        // which, believed, marks the host as refused for that client for good,
+        // because a learned pair is consulted before the host is ever served.
+        // That is how www.youtube.com ended up spliced and unfiltered.
+        if self.client_alpn_http1 == Some(true) {
+            return Some(name);
+        }
         let learned = self
             .untrusted
             .as_deref()
@@ -1100,6 +1120,7 @@ impl ProxySession {
         {
             let name = server_name.as_deref().unwrap_or("?");
             self.client_fingerprint = Some(fingerprint.clone());
+            self.client_alpn_http1 = alpn_http1;
             presented = Some(name.to_string());
             if self.https_skip.matches(name)
                 || (self.https_only_mode && !self.https_only.matches(name))
@@ -2620,7 +2641,18 @@ impl ProxySession {
                         emit_edited(&mut out, &head, &new_body, recompress);
                     } else {
                         // Nothing to inject, or nowhere to put it: the bytes
-                        // the origin sent go on untouched.
+                        // the origin sent go on untouched. A body the injector
+                        // refused for its size is worth saying out loud: the
+                        // page then runs with no cosmetic rules at all, which
+                        // looks exactly like a broken engine.
+                        if inject && plain.len() > http::MAX_INJECTABLE_BODY {
+                            crate::logbuf::push(&format!(
+                                "mitm {}: {} byte body is over the {} byte inject cap, swept past uninjected",
+                                self.captured.as_deref().unwrap_or("?"),
+                                plain.len(),
+                                http::MAX_INJECTABLE_BODY
+                            ));
+                        }
                         emit_passthrough(&mut out, &head, &body, framing, encoding);
                     }
                     self.resp_phase = RespPhase::Head;

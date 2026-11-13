@@ -900,7 +900,7 @@ fn a_client_that_hangs_up_without_a_request_is_learned() {
         .add(rustls::pki_types::CertificateDer::from(mitm_ca.cert_der()))
         .expect("browser root");
     let name = ServerName::try_from("api.example.com".to_string()).expect("server name");
-    let mut client = ClientConnection::new(tls::client_config_with(roots), name).expect("client");
+    let mut client = ClientConnection::new(tls::client_config_bare_with(roots), name).expect("client");
 
     // Drive the handshake to completion without a request in between.
     let mut plain = Vec::new();
@@ -960,7 +960,7 @@ fn a_close_without_a_request_splices_the_pair_not_the_app() {
 
     let roots = rustls::RootCertStore::empty();
     let name = ServerName::try_from("api.example.com".to_string()).expect("server name");
-    let mut client = ClientConnection::new(tls::client_config_with(roots), name).expect("client");
+    let mut client = ClientConnection::new(tls::client_config_bare_with(roots), name).expect("client");
     let hello = tls::take_client_outbound(&mut client);
     proxy.on_client_payload(&hello).expect("first flight");
 
@@ -972,6 +972,51 @@ fn a_close_without_a_request_splices_the_pair_not_the_app() {
         !untrusted.refuses("api.example.com", "a-browser-fingerprint"),
         "another client on the same host keeps being filtered"
     );
+}
+
+/// A hello that offers `http/1.1` in ALPN is a browser, and a browser does not
+/// refuse a certificate quietly — it shows the user an error page. The only
+/// thing that shape describes is a preconnect being dropped, so nothing may be
+/// learned from it.
+///
+/// This is the bug that cost www.youtube.com its filtering: Chrome preconnected
+/// to the host it was about to navigate to seven times over, every close was
+/// believed, and a learned pair is consulted before the host is ever served —
+/// so the site travelled spliced, with no injected runtime and no cosmetic
+/// rules, and nothing in the log said why.
+#[test]
+fn a_browser_shaped_close_teaches_nothing() {
+    use rustls::pki_types::ServerName;
+    use rustls::ClientConnection;
+
+    let mitm_ca = CertificateAuthority::generate().expect("mitm ca");
+    let untrusted = crate::mitm::untrusted::UntrustedClients::new();
+    let resolver = Arc::new(SniCertResolver::new(Arc::new(
+        CertificateAuthority::from_pem(&mitm_ca.cert_pem(), &mitm_ca.key_pem()).expect("restore"),
+    )));
+    let mut proxy = ProxySession::new_pending(
+        resolver,
+        tls::UpstreamTls::system(),
+        "/adfree-user.js".into(),
+        Arc::from(""),
+    )
+    .expect("pending session");
+    proxy.set_untrusted(Arc::clone(&untrusted));
+
+    let roots = rustls::RootCertStore::empty();
+    let name = ServerName::try_from("www.example.com".to_string()).expect("server name");
+    // `client_config_with` offers `http/1.1`, which is what a browser hello has.
+    let mut client = ClientConnection::new(tls::client_config_with(roots), name).expect("client");
+    let hello = tls::take_client_outbound(&mut client);
+    proxy.on_client_payload(&hello).expect("first flight");
+
+    assert_eq!(Some("www.example.com".to_string()), proxy.on_client_eof());
+    assert!(
+        untrusted.is_empty(),
+        "a browser's dropped preconnect is not a refusal: {:?}",
+        untrusted.snapshot()
+    );
+    assert!(!untrusted.refuses("www.example.com", "any-fingerprint"));
 }
 
 /// The same close after a request is an ordinary end of conversation, not a

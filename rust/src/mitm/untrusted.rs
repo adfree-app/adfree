@@ -50,6 +50,22 @@ const MAX_SERVED: usize = 4096;
 /// The `state` row the learned pairs survive a restart in.
 const STATE_KEY: &str = "mitm.untrusted_clients";
 
+/// What the row holds: hosts → the clients that refused them.
+///
+/// Versioned because the meaning of a stored pair changed once already. The
+/// first shape was the bare map, written when a silent close from a browser's
+/// preconnect counted as a refusal, so it can hold pairs that were never
+/// refusals at all — and a stored pair is believed before the host is ever
+/// served, which leaves no way back. Such a row is dropped rather than
+/// migrated: the cost of learning a real refusal again is one handshake.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Persisted {
+    version: u32,
+    hosts: HashMap<String, HashSet<String>>,
+}
+
+const STATE_VERSION: u32 = 3;
+
 /// The remembered `(host → client fingerprints)` pairs.
 #[derive(Default)]
 pub struct UntrustedClients {
@@ -62,6 +78,14 @@ pub struct UntrustedClients {
     /// request. A pair in here has already proved it accepts this certificate:
     /// whatever a later silent close means, it does not mean that.
     served: Mutex<HashSet<(String, String)>>,
+    /// The fingerprints that have carried a request *anywhere*. A client whose
+    /// shape is in here is a working TLS stack that some connection reached an
+    /// origin with, so a silent close from it is a preconnect being dropped —
+    /// never a refused certificate. Without this a browser's own speculative
+    /// connections can teach the proxy to splice a host it filters perfectly
+    /// well, and nothing ever un-learns it: the pair is consulted before the
+    /// host is served, so a poisoned pair can never serve again.
+    served_fingerprints: Mutex<HashSet<String>>,
     /// The database the set is written back to, once the platform has handed
     /// the data root down. Without it the set lives as long as the engine,
     /// which is what a platform that never calls `set_store` gets.
@@ -125,6 +149,11 @@ impl UntrustedClients {
         let mut served = self.served.lock().unwrap_or_else(|e| e.into_inner());
         if served.len() < MAX_SERVED {
             served.insert((host.to_string(), fingerprint.to_string()));
+            drop(served);
+            self.served_fingerprints
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(fingerprint.to_string());
         }
     }
 
@@ -146,6 +175,19 @@ impl UntrustedClients {
         // and the close was a preconnect being dropped.
         if self.served.lock().unwrap_or_else(|e| e.into_inner())
             .contains(&(host.to_string(), fingerprint.to_string()))
+        {
+            return false;
+        }
+        // The same client talked to us somewhere else, so its trust store holds
+        // the CA and this close is a preconnect. Chrome opens and drops them
+        // for the host a page is about to navigate to; believing those marked
+        // www.youtube.com as a refusing client seven times over and left every
+        // cosmetic rule on the site unapplied.
+        if self
+            .served_fingerprints
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(fingerprint)
         {
             return false;
         }
@@ -186,8 +228,13 @@ impl UntrustedClients {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .retain(|(h, _)| h != host);
+            self.prune_served_fingerprints();
         } else {
             self.served
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clear();
+            self.served_fingerprints
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .clear();
@@ -216,6 +263,18 @@ impl UntrustedClients {
             .hosts_by_fingerprint
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = by_fingerprint;
+    }
+
+    /// Drops the fingerprints whose served pair was forgotten, so the veto on
+    /// weak evidence stays a statement about pairs that still exist.
+    fn prune_served_fingerprints(&self) {
+        let served = self.served.lock().unwrap_or_else(|e| e.into_inner());
+        let live: HashSet<String> = served.iter().map(|(_, f)| f.clone()).collect();
+        drop(served);
+        self.served_fingerprints
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|f| live.contains(f));
     }
 
     /// True when this client has refused the CA on enough hosts that it is the
@@ -314,19 +373,36 @@ impl UntrustedClients {
         // suggest otherwise.
         std::fs::remove_file(store.root().join("untrusted-clients.json")).ok();
         if let Some(text) = store.state_get(STATE_KEY) {
-            match serde_json::from_str::<HashMap<String, HashSet<String>>>(&text) {
-                Ok(learned) => {
-                    let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
-                    for (host, fingerprints) in learned.into_iter().take(MAX_HOSTS) {
-                        for fingerprint in &fingerprints {
-                            self.remember_host(fingerprint, &host);
+            // The first shape was the bare map, with no version to read. It is
+            // the shape that could hold a browser preconnect as a refusal, so
+            // it is not migrated — only the count of what goes is reported.
+            let version = serde_json::from_str::<serde_json::Value>(&text)
+                .ok()
+                .and_then(|v| v.get("version")?.as_u64());
+            match version {
+                Some(v) if v == STATE_VERSION as u64 => {
+                    match serde_json::from_str::<Persisted>(&text) {
+                        Ok(learned) => {
+                            let mut entries =
+                                self.entries.lock().unwrap_or_else(|e| e.into_inner());
+                            for (host, fingerprints) in learned.hosts.into_iter().take(MAX_HOSTS) {
+                                for fingerprint in &fingerprints {
+                                    self.remember_host(fingerprint, &host);
+                                }
+                                entries.entry(host).or_default().extend(fingerprints);
+                            }
                         }
-                        entries.entry(host).or_default().extend(fingerprints);
+                        Err(e) => crate::logbuf::push_error(&format!(
+                            "mitm: unreadable certificate-refusal memory: {e}"
+                        )),
                     }
                 }
-                Err(e) => crate::logbuf::push_error(&format!(
-                    "mitm: unreadable certificate-refusal memory: {e}"
+                Some(v) => crate::logbuf::push(&format!(
+                    "mitm: dropping the certificate-refusal memory of an older build (version {v})"
                 )),
+                None => crate::logbuf::push(
+                    "mitm: dropping the certificate-refusal memory of an older build (unversioned)",
+                ),
             }
         }
         *self.store.lock().unwrap_or_else(|e| e.into_inner()) = Some(store);
@@ -347,7 +423,10 @@ impl UntrustedClients {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
-        let body = match serde_json::to_string(&snapshot) {
+        let body = match serde_json::to_string(&Persisted {
+            version: STATE_VERSION,
+            hosts: snapshot,
+        }) {
             Ok(body) => body,
             Err(e) => {
                 crate::logbuf::push_error(&format!("mitm: cannot encode the refusal memory: {e}"));
@@ -433,6 +512,31 @@ mod tests {
         assert!(!set.refuses("shop.example", "chrome-fp"));
         // Another client on the same host is still judged on its own close.
         assert!(set.note_weak("shop.example", "node-fp"));
+    }
+
+    /// A client that has carried a request anywhere is not refusing the CA: a
+    /// silent close from it is a speculative connection being dropped.
+    ///
+    /// Chrome preconnects to the host it is about to navigate to and drops the
+    /// sockets it does not use. Those closes taught the proxy that
+    /// www.youtube.com was refused seven times over, and since a learned pair is
+    /// believed before the host is ever served, the site then travelled
+    /// spliced: no injected runtime, no cosmetic rules, and the home page's
+    /// sponsored cards came back with nothing in the log to explain it.
+    #[test]
+    fn a_client_that_talked_to_us_is_never_learned_from_a_close() {
+        let set = UntrustedClients::new();
+        // Chrome reaches some other host with the same TLS shape…
+        set.note_served("accounts.example", "chrome-fp");
+        // …so its preconnects elsewhere say nothing about its trust store.
+        assert!(!set.note_weak("www.example", "chrome-fp"));
+        assert!(!set.refuses("www.example", "chrome-fp"));
+        // A stack that never carried a request is still learned from a close:
+        // that is the Node-shaped case the inference exists for.
+        assert!(set.note_weak("www.example", "node-fp"));
+        // Forgetting what a fingerprint served re-opens the question for it.
+        set.forget(Some("accounts.example"));
+        assert!(set.note_weak("www.example", "chrome-fp"));
     }
 
     /// An alert is the client saying it refused the certificate, and that one

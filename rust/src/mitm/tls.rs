@@ -250,6 +250,18 @@ pub fn client_config_with(roots: rustls::RootCertStore) -> Arc<ClientConfig> {
     Arc::new(config)
 }
 
+/// A client that offers no ALPN at all: what a program with its own bundled
+/// TLS stack looks like from here (Node, a Rust binary, a game client). The
+/// proxy only infers a refused certificate from such a close, so the tests need
+/// a way to be that client.
+pub fn client_config_bare_with(roots: rustls::RootCertStore) -> Arc<ClientConfig> {
+    Arc::new(
+        ClientConfig::builder()
+            .with_root_certificates(roots)
+            .with_no_client_auth(),
+    )
+}
+
 /// The QUIC variant of [`client_config_with`]: same trust anchors, negotiated
 /// as `h3`.
 pub fn client_config_h3_with(roots: rustls::RootCertStore) -> Arc<ClientConfig> {

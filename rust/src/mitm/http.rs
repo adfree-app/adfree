@@ -25,8 +25,19 @@ pub enum Decision {
     NoInsertPoint,
 }
 
-/// Largest HTML body we are willing to rewrite, to bound memory use.
-pub const MAX_INJECTABLE_BODY: usize = 512 * 1024;
+/// Largest HTML body the injector will edit in one piece, to bound memory use.
+///
+/// This is the *decoded* document, and it is not the wire cap: a body only
+/// lands here whole when its compressed size stayed under
+/// [`REPLACE_AFTER`], so a page that is dense in repeated markup can be very
+/// large on screen and small on the wire. The YouTube home page is the one that
+/// proved the old 512 KiB line wrong — 2.2 MB of HTML that gzips to under
+/// 400 KB — and a body that is refused here loses *every* cosmetic rule the
+/// lists carry for the page, which reads as “the ad blocker is doing nothing”.
+/// Anything past this is still injected by the streaming path, which never
+/// holds the document at all; the cap only says when it is cheaper to re-encode
+/// what is already in hand than to start over.
+pub const MAX_INJECTABLE_BODY: usize = 8 * 1024 * 1024;
 
 /// Caps on the class/id tokens scanned out of one body, so the generic-rule
 /// lookup stays bounded on pathological pages.
@@ -1960,6 +1971,27 @@ mod tests {
         assert!(String::from_utf8(out)
             .unwrap()
             .starts_with("<html><body><script"));
+    }
+
+    /// A page that is only big after decompression is still a page.
+    ///
+    /// www.youtube.com ships 2.2 MB of HTML that gzips to under 400 KB, so the
+    /// whole document is in hand while the wire cap never trips. Refusing it
+    /// cost the site every cosmetic rule the lists carry — input ads on the
+    /// home page, promoted cards in the feed — with nothing in the log to say
+    /// why.
+    #[test]
+    fn a_document_past_the_old_cap_is_still_injected() {
+        let mut body = String::from("<!doctype html><html><head><title>t</title></head><body>");
+        body.push_str(&"<div class=\"ad\">x</div>".repeat(90_000));
+        body.push_str("</body></html>");
+        assert!(
+            body.len() > 512 * 1024,
+            "the body has to stand for the case that was refused"
+        );
+        let (out, d) = inject_script(body.as_bytes(), "/a.js");
+        assert_eq!(d, Decision::Injected);
+        assert!(out.len() > body.len());
     }
 
     #[test]
