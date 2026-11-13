@@ -15,6 +15,8 @@
 
 use crate::engine::VpnStats;
 use crate::events;
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine as _;
 use crate::filter::{FilterListInfo, ListFormat};
 use std::sync::Arc;
 use std::time::Duration;
@@ -1598,6 +1600,112 @@ pub fn core_ca_pem() -> String {
     })
 }
 
+/// Starts the tun for a host that has no descriptor to give.
+///
+/// iOS is the one: a Network Extension sees a `NEPacketTunnelFlow` — packets in
+/// and packets out — and no `utun` fd. The host feeds [`core_packet_in`] from
+/// the packets it reads and writes whatever [`core_packets_out`] returns. The
+/// filtering itself is the same code that runs behind a descriptor.
+#[uniffi::export]
+pub fn core_start_packets() {
+    guard((), || crate::core().start_pull())
+}
+
+/// Hands one inbound IP packet to the core.
+#[uniffi::export]
+pub fn core_packet_in(packet: Vec<u8>) {
+    guard((), || crate::core().inject_packet(&packet))
+}
+
+/// Takes the packets the core wants written, each prefixed with its length as a
+/// big-endian `u16`. Empty when there is nothing to write — which is the common
+/// case, so the caller should not treat it as an error.
+#[uniffi::export]
+pub fn core_packets_out() -> Vec<u8> {
+    guard(Vec::new(), || crate::core().poll_packets())
+}
+
+/// The root CA as an Apple configuration profile (`.mobileconfig`).
+///
+/// iOS has no "user certificate" screen: a CA is installed by opening a profile
+/// and then trusting it by hand in Settings → General → About → Certificate
+/// Trust Settings. Without that second step the CA is installed and inert,
+/// which is exactly the state an MITM attempt fails in, so the app has to say
+/// so. The profile is unsigned — a signed one needs an MDM identity — and iOS
+/// shows the orange "unsigned" banner on install.
+#[uniffi::export]
+pub fn core_ca_mobileconfig() -> String {
+    guard(String::new(), || {
+        let der = root_ca_der();
+        if der.is_empty() {
+            return String::new();
+        }
+        mobileconfig_for(&der)
+    })
+}
+
+/// The profile body for one certificate, so a test can check it without a
+/// running core.
+fn mobileconfig_for(der: &[u8]) -> String {
+    let uuid = profile_uuid(der);
+    format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>PayloadContent</key>
+  <array>
+    <dict>
+      <key>PayloadCertificateFileName</key><string>adfree-ca.cer</string>
+      <key>PayloadContent</key><data>{cert}</data>
+      <key>PayloadDescription</key><string>AdFree root certificate</string>
+      <key>PayloadDisplayName</key><string>AdFree root certificate</string>
+      <key>PayloadIdentifier</key><string>git.shin.adfree.ca.{uuid}</string>
+      <key>PayloadType</key><string>com.apple.security.root</string>
+      <key>PayloadUUID</key><string>{uuid}</string>
+      <key>PayloadVersion</key><integer>1</integer>
+    </dict>
+  </array>
+  <key>PayloadDescription</key><string>Installs the AdFree root certificate. After installing, open Settings → General → About → Certificate Trust Settings and turn on full trust for it.</string>
+  <key>PayloadDisplayName</key><string>AdFree root certificate</string>
+  <key>PayloadIdentifier</key><string>git.shin.adfree.profile.{uuid}</string>
+  <key>PayloadRemovalDisallowed</key><false/>
+  <key>PayloadType</key><string>Configuration</string>
+  <key>PayloadUUID</key><string>{uuid}</string>
+  <key>PayloadVersion</key><integer>1</integer>
+</dict>
+</plist>
+"#,
+        cert = BASE64.encode(der),
+        uuid = uuid,
+    )
+}
+
+/// A UUID derived from the certificate, so re-installing replaces the profile
+/// instead of stacking a second copy of the same CA on the device.
+fn profile_uuid(der: &[u8]) -> String {
+    // Two independent hashes over the certificate, so the shape is the 8-4-4-4-12
+    // a UUID is expected to have and the value still depends on nothing else.
+    let mut digest = [0u8; 16];
+    let first = crate::fxhash::hash_str(&BASE64.encode(der)).to_be_bytes();
+    let second = crate::fxhash::hash_str(&format!("{}:adfree-ca", der.len())).to_be_bytes();
+    digest[..8].copy_from_slice(&first);
+    digest[8..].copy_from_slice(&second);
+    let mut hex = String::with_capacity(32);
+    for byte in digest {
+        use std::fmt::Write as _;
+        let _ = write!(hex, "{byte:02x}");
+    }
+    format!(
+        "{}-{}-{}-{}-{}",
+        &hex[0..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..32]
+    )
+}
+
 /// Root-mode state for the UI, mirroring [`crate::trust::RootTrust`].
 #[derive(uniffi::Record, Clone, Debug, Default)]
 pub struct RootTrustBinding {
@@ -1787,6 +1895,32 @@ pub fn core_combined_scripts() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// iOS installs a CA by profile and then trusts it by hand; a profile with
+    /// the wrong shape installs nothing, and one whose UUID changes on every
+    /// build stacks a second copy of the same CA on the device.
+    #[test]
+    fn the_ca_profile_is_a_plist_apple_can_install() {
+        let der = vec![0x30u8, 0x82, 0x01, 0x0a, 0xde, 0xad, 0xbe, 0xef];
+        let plist = mobileconfig_for(&der);
+        assert!(plist.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
+        assert!(plist.contains("<string>com.apple.security.root</string>"));
+        assert!(plist.contains("<string>Configuration</string>"));
+        // The certificate travels as DER base64 inside <data>.
+        assert!(plist.contains(&format!("<data>{}</data>", BASE64.encode(&der))));
+        // Removable: an unsigned profile the user cannot delete is a support
+        // ticket, not a feature.
+        assert!(plist.contains("<key>PayloadRemovalDisallowed</key><false/>"));
+
+        let uuid = profile_uuid(&der);
+        assert_eq!(uuid.len(), 36, "{uuid}");
+        let groups: Vec<usize> = uuid.split('-').map(str::len).collect();
+        assert_eq!(groups, vec![8, 4, 4, 4, 12]);
+        assert!(uuid.chars().all(|c| c.is_ascii_hexdigit() || c == '-'));
+        // Deterministic, and only as unique as the certificate.
+        assert_eq!(uuid, profile_uuid(&der));
+        assert_ne!(uuid, profile_uuid(b"another certificate"));
+    }
 
     #[test]
     fn list_binding_round_trips() {

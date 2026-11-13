@@ -761,6 +761,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_adfree_core_checksum_func_core_ca_key_pem(
     ): Int
+    external fun uniffi_adfree_core_checksum_func_core_ca_mobileconfig(
+    ): Int
     external fun uniffi_adfree_core_checksum_func_core_ca_pem(
     ): Int
     external fun uniffi_adfree_core_checksum_func_core_check_host(
@@ -826,6 +828,10 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_adfree_core_checksum_func_core_log_window_totals_since(
     ): Int
     external fun uniffi_adfree_core_checksum_func_core_mitm_status(
+    ): Int
+    external fun uniffi_adfree_core_checksum_func_core_packet_in(
+    ): Int
+    external fun uniffi_adfree_core_checksum_func_core_packets_out(
     ): Int
     external fun uniffi_adfree_core_checksum_func_core_probe_dns(
     ): Int
@@ -912,6 +918,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_adfree_core_checksum_func_core_set_windivert_dir(
     ): Int
     external fun uniffi_adfree_core_checksum_func_core_start(
+    ): Int
+    external fun uniffi_adfree_core_checksum_func_core_start_packets(
     ): Int
     external fun uniffi_adfree_core_checksum_func_core_start_proxy(
     ): Int
@@ -1012,6 +1020,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_adfree_core_fn_func_core_ca_key_pem(uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_adfree_core_fn_func_core_ca_mobileconfig(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_adfree_core_fn_func_core_ca_pem(uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_adfree_core_fn_func_core_check_host(`host`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1077,6 +1087,10 @@ internal object UniffiLib {
     external fun uniffi_adfree_core_fn_func_core_log_window_totals_since(`sinceMs`: Long,`transport`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_adfree_core_fn_func_core_mitm_status(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_adfree_core_fn_func_core_packet_in(`packet`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_adfree_core_fn_func_core_packets_out(uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_adfree_core_fn_func_core_probe_dns(`protocol`: RustBuffer.ByValue,`address`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1163,6 +1177,8 @@ internal object UniffiLib {
     external fun uniffi_adfree_core_fn_func_core_set_windivert_dir(`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_adfree_core_fn_func_core_start(`tunFd`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_adfree_core_fn_func_core_start_packets(uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_adfree_core_fn_func_core_start_proxy(`tcpPort`: Short,`dnsPort`: Short,`filterLocalhost`: Byte,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1339,6 +1355,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_adfree_core_checksum_func_core_ca_key_pem() and 0xFFFF) != 284) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_adfree_core_checksum_func_core_ca_mobileconfig() and 0xFFFF) != 29820) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_adfree_core_checksum_func_core_ca_pem() and 0xFFFF) != 25216) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1436,6 +1455,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_adfree_core_checksum_func_core_mitm_status() and 0xFFFF) != 1875) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_adfree_core_checksum_func_core_packet_in() and 0xFFFF) != 51382) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_adfree_core_checksum_func_core_packets_out() and 0xFFFF) != 24573) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_adfree_core_checksum_func_core_probe_dns() and 0xFFFF) != 50993) {
@@ -1565,6 +1590,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_adfree_core_checksum_func_core_start() and 0xFFFF) != 51365) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_adfree_core_checksum_func_core_start_packets() and 0xFFFF) != 23951) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_adfree_core_checksum_func_core_start_proxy() and 0xFFFF) != 16698) {
@@ -7299,6 +7327,26 @@ public object FfiConverterSequenceTypeUidApps: FfiConverterRustBuffer<List<UidAp
     
 
         /**
+         * The root CA as an Apple configuration profile (`.mobileconfig`).
+         *
+         * iOS has no "user certificate" screen: a CA is installed by opening a profile
+         * and then trusting it by hand in Settings → General → About → Certificate
+         * Trust Settings. Without that second step the CA is installed and inert,
+         * which is exactly the state an MITM attempt fails in, so the app has to say
+         * so. The profile is unsigned — a signed one needs an MDM identity — and iOS
+         * shows the orange "unsigned" banner on install.
+         */ fun `coreCaMobileconfig`(): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_adfree_core_fn_func_core_ca_mobileconfig(
+    
+        _status)
+}
+    )
+    }
+    
+
+        /**
          * PEM of the CA certificate currently loaded.
          */ fun `coreCaPem`(): kotlin.String {
             return FfiConverterString.lift(
@@ -7739,6 +7787,34 @@ public object FfiConverterSequenceTypeUidApps: FfiConverterRustBuffer<List<UidAp
             return FfiConverterTypeMitmStatus.lift(
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_adfree_core_fn_func_core_mitm_status(
+    
+        _status)
+}
+    )
+    }
+    
+
+        /**
+         * Hands one inbound IP packet to the core.
+         */ fun `corePacketIn`(`packet`: kotlin.ByteArray)
+        = 
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_adfree_core_fn_func_core_packet_in(
+    
+        
+        FfiConverterByteArray.lower(`packet`),_status)
+}
+    
+    
+
+        /**
+         * Takes the packets the core wants written, each prefixed with its length as a
+         * big-endian `u16`. Empty when there is nothing to write — which is the common
+         * case, so the caller should not treat it as an error.
+         */ fun `corePacketsOut`(): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_adfree_core_fn_func_core_packets_out(
     
         _status)
 }
@@ -8360,6 +8436,23 @@ public object FfiConverterSequenceTypeUidApps: FfiConverterRustBuffer<List<UidAp
     
         
         FfiConverterInt.lower(`tunFd`),_status)
+}
+    
+    
+
+        /**
+         * Starts the tun for a host that has no descriptor to give.
+         *
+         * iOS is the one: a Network Extension sees a `NEPacketTunnelFlow` — packets in
+         * and packets out — and no `utun` fd. The host feeds [`core_packet_in`] from
+         * the packets it reads and writes whatever [`core_packets_out`] returns. The
+         * filtering itself is the same code that runs behind a descriptor.
+         */ fun `coreStartPackets`()
+        = 
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_adfree_core_fn_func_core_start_packets(
+    
+        _status)
 }
     
     

@@ -913,6 +913,14 @@ pub struct Core {
     /// client-bound segments would land.
     #[cfg(test)]
     pub outbox: Mutex<Vec<Vec<u8>>>,
+    /// Packets the host has to write itself, for a platform that has no tun
+    /// descriptor to hand over. iOS is the one: `NEPacketTunnelFlow` gives
+    /// packets in and expects packets out, and a Network Extension never sees
+    /// a `utun` descriptor.
+    pub pull_queue: Mutex<std::collections::VecDeque<Vec<u8>>>,
+    /// Set once the host pulls packets; `write_raw` then queues instead of
+    /// writing to a descriptor that does not exist.
+    pub pull_mode: AtomicBool,
 }
 
 /// One thing the in-page AdGuard Assistant asked of the app.
@@ -1157,6 +1165,8 @@ impl Core {
             anti_dpi: AtomicBool::new(false),
             #[cfg(test)]
             outbox: Mutex::new(Vec::new()),
+            pull_queue: Mutex::new(std::collections::VecDeque::new()),
+            pull_mode: AtomicBool::new(false),
         }
     }
 
@@ -1977,6 +1987,19 @@ impl Core {
     /// readable/writable TUN descriptor owned by this process, and must stay
     /// open until [`stop`] is called.
     pub fn start(&self, tun_fd: RawFd) {
+        self.start_inner(Some(tun_fd));
+    }
+
+    /// Starts the data path for a platform with no tun descriptor: the host
+    /// hands packets in with [`Self::inject_packet`] and takes them out with
+    /// [`Self::poll_packets`]. Everything else — the forwarder, the setup
+    /// worker, HTTP/3, the filter engine — runs exactly as it does behind a
+    /// descriptor.
+    pub fn start_pull(&self) {
+        self.start_inner(None);
+    }
+
+    fn start_inner(&self, tun_fd: Option<RawFd>) {
         self.stop();
         // The previous session's thread must be gone before this one starts:
         // two forwarders would poll the same tables, and the departing one
@@ -1989,7 +2012,9 @@ impl Core {
         self.setup_jobs.lock().unwrap().clear();
         self.drain_setup_wake();
         self.start_secure_workers();
-        self.tun_fd.store(tun_fd, Ordering::SeqCst);
+        self.pull_mode.store(tun_fd.is_none(), Ordering::SeqCst);
+        self.tun_fd
+            .store(tun_fd.unwrap_or(crate::sys::fd::NO_FD), Ordering::SeqCst);
         self.running.store(true, Ordering::SeqCst);
         let statics: &'static Core = core();
         let mut workers = Vec::with_capacity(3);
@@ -1997,12 +2022,15 @@ impl Core {
         // and gzip bodies — in one call chain, and a 128 KiB stack overflowed
         // it on a real response (SIGSEGV in `decode_body`, measured on the
         // emulator 19/10/2026). One MiB matches what bionic gives a thread.
-        if let Ok(worker) = std::thread::Builder::new()
-            .name("adfree-tun".into())
-            .stack_size(1024 * 1024)
-            .spawn(move || tun_loop(statics, tun_fd))
-        {
-            workers.push(worker);
+        // No descriptor, no reader: the host drives the inbound half itself.
+        if let Some(tun_fd) = tun_fd {
+            if let Ok(worker) = std::thread::Builder::new()
+                .name("adfree-tun".into())
+                .stack_size(1024 * 1024)
+                .spawn(move || tun_loop(statics, tun_fd))
+            {
+                workers.push(worker);
+            }
         }
         if let Ok(worker) = std::thread::Builder::new()
             // Named for what it runs. It was `adfree-dns` since the first
@@ -2044,6 +2072,10 @@ impl Core {
     pub fn stop(&self) {
         self.running.store(false, Ordering::SeqCst);
         self.tun_fd.store(crate::sys::fd::NO_FD, Ordering::SeqCst);
+        self.pull_mode.store(false, Ordering::SeqCst);
+        // Answers queued for a host that is going away belong to flows whose
+        // relays are gone.
+        self.pull_queue.lock().unwrap().clear();
         // QUIC flows own their transport and never touch the tun, so ending
         // them here releases the sockets even if the forwarder's last pass is
         // already gone.
@@ -2129,6 +2161,40 @@ impl Core {
     ///
     /// Cost for traffic we do not care about: one `Packet::parse` and a couple
     /// of atomic increments.
+    /// Feeds one inbound IP packet from a host that pulls (see
+    /// [`Self::start_pull`]). The answers are queued, not returned: the
+    /// forwarder thread queues most of them later, as upstream replies land,
+    /// and one ordering is what the host can write.
+    pub fn inject_packet(&self, raw: &[u8]) {
+        let t0 = now_ns();
+        let replies = self.handle_packet(raw);
+        for reply in replies {
+            self.write_raw(&reply);
+        }
+        self.stats.add(&self.stats.busy_ns, now_ns() - t0);
+        housekeeping(self);
+    }
+
+    /// Takes out everything [`Self::inject_packet`] and the forwarder have
+    /// queued, each packet prefixed with its length as a big-endian `u16`.
+    ///
+    /// One buffer per call rather than one call per packet: crossing the FFI
+    /// boundary costs more than copying a few hundred bytes.
+    pub fn poll_packets(&self) -> Vec<u8> {
+        let mut queue = self.pull_queue.lock().unwrap();
+        let mut out = Vec::with_capacity(queue.len() * 64);
+        while let Some(packet) = queue.pop_front() {
+            // A packet that does not fit the length prefix cannot be handed
+            // over; the host's MTU is 1500, so this is a guard, not a path.
+            if packet.len() > usize::from(u16::MAX) {
+                continue;
+            }
+            out.extend_from_slice(&(packet.len() as u16).to_be_bytes());
+            out.extend_from_slice(&packet);
+        }
+        out
+    }
+
     pub fn handle_packet(&self, raw: &[u8]) -> Vec<Vec<u8>> {
         let mut out = Vec::new();
         self.stats.inc(&self.stats.packets_total);
@@ -4702,6 +4768,12 @@ impl Core {
             // exactly what the device would have received.
             self.outbox.lock().unwrap().push(bytes.to_vec());
         }
+        if self.pull_mode.load(Ordering::SeqCst) {
+            // The host owns the packets: it reads them out with
+            // [`Core::poll_packets`] and writes them to its own flow.
+            self.pull_queue.lock().unwrap().push_back(bytes.to_vec());
+            return true;
+        }
         let fd = self.tun_fd.load(Ordering::SeqCst);
         // `NO_FD` is `-1` on Unix and `INVALID_SOCKET` on Windows; comparing
         // against a number would be wrong on one of them.
@@ -6227,6 +6299,26 @@ mod tests {
         assert!(set.contains_v4(u32::from_be_bytes([1, 0, 0, 1])));
         assert!(!set.contains_v4(u32::from_be_bytes([1, 1, 2, 3])));
         assert!(!set.is_empty());
+    }
+
+    /// iOS hands packets in and takes packets out, with no descriptor on
+    /// either side: `NEPacketTunnelFlow` is a packet API and a Network
+    /// Extension never gets a `utun` fd.
+    #[test]
+    fn a_pulled_tunnel_answers_through_the_queue() {
+        let core = Core::new();
+        core.set_config(Config::default());
+        core.pull_mode.store(true, Ordering::SeqCst);
+        core.inject_packet(&udp_packet(50000, [203, 0, 113, 7], 443));
+        let packets = core.poll_packets();
+        assert!(!packets.is_empty(), "the queue has the ICMP answer");
+        // Length-prefixed: the host reads one `u16` per packet.
+        let len = u16::from_be_bytes([packets[0], packets[1]]) as usize;
+        assert_eq!(len, packets.len() - 2, "one packet, one prefix");
+        assert_eq!(packets[2], 0x45, "an IPv4 packet starts here");
+        // The descriptor path is not used: nothing was written anywhere, and a
+        // second poll is empty because the queue was drained.
+        assert!(core.poll_packets().is_empty());
     }
 
     /// A dropped QUIC datagram is answered with ICMP port unreachable: a
