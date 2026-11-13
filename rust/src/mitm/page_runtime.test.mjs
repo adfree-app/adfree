@@ -495,6 +495,69 @@ describe('procedural rules', () => {
     expect(page.errors).toEqual([]);
   });
 
+  test('a :has() step with a procedural argument matches a descendant, not the text', async () => {
+    const page = await openPage({
+      html: {
+        body:
+          '<div class="text-center"><small>QUẢNG CÁO</small></div>' +
+          '<div class="text-center"><small>Nội dung</small></div>' +
+          '<div class="text-center">QUẢNG CÁO</div>',
+      },
+      payload: {
+        procedural: [
+          // `.text-center:-abp-has(small:-abp-contains(QUẢNG CÁO))`, the rule
+          // abpvn carries for metruyencv.com. The text has to be inside the
+          // `small`, so the third box must survive.
+          {
+            selector: [
+              { type: 'css-selector', arg: '.text-center' },
+              {
+                type: 'has',
+                arg: [
+                  { type: 'css-selector', arg: 'small' },
+                  { type: 'has-text', arg: 'QUẢNG CÁO' },
+                ],
+              },
+            ],
+            action: { type: 'remove' },
+          },
+        ],
+      },
+    });
+    await expect.poll(() => page.page.evaluate(() => document.querySelectorAll('.text-center').length)).toBe(2);
+    expect(
+      await page.page.evaluate(() =>
+        Array.from(document.querySelectorAll('.text-center')).map((el) => el.textContent)
+      )
+    ).toEqual(['Nội dung', 'QUẢNG CÁO']);
+    expect(page.errors).toEqual([]);
+  });
+
+  test('a :has() argument with a leading combinator stays inside the element', async () => {
+    const page = await openPage({
+      html: {
+        body:
+          '<div id="outer"><div class="slot">a</div></div>' +
+          '<div id="other"><div class="wrap"><div class="slot">b</div></div></div>',
+      },
+      payload: {
+        procedural: [
+          {
+            selector: [
+              { type: 'css-selector', arg: '#outer, #other' },
+              { type: 'has', arg: [{ type: 'css-selector', arg: '> .slot' }] },
+            ],
+            action: { type: 'remove' },
+          },
+        ],
+      },
+    });
+    // Only #outer has `.slot` as a direct child.
+    await expect.poll(() => page.page.evaluate(() => document.getElementById('outer') === null)).toBe(true);
+    expect(await page.page.evaluate(() => document.getElementById('other') !== null)).toBe(true);
+    expect(page.errors).toEqual([]);
+  });
+
   test('an xpath step works', async () => {
     const page = await openPage({
       html: { body: '<div class="ad-slot">one</div><div class="ad-slot">two</div>' },

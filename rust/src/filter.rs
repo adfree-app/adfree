@@ -1135,10 +1135,10 @@ fn line_starts(text: &str) -> Vec<u32> {
 
 /// Version of the cache file's own header. Bump it when the header layout or
 /// the key inputs change; a list update is covered by the key itself.
-// 6: a hosts-format list written as dnsmasq is now read as the host list it is,
-// and a rule that blocks a whole domain is deduped by that domain, so the same
-// answer written two ways is compiled once. A version-5 cache holds neither.
-const ENGINE_CACHE_VERSION: u32 = 6;
+// 7: `:has()` with a procedural argument is read here now, and the renamed
+// operators (`:nth-ancestor`, `-abp-contains`, `:contains`) are rewritten
+// before the crate sees them. A version-6 cache holds neither.
+const ENGINE_CACHE_VERSION: u32 = 7;
 const ENGINE_CACHE_MAGIC: [u8; 4] = *b"AFEC";
 const ENGINE_CACHE_HEADER: usize = 16;
 const ENGINE_CACHE_FILE: &str = "engine.dat";
@@ -1283,6 +1283,9 @@ struct Compiled {
     /// The raw JavaScript rules (`#%#script`), found by [`scan_js_rules`]
     /// in the trusted lists. `None` when none carries one.
     js_rules: Option<JsRules>,
+    /// Cosmetic rules whose `:has()` argument is procedural, found by
+    /// [`scan_nested_cosmetics`]. `None` when no loaded list carries one.
+    nested_cosmetics: Option<NestedCosmetics>,
     /// The generic style-injection rules (`#$#sel { css }`, no domain), found
     /// by [`scan_generic_style_rules`] in the trusted lists. `None` when none
     /// carries one.
@@ -1479,6 +1482,7 @@ impl FilterEngine {
                 html_rules: None,
                 path_cosmetics: None,
                 js_rules: None,
+                nested_cosmetics: None,
                 generic_styles: None,
                 app_rules: None,
                 html_plans: Mutex::new(HtmlPlanCache::default()),
@@ -1597,6 +1601,7 @@ impl FilterEngine {
         let mut redirect_scan = RedirectScan::default();
         let mut path_scan = PathScan::default();
         let mut js_scan = JsScan::default();
+        let mut nested_scan = NestedCosmeticScan::default();
         let mut generic_style_scan = GenericStyleScan::default();
         let mut html_scan = HtmlScan::default();
         let mut app_scan = AppScan::default();
@@ -1705,6 +1710,7 @@ impl FilterEngine {
                                 scan_replace_rules(&text, &mut replace_scan);
                                 scan_modifier_rules(&text, &mut url_scan);
                                 scan_js_rules(&text, &mut js_scan);
+                                scan_nested_cosmetics(&text, &mut nested_scan);
                                 // Style injections are page-wide and, unlike
                                 // selectors, never validated against the page:
                                 // they come from trusted lists only, like the
@@ -1715,7 +1721,7 @@ impl FilterEngine {
                                 scan_html_rules(&text, &mut html_scan);
                                 scan_app_rules(&text, &mut app_scan, list.id, list.category);
                                 convert_dnsmasq_rules(convert_adguard_cosmetics(
-                                    text,
+                                    normalize_cosmetic_operators(text),
                                     &mut path_scan,
                                 ))
                             }
@@ -1794,6 +1800,7 @@ impl FilterEngine {
             scan_replace_rules(&joined, &mut replace_scan);
             scan_modifier_rules(&joined, &mut url_scan);
             scan_js_rules(&joined, &mut js_scan);
+            scan_nested_cosmetics(&joined, &mut nested_scan);
             scan_generic_style_rules(&joined, &mut generic_style_scan);
             scan_html_rules(&joined, &mut html_scan);
             // User rules have no list row: id 0 is the source map's own
@@ -1805,7 +1812,7 @@ impl FilterEngine {
             // ones of this text (the conversion rewrites lines in place).
             let rules = RuleText::Inline(Arc::from(joined.as_str()));
             let record = set.add_filter_list(
-                convert_adguard_cosmetics(joined, &mut path_scan),
+                convert_adguard_cosmetics(normalize_cosmetic_operators(joined), &mut path_scan),
                 ParseOptions::default(),
             );
             sources.push(SourceMapEntry {
@@ -1881,6 +1888,14 @@ impl FilterEngine {
                 rules.rules.len(),
                 rules.exceptions.len(),
                 rules.dropped,
+            ));
+        }
+        let nested_cosmetics = build_nested_cosmetics(nested_scan);
+        if let Some(rules) = nested_cosmetics.as_ref() {
+            crate::logbuf::push(&format!(
+                "filter: {} cosmetic rules with a procedural :has() ({} exceptions)",
+                rules.rules.len(),
+                rules.exceptions.len(),
             ));
         }
         let replace = build_replace(replace_scan);
@@ -1981,6 +1996,7 @@ impl FilterEngine {
             html_rules,
             path_cosmetics,
             js_rules,
+            nested_cosmetics,
             generic_styles,
             app_rules,
             html_plans: Mutex::new(HtmlPlanCache::default()),
@@ -2176,6 +2192,15 @@ impl FilterEngine {
                     if procedural.len() < MAX_PROCEDURAL {
                         procedural.push(entry);
                     }
+                }
+            }
+        }
+        // `:has()` with a procedural argument: the crate dropped these, so
+        // they ride the inline payload like any other procedural rule.
+        if let Some(nested) = compiled.nested_cosmetics.as_ref() {
+            for entry in nested.for_host(url_host(url)) {
+                if procedural.len() < MAX_PROCEDURAL {
+                    procedural.push(entry.to_string());
                 }
             }
         }
@@ -3440,6 +3465,41 @@ fn convert_dnsmasq_rules(text: String) -> String {
 /// [`bracket_cosmetic_line`] and [`path_in_domain_line`]). Anything else
 /// (`#%#` raw JS, `##^`, `$$`) is left untouched: the engine drops what it
 /// cannot parse, and a wrong rewrite would be worse than a dropped rule.
+/// The operator names uBO renamed, rewritten to the ones the engine knows, in
+/// place so the line numbers the log reports stay the ones of the file:
+///
+/// * `:nth-ancestor(n)` is `:upward(n)` — uBO kept both spellings until it
+///   dropped the first, and lists still carry it.
+/// * `:-abp-contains(x)` / `:contains(x)` are `:has-text(x)`, their legacy
+///   names (the HTML filtering pass already reads all three).
+///
+/// Only cosmetic lines are touched: a network rule has no `##`, and a
+/// substring inside an option value is left alone because the whole line is
+/// skipped unless it carries a marker.
+fn normalize_cosmetic_operators(text: String) -> String {
+    if !text.contains(":nth-ancestor(")
+        && !text.contains(":-abp-contains(")
+        && !text.contains(":contains(")
+    {
+        return text;
+    }
+    let mut out = String::with_capacity(text.len());
+    for line in text.lines() {
+        if line.contains('#') && cosmetic_marker(line).is_some() {
+            out.push_str(
+                &line
+                    .replace(":nth-ancestor(", ":upward(")
+                    .replace(":-abp-contains(", ":has-text(")
+                    .replace(":contains(", ":has-text("),
+            );
+        } else {
+            out.push_str(line);
+        }
+        out.push('\n');
+    }
+    out
+}
+
 fn convert_adguard_cosmetics(text: String, path: &mut PathScan) -> String {
     if !text.contains("[$")
         && !text.contains("#%#")
@@ -3572,6 +3632,260 @@ fn build_js_rules(scan: JsScan) -> Option<JsRules> {
         exceptions: scan.exceptions,
         dropped: scan.dropped,
     })
+}
+
+/// The cosmetic operators this crate does not model, in the order they must be
+/// recognised (a longer name before the prefix it starts with), each with the
+/// operator the page runtime does understand.
+const CHAIN_OPERATORS: &[(&str, &str)] = &[
+    (":-abp-contains", "has-text"),
+    (":-abp-has", "has"),
+    (":matches-css-before", "matches-css-before"),
+    (":matches-css-after", "matches-css-after"),
+    (":min-text-length", "min-text-length"),
+    (":nth-ancestor", "upward"),
+    (":matches-css", "matches-css"),
+    (":matches-attr", "matches-attr"),
+    (":matches-path", "matches-path"),
+    (":has-text", "has-text"),
+    (":contains", "has-text"),
+    (":upward", "upward"),
+    (":xpath", "xpath"),
+    (":has", "has"),
+];
+
+/// The argument of the parentheses that open at `open`, and where they close.
+///
+/// Quotes are honoured so `matches-css(content: ")")` or an attribute selector
+/// with a bracket does not cut the argument short.
+fn balanced_argument(text: &str, open: usize) -> Option<(&str, usize)> {
+    let bytes = text.as_bytes();
+    if bytes.get(open) != Some(&b'(') {
+        return None;
+    }
+    let mut depth = 0usize;
+    let mut quote: Option<u8> = None;
+    for (offset, &byte) in bytes.iter().enumerate().skip(open) {
+        match byte {
+            b'\\' if quote.is_some() => continue,
+            b'\'' | b'"' => match quote {
+                Some(open_quote) if open_quote == byte => quote = None,
+                None => quote = Some(byte),
+                _ => {}
+            },
+            b'(' if quote.is_none() => depth += 1,
+            b')' if quote.is_none() => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some((&text[open + 1..offset], offset + 1));
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Leftmost operator in `selector`, with its name mapped to the runtime's.
+fn next_chain_operator(selector: &str) -> Option<(usize, &'static str, &str, usize)> {
+    let mut best: Option<(usize, &'static str, &str, usize)> = None;
+    for (name, kind) in CHAIN_OPERATORS {
+        let Some(index) = selector.find(name) else {
+            continue;
+        };
+        // `:has` is a prefix of `:has-text`, and the earlier entry wins: the
+        // table is written longest-first.
+        if let Some((best_index, _, _, _)) = best {
+            if index > best_index {
+                continue;
+            }
+            if index == best_index {
+                continue;
+            }
+        }
+        let Some((arg, end)) = balanced_argument(selector, index + name.len()) else {
+            continue;
+        };
+        best = Some((index, kind, arg, end));
+    }
+    best
+}
+
+/// One cosmetic selector chain as the page runtime reads it, or `None` when a
+/// step names an operator this build does not have (a half-applied rule hides
+/// the wrong element, which is worse than a dropped one).
+fn parse_cosmetic_chain(selector: &str) -> Option<Vec<serde_json::Value>> {
+    let mut steps: Vec<serde_json::Value> = Vec::new();
+    let mut rest = selector.trim();
+    while !rest.is_empty() {
+        match next_chain_operator(rest) {
+            Some((index, kind, arg, end)) => {
+                let css = rest[..index].trim();
+                if !css.is_empty() {
+                    steps.push(serde_json::json!({"type": "css-selector", "arg": css}));
+                }
+                let value = match kind {
+                    "has" => {
+                        let nested = parse_cosmetic_chain(arg)?;
+                        serde_json::json!({"type": "has", "arg": nested})
+                    }
+                    other => serde_json::json!({"type": other, "arg": unquote(arg.trim())}),
+                };
+                steps.push(value);
+                rest = rest[end..].trim();
+            }
+            None => {
+                steps.push(serde_json::json!({"type": "css-selector", "arg": rest}));
+                rest = "";
+            }
+        }
+    }
+    if steps.is_empty() {
+        None
+    } else {
+        Some(steps)
+    }
+}
+
+/// A quoted operator argument as its value.
+fn unquote(arg: &str) -> &str {
+    for quote in ['\'', '"'] {
+        if arg.len() >= 2 && arg.starts_with(quote) && arg.ends_with(quote) {
+            return &arg[1..arg.len() - 1];
+        }
+    }
+    arg
+}
+
+/// Does this selector carry a `:has()` whose argument needs the page runtime?
+///
+/// `:has(> .slot)` is plain CSS and the crate already hides with it; only an
+/// argument holding another procedural operator (what abpvn writes for
+/// metruyencv.com: `:-abp-has(small:-abp-contains(QUẢNG CÁO))`) has to be
+/// evaluated here.
+fn has_procedural_argument(selector: &str) -> bool {
+    for name in [":has(", ":-abp-has("] {
+        let mut from = 0;
+        while let Some(found) = selector[from..].find(name) {
+            let open = from + found + name.len() - 1;
+            let Some((arg, end)) = balanced_argument(selector, open) else {
+                break;
+            };
+            // Any operator inside the argument is one CSS cannot express.
+            if CHAIN_OPERATORS.iter().any(|(op, _)| arg.contains(op)) {
+                return true;
+            }
+            from = end;
+        }
+    }
+    false
+}
+
+/// A cosmetic rule the crate cannot hold: `:has()` with a procedural argument.
+struct NestedCosmeticRule {
+    /// The rule's domains, as written (`example.com,~sub.example.com`).
+    domains: String,
+    /// The selector this rule hides, for cancelling by an exception.
+    selector: String,
+    /// The ready-to-send payload entry.
+    json: String,
+}
+
+/// The [`NestedCosmeticRule`]s of the loaded lists, one per host that has one.
+#[derive(Default)]
+struct NestedCosmeticScan {
+    rules: Vec<NestedCosmeticRule>,
+    /// `(domains, selector)` of the `#@?#` exceptions that take one back.
+    exceptions: Vec<(String, String)>,
+    dropped: u32,
+}
+
+struct NestedCosmetics {
+    rules: Vec<NestedCosmeticRule>,
+    exceptions: Vec<(String, String)>,
+}
+
+impl NestedCosmetics {
+    /// The payload entries for this page, minus the ones an exception names.
+    fn for_host(&self, host: &str) -> Vec<&str> {
+        self.rules
+            .iter()
+            .filter(|rule| {
+                let domains = (!rule.domains.is_empty()).then_some(rule.domains.as_str());
+                if !domains_match(domains, host) {
+                    return false;
+                }
+                !self.exceptions.iter().any(|(exception_domains, selector)| {
+                    selector == &rule.selector
+                        && domains_match(
+                            (!exception_domains.is_empty()).then_some(exception_domains.as_str()),
+                            host,
+                        )
+                })
+            })
+            .map(|rule| rule.json.as_str())
+            .collect()
+    }
+}
+
+fn build_nested_cosmetics(scan: NestedCosmeticScan) -> Option<NestedCosmetics> {
+    if scan.rules.is_empty() {
+        return None;
+    }
+    Some(NestedCosmetics {
+        rules: scan.rules,
+        exceptions: scan.exceptions,
+    })
+}
+
+/// Reads the cosmetic rules whose `:has()` argument is procedural, which is the
+/// one shape the crate drops: it keeps `:has(...)` as a CSS selector, so a rule
+/// asking for `:-abp-has(small:-abp-contains(x))` reached the page as a selector
+/// no CSS parser accepts and did nothing at all.
+fn scan_nested_cosmetics(text: &str, scan: &mut NestedCosmeticScan) {
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('!') {
+            continue;
+        }
+        let Some((index, marker)) = cosmetic_marker(line) else {
+            continue;
+        };
+        // Other passes own these markers: `##^` is HTML filtering, `#%#` is
+        // JavaScript, and a bracketed condition is read with its location.
+        if !matches!(
+            marker,
+            "##" | "#?#" | "#$?#" | "#@#" | "#@?#" | "#@$?#"
+        ) {
+            continue;
+        }
+        let before = line[..index].trim();
+        let selector = line[index + marker.len()..].trim();
+        if selector.is_empty() || selector.contains('{') || before.starts_with('[') {
+            continue;
+        }
+        // A rule with no domain is generic: the crate answers those from the
+        // page's own class and id tokens, and a per-page payload is not where
+        // they belong.
+        if before.is_empty() || !has_procedural_argument(selector) {
+            continue;
+        }
+        if marker.starts_with("#@") {
+            scan.exceptions
+                .push((before.to_string(), selector.to_string()));
+            continue;
+        }
+        let Some(steps) = parse_cosmetic_chain(selector) else {
+            scan.dropped += 1;
+            continue;
+        };
+        scan.rules.push(NestedCosmeticRule {
+            domains: before.to_string(),
+            selector: selector.to_string(),
+            json: serde_json::json!({"selector": steps, "action": serde_json::Value::Null})
+                .to_string(),
+        });
+    }
 }
 
 /// Reads the raw JavaScript rules a trusted list carries: `[domains]#%#script`
@@ -9726,6 +10040,74 @@ mod tests {
         let host = fe.cosmetic_resources_for_host("shop.test");
         assert!(host.style_rules.is_empty(), "{:?}", host.style_rules);
         assert!(host.hide_selectors.iter().any(|s| s == ".always"));
+    }
+
+    /// abpvn's rule for metruyencv.com: `:-abp-has(small:-abp-contains(…))`.
+    /// The crate keeps `:has(…)` as CSS, where `-abp-contains` means nothing,
+    /// so the rule reached the page as a selector no browser accepts.
+    #[test]
+    fn a_has_rule_with_a_procedural_argument_becomes_a_payload_entry() {
+        let fe = cosmetic_engine(
+            "! Title: nested
+\
+             metruyencv.com#?#.text-center:-abp-has(small:-abp-contains(QUẢNG CÁO))\n",
+        );
+        let page = fe.cosmetic_resources_for_host("metruyencv.com");
+        let entry = page
+            .procedural
+            .iter()
+            .find(|entry| entry.contains("\"type\":\"has\""))
+            .unwrap_or_else(|| panic!("no nested entry: {:?}", page.procedural));
+        assert!(entry.contains("QUẢNG CÁO"), "{entry}");
+        assert!(entry.contains("\"has-text\""), "{entry}");
+        // The rule is scoped to its host and to its subdomains, not to the world.
+        assert!(fe
+            .cosmetic_resources_for_host("www.metruyencv.com")
+            .procedural
+            .iter()
+            .any(|e| e.contains("\"type\":\"has\"")));
+        assert!(fe
+            .cosmetic_resources_for_host("other.test")
+            .procedural
+            .is_empty());
+    }
+
+    /// An `#@?#` exception that names the same selector takes it back.
+    #[test]
+    fn an_exception_takes_a_nested_rule_back() {
+        let fe = cosmetic_engine(
+            "! Title: nested\n\
+             shop.test#?#.box:-abp-has(span:-abp-contains(ads))\n\
+             shop.test#@?#.box:-abp-has(span:-abp-contains(ads))\n",
+        );
+        assert!(fe
+            .cosmetic_resources_for_host("shop.test")
+            .procedural
+            .is_empty());
+    }
+
+    /// Plain CSS inside `:has()` stays where it was: the crate hides with it,
+    /// and a second copy in the payload would only repeat the work.
+    #[test]
+    fn a_plain_has_rule_is_left_to_the_crate() {
+        let fe = cosmetic_engine("! Title: plain\nshop.test##.box:has(> .slot)\n");
+        let page = fe.cosmetic_resources_for_host("shop.test");
+        assert!(page.procedural.is_empty(), "{:?}", page.procedural);
+        assert!(page.hide_selectors.iter().any(|s| s == ".box:has(> .slot)"));
+    }
+
+    /// `:nth-ancestor()` is what uBO called `:upward()` before it renamed it.
+    #[test]
+    fn nth_ancestor_is_read_as_upward() {
+        let fe = cosmetic_engine("! Title: alias\nshop.test##.slot:nth-ancestor(3)\n");
+        let page = fe.cosmetic_resources_for_host("shop.test");
+        let entry = page
+            .procedural
+            .iter()
+            .find(|entry| entry.contains("upward"))
+            .unwrap_or_else(|| panic!("no upward entry: {:?}", page.procedural));
+        assert!(entry.contains("\"arg\":\"3\""), "{entry}");
+        assert!(!entry.contains("nth-ancestor"), "{entry}");
     }
 
     #[test]

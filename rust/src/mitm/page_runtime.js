@@ -316,25 +316,20 @@
     return kept;
   };
 
-  const applyProcedural = (rule) => {
-    // The payload carries these as JSON strings (the engine serializes the
-    // crate's structure); accept an object too so both shapes work.
-    let entry = rule;
-    if (typeof entry === 'string') {
-      try {
-        entry = JSON.parse(entry);
-      } catch {
-        return;
-      }
-    }
+  // One selector chain, run against `root`: the document for a rule's own
+  // chain, an element for the argument of `:has()`. Returns the surviving set,
+  // or `null` when no step has narrowed anything yet.
+  const runChain = (root, steps) => {
     // Every step narrows the same set; `null` means "not started yet", which
     // the element-wide steps treat as "everything".
     let current = null;
-    for (const op of entry?.selector ?? []) {
-      const { type, arg } = op;
+    for (const op of steps ?? []) {
+      const { type, arg } = op ?? {};
       if (type === 'css-selector') {
         if (current === null) {
-          current = new Set(queryAll(document, arg));
+          // `> .x` only has meaning relative to a root that is an element.
+          const selector = root === document ? arg : scoped(arg);
+          current = new Set(queryAll(root, selector));
         } else {
           const next = new Set();
           for (const el of current) {
@@ -346,10 +341,10 @@
         }
       } else if (type === 'matches-path') {
         if (!pathMatches(arg)) {
-          return;
+          return null;
         }
       } else if (type === 'upward') {
-        current ??= new Set(queryAll(document, '*'));
+        current ??= new Set(queryAll(root, '*'));
         const raised = new Set();
         for (const el of current) {
           const levels = /^\d+$/.test(arg) ? parseInt(arg, 10) || 1 : 0;
@@ -371,7 +366,7 @@
         try {
           const result = document.evaluate(
             arg,
-            document,
+            root,
             null,
             XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
             null
@@ -384,8 +379,16 @@
         }
         current = nodes;
       } else {
-        current ??= new Set(queryAll(document, '*'));
-        if (type === 'has-text') {
+        current ??= new Set(queryAll(root, '*'));
+        if (type === 'has') {
+          // `:has(<chain>)` where the argument is not plain CSS: keep the
+          // element when the chain matches any of its descendants.
+          const inner = Array.isArray(arg) ? arg : [];
+          current = filter(current, (el) => {
+            const found = runChain(el, inner);
+            return found !== null && found.size > 0;
+          });
+        } else if (type === 'has-text') {
           current = filter(current, (el) => (el.textContent || '').includes(arg));
         } else if (type === 'min-text-length') {
           const min = parseInt(arg, 10) || 0;
@@ -401,11 +404,26 @@
         }
       }
       if (current !== null && current.size === 0) {
+        return current;
+      }
+    }
+    return current;
+  };
+
+  const applyProcedural = (rule) => {
+    // The payload carries these as JSON strings (the engine serializes the
+    // crate's structure); accept an object too so both shapes work.
+    let entry = rule;
+    if (typeof entry === 'string') {
+      try {
+        entry = JSON.parse(entry);
+      } catch {
         return;
       }
     }
-    if (current?.size) {
-      applyAction(current, entry.action);
+    const matched = runChain(document, entry?.selector);
+    if (matched?.size) {
+      applyAction(matched, entry.action);
     }
   };
 
