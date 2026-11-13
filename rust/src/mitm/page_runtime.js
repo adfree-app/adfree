@@ -1033,6 +1033,158 @@
     hideLink = null;
   }
 
+  // --- emptied ad slots -----------------------------------------------------
+  //
+  // Hiding an ad's frame is not the same as removing the box the page reserved
+  // for it: a blocked slot leaves its wrapper in the layout and the reader gets
+  // a gap where an ad used to be. AdGuard and uBO collapse those wrappers, and
+  // this is that pass: only containers that name an ad are looked at, and only
+  // while they hold nothing anyone can see, so a slot that later fills itself
+  // is never hidden.
+
+  const SLOT_SELECTOR = [
+    'ins.adsbygoogle',
+    '[id^="div-gpt-ad"]',
+    '[id^="google_ads"]',
+    '[id^="fs-"]',
+    '[class*="fs-sticky"]',
+    '[data-ad-slot]',
+    '[class*="ad-slot"]',
+    '[class*="ad-wrapper"]',
+    '[class*="ad-container"]',
+    '[id*="_leaderboard"]',
+    '[id*="_atf_"]',
+    '[id$="_atf"]',
+    '[id$="_btf"]',
+    'iframe[src*="doubleclick.net"]',
+    'iframe[src*="googlesyndication.com"]',
+    'iframe[src*="fsrv.io"]',
+    'iframe[src*="pub.network"]',
+  ].join(',');
+  const SLOT_COLLAPSED = '__adfree_empty_slot';
+  // The box a site reserved around a slot: it holds the gap, not the ad.
+  const SLOT_PARENT_COLLAPSED = '__adfree_empty_slot_parent';
+
+  // Anything a reader can actually see inside the slot. A wrapper around a
+  // zero-sized frame is empty; one around a picture or a video is not.
+  const slotHasContent = (el) => {
+    for (const node of el.querySelectorAll('img,video,canvas,svg,iframe,picture,object,embed')) {
+      const rect = node.getBoundingClientRect();
+      if (rect.width >= 2 && rect.height >= 2) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  // The page owns the slot's own `style` attribute and rewrites it when the
+  // auction finishes (`display: block`), which would undo an inline write. A
+  // rule of ours marked `!important` outranks it and survives the rewrite.
+  const SLOT_STYLE_ID = 'adfree-empty-slots';
+  const ensureSlotStyle = () => {
+    let el = null;
+    try {
+      el = document.getElementById(SLOT_STYLE_ID);
+    } catch {
+      el = null;
+    }
+    if (el?.isConnected) {
+      return;
+    }
+    try {
+      el = document.createElement('style');
+      el.id = SLOT_STYLE_ID;
+      el.textContent =
+        `.${SLOT_COLLAPSED}{display:none!important}` +
+        `.${SLOT_PARENT_COLLAPSED}{display:none!important}`;
+      withNonce(el);
+      (document.head || document.documentElement).appendChild(el);
+    } catch {
+      /* no rule: the pass still hides what nothing rewrites */
+    }
+  };
+
+  const collapseSlots = (root) => {
+    let slots;
+    try {
+      slots = (root?.querySelectorAll ? root : document).querySelectorAll(SLOT_SELECTOR);
+    } catch {
+      return;
+    }
+    for (const el of slots) {
+      if (el.classList?.contains(SLOT_COLLAPSED) || !el.isConnected) {
+        continue;
+      }
+      // A slot on screen with nothing in it is the leftover to remove. Height
+      // is read once: an element the page hid itself needs no help.
+      const rect = el.getBoundingClientRect();
+      if (rect.height < 8 || slotHasContent(el)) {
+        continue;
+      }
+      try {
+        ensureSlotStyle();
+        el.classList.add(SLOT_COLLAPSED);
+        // A slot is usually wrapped in a box the site reserved for it, and the
+        // reserved height is the gap the reader sees. The wrapper is collapsed
+        // only while the collapsed slot is all it holds.
+        let parent = el.parentElement;
+        for (let depth = 0; parent && depth < 3; depth += 1) {
+          if (parent === document.body || parent === document.documentElement) {
+            break;
+          }
+          if ((parent.innerText || '').trim() || parent.querySelector('img,video,canvas,svg,picture')) {
+            break;
+          }
+          const others = [...parent.children].filter(
+            (child) => !child.classList?.contains(SLOT_COLLAPSED) && child.getBoundingClientRect().height >= 8,
+          );
+          if (others.length) {
+            break;
+          }
+          parent.classList.add(SLOT_PARENT_COLLAPSED);
+          parent = parent.parentElement;
+        }
+        // Belt and braces for an element the page rebuilds its own style on.
+        el.style.setProperty('display', 'none', 'important');
+      } catch {
+        /* a frozen element keeps its gap, nothing else is lost */
+      }
+    }
+  };
+
+  // The slots a page builds arrive over the first seconds, so the pass repeats
+  // a bounded number of times rather than on every mutation forever.
+  let slotTimer = null;
+  let slotPasses = 0;
+  const MAX_SLOT_PASSES = 40;
+  const scheduleSlotPass = () => {
+    if (slotTimer !== null || slotPasses >= MAX_SLOT_PASSES) {
+      return;
+    }
+    slotTimer = setTimeout(() => {
+      slotTimer = null;
+      slotPasses += 1;
+      collapseSlots(document);
+    }, 400);
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => collapseSlots(document));
+  } else {
+    collapseSlots(document);
+  }
+  if (document.readyState !== 'complete') {
+    window.addEventListener('load', () => collapseSlots(document), { once: true });
+  }
+  try {
+    new MutationObserver(scheduleSlotPass).observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+    });
+  } catch {
+    /* no observer: the first pass is all the page gets */
+  }
+
   // --- observers ------------------------------------------------------------
 
   if (
