@@ -256,11 +256,23 @@
     'ytmusic-mealbar-promo-renderer'
   ].join(',\n') + ' { display: none !important; }';
 
+  // YouTube's own answer to a skipped ad: a snackbar reading "Experiencing
+  // interruptions? Find out why", whose button opens the help page at
+  // `support.google.com/youtube/answer/3037019#check_ad_blockers`. It arrives
+  // with every ad we remove, and the link is the one part of it that does not
+  // depend on the UI language, so that is what the selector matches. Kept in a
+  // rule of its own: a selector the browser cannot parse drops the rule it sits
+  // in, and the list above must not be lost to that.
+  var NOTICE_CSS = [
+    'ytd-popup-container tp-yt-paper-dialog:has(yt-notification-action-renderer a[href*="answer/3037019"])',
+    'ytd-popup-container tp-yt-paper-dialog:has(yt-notification-action-renderer a[href*="check_ad_blockers"])'
+  ].join(',\n') + ' { display: none !important; }';
+
   function injectStyle() {
     if (document.getElementById('adfree-youtube-style')) return;
     var style = document.createElement('style');
     style.id = 'adfree-youtube-style';
-    style.textContent = CSS;
+    style.textContent = CSS + '\n' + NOTICE_CSS;
     (document.head || document.documentElement).appendChild(style);
   }
 
