@@ -2640,19 +2640,9 @@ impl ProxySession {
                         // length its body now has.
                         emit_edited(&mut out, &head, &new_body, recompress);
                     } else {
-                        // Nothing to inject, or nowhere to put it: the bytes
-                        // the origin sent go on untouched. A body the injector
-                        // refused for its size is worth saying out loud: the
-                        // page then runs with no cosmetic rules at all, which
-                        // looks exactly like a broken engine.
-                        if inject && plain.len() > http::MAX_INJECTABLE_BODY {
-                            crate::logbuf::push(&format!(
-                                "mitm {}: {} byte body is over the {} byte inject cap, swept past uninjected",
-                                self.captured.as_deref().unwrap_or("?"),
-                                plain.len(),
-                                http::MAX_INJECTABLE_BODY
-                            ));
-                        }
+                        // Nothing to inject: the body is not a page, or the
+                        // injector had no reason to touch it. The bytes the
+                        // origin sent go on untouched.
                         emit_passthrough(&mut out, &head, &body, framing, encoding);
                     }
                     self.resp_phase = RespPhase::Head;

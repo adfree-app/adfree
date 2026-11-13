@@ -433,14 +433,17 @@ fn empty_script_url_disables_the_rewriter() {
     assert_eq!(out, html_response(body));
 }
 
+/// A body that is not a page is left alone, however big it is: size is not a
+/// reason to skip an injection, but there is nothing to inject into a stream of
+/// `a`s.
 #[test]
-fn oversized_bodies_are_flushed_unchanged() {
+fn bodies_that_are_not_pages_are_flushed_unchanged() {
     let ca = CertificateAuthority::generate().expect("ca");
     let mut proxy = build_proxy(&ca, "/adfree-user.js");
 
     let mut response = Vec::new();
     response.extend_from_slice(b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n");
-    response.extend(std::iter::repeat_n(b'a', http::MAX_INJECTABLE_BODY + 64));
+    response.extend(std::iter::repeat_n(b'a', 2 * 1024 * 1024));
     let (out, injected) = proxy.rewrite_response(&response);
     assert_eq!(injected, 0);
     assert_eq!(out.len(), response.len(), "must flush unchanged");

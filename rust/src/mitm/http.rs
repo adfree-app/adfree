@@ -21,23 +21,8 @@ pub enum Decision {
     Injected,
     /// Response carries `content-encoding` (gzip/br), so injection is skipped.
     Compressed,
-    /// No safe insertion point was found.
-    NoInsertPoint,
 }
 
-/// Largest HTML body the injector will edit in one piece, to bound memory use.
-///
-/// This is the *decoded* document, and it is not the wire cap: a body only
-/// lands here whole when its compressed size stayed under
-/// [`REPLACE_AFTER`], so a page that is dense in repeated markup can be very
-/// large on screen and small on the wire. The YouTube home page is the one that
-/// proved the old 512 KiB line wrong — 2.2 MB of HTML that gzips to under
-/// 400 KB — and a body that is refused here loses *every* cosmetic rule the
-/// lists carry for the page, which reads as “the ad blocker is doing nothing”.
-/// Anything past this is still injected by the streaming path, which never
-/// holds the document at all; the cap only says when it is cheaper to re-encode
-/// what is already in hand than to start over.
-pub const MAX_INJECTABLE_BODY: usize = 8 * 1024 * 1024;
 
 /// Caps on the class/id tokens scanned out of one body, so the generic-rule
 /// lookup stays bounded on pathological pages.
@@ -110,17 +95,25 @@ pub fn style_link_tag(href: &str, id: &str, nonce: &str) -> String {
 ///
 /// The caller decides what goes in — the injector only finds the insertion
 /// point and keeps the document well-formed.
+/// No size gate on purpose. The body is already in hand — the injection only
+/// decides *where* the snippet goes, and an HTML parser is forgiving about the
+/// answer — so refusing a large page bought nothing but a page with no
+/// filtering at all. The YouTube home page (2.2 MB) was refused that way and
+/// served its ads with every list enabled.
 pub fn inject_snippet(body: &[u8], snippet: &[u8]) -> (Vec<u8>, Decision) {
-    if body.is_empty() || body.len() > MAX_INJECTABLE_BODY {
+    if body.is_empty() {
         return (body.to_vec(), Decision::Skip);
     }
     // Only inject when the body clearly looks like HTML.
     if !looks_like_html(body) {
         return (body.to_vec(), Decision::Skip);
     }
-    let Some(pos) = injection_point(body) else {
-        return (body.to_vec(), Decision::NoInsertPoint);
-    };
+    // A document that has not shown a home for the snippet still has a start:
+    // the parser opens `<html><head>` for us, and the snippet belongs in front
+    // of everything the page can fetch or render. The one thing that must stay
+    // ahead of it is the doctype — anything before it puts the page in quirks
+    // mode, which changes its layout.
+    let pos = injection_point(body).unwrap_or_else(|| document_start(body));
     let mut out = Vec::with_capacity(body.len() + snippet.len());
     out.extend_from_slice(&body[..pos]);
     out.extend_from_slice(snippet);
@@ -128,9 +121,36 @@ pub fn inject_snippet(body: &[u8], snippet: &[u8]) -> (Vec<u8>, Decision) {
     (out, Decision::Injected)
 }
 
+/// Past the doctype, or the first byte when there is none.
+///
+/// Leading whitespace and comments may precede a doctype, so the search covers
+/// the head of the document rather than offset 0; a doctype that is further in
+/// than that is not a doctype a browser would honour either.
+fn document_start(body: &[u8]) -> usize {
+    let window = &body[..body.len().min(1024)];
+    let lower: Vec<u8> = window.iter().map(|b| b.to_ascii_lowercase()).collect();
+    let Some(at) = find_ci(&lower, b"<!doc") else {
+        return 0;
+    };
+    lower[at..]
+        .iter()
+        .position(|b| *b == b'>')
+        .map(|end| at + end + 1)
+        .unwrap_or(0)
+}
+
+/// How much of a body the "is this a page" question reads.
+///
+/// A doctype or an `<html>` tag can only be preceded by whitespace and
+/// comments, so the answer lives in the first few hundred bytes of every real
+/// document — and scanning the whole body for it meant copying megabytes to
+/// lower case on every response.
+const LOOKS_LIKE_HTML_WINDOW: usize = 16 * 1024;
+
 /// True when the bytes look like a document that is safe to edit: a real
 /// `<!doctype`/`<html` somewhere in the head of the file.
 fn looks_like_html(body: &[u8]) -> bool {
+    let body = &body[..body.len().min(LOOKS_LIKE_HTML_WINDOW)];
     let lower: Vec<u8> = body.iter().map(|b| b.to_ascii_lowercase()).collect();
     if find_ci(&lower, b"<!doc").is_some() {
         return true;
@@ -1995,17 +2015,20 @@ mod tests {
     }
 
     #[test]
-    fn skips_non_html_and_huge_bodies() {
+    fn skips_bodies_that_are_not_pages() {
         assert_eq!(inject_script(b"{\"json\":true}", "/a.js").1, Decision::Skip);
         assert_eq!(inject_script(b"", "/a.js").1, Decision::Skip);
-        let big = vec![b'x'; MAX_INJECTABLE_BODY + 1];
-        assert_eq!(inject_script(&big, "/a.js").1, Decision::Skip);
         // Neither a `<!doctype` nor an `<html` tag: a fragment, not a page.
         assert_eq!(inject_script(b"just text", "/a.js").1, Decision::Skip);
         assert_eq!(
             inject_script(b"<div>fragment</div>", "/a.js").1,
             Decision::Skip
         );
+        // Size is not a reason to skip: the same bytes with a page's shape in
+        // front are injected however many of them there are.
+        let mut big = Vec::from(&b"<!doctype html><html><head></head><body>"[..]);
+        big.extend(std::iter::repeat_n(b'a', 4 * 1024 * 1024));
+        assert_eq!(inject_script(&big, "/a.js").1, Decision::Injected);
     }
 
     #[test]
@@ -2021,11 +2044,17 @@ mod tests {
             .contains("<script src=\"/a.js\""));
     }
 
+    /// A document that never says where its head or body begins still gets the
+    /// snippet — the parser opens both for it — but the doctype has to stay in
+    /// front: anything before it puts the page in quirks mode.
     #[test]
-    fn no_insert_point_is_reported() {
-        assert_eq!(
-            inject_script(b"<!doctype html><p>hi", "/a.js").1,
-            Decision::NoInsertPoint
+    fn a_document_with_no_home_gets_the_snippet_after_its_doctype() {
+        let (out, d) = inject_script(b"<!doctype html><p>hi", "/a.js");
+        assert_eq!(d, Decision::Injected);
+        let out = String::from_utf8(out).expect("utf8");
+        assert!(
+            out.starts_with("<!doctype html><script src=\"/a.js\""),
+            "{out}"
         );
     }
 
