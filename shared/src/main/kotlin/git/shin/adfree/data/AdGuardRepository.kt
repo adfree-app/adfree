@@ -280,6 +280,10 @@ class AdGuardRepository(
         OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
+            // The two timeouts above are per step: a server that answers one
+            // byte every nineteen seconds keeps a call alive forever, and the
+            // store's "loading" row never leaves. This bounds the whole call.
+            .callTimeout(60, TimeUnit.SECONDS)
             .build()
     }
 

@@ -40,6 +40,9 @@ class AppUpdateChecker(
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
+        // Read timeout is per read; the APK comes down one read at a time, so
+        // without this a stalled transfer is a check that never finishes.
+        .callTimeout(180, TimeUnit.SECONDS)
         .followRedirects(false)
         .build()
 

@@ -19,7 +19,9 @@
 use super::{parse_sockaddr, poll_readable, sockaddr_for, try_mark, POLL_SLICE_MS};
 use crate::dns;
 use crate::engine::core;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
+use std::collections::HashSet;
+use std::io::{Read as _, Write as _};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream, UdpSocket};
 use crate::sys::fd::{AsRawFd, RawFd};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -28,11 +30,36 @@ use crate::sys::libc;
 /// Bytes credited to a refused lookup, matching the tun path's accounting.
 const BYTES_PER_BLOCKED_REQUEST: u64 = 48 * 1024;
 
-/// How long a forwarded query may wait for its upstream answer.
+/// How long a forwarded query may wait for its upstream answer, across every
+/// server it is tried against.
 const FORWARD_TIMEOUT_MS: i32 = 5000;
+
+/// How long one copy of a query waits before it is sent again.
+///
+/// Below the usual second of a resolver's own retry timer on purpose: the link
+/// this runs over drops about half the datagrams and answers the rest in well
+/// over a second, so three or four copies fit in the budget where one used to.
+const ATTEMPT_MS: i32 = 700;
 
 /// Room for the control messages of one datagram.
 const CONTROL_BYTES: usize = 512;
+
+/// True when this process can put the firewall mark on a socket, decided once.
+///
+/// Without it a forwarded query is redirected straight back into this listener
+/// by the same rules that brought the client's query here: the mark is what
+/// tells the two apart, so forwarding over UDP becomes a loop rather than a
+/// lookup. An unprivileged run has no mark, and the fallback below is what
+/// keeps its DNS answering.
+static MARK_OK: AtomicBool = AtomicBool::new(false);
+
+/// Source ports of the sockets currently forwarding upstream.
+///
+/// Under a redirect the upstream query comes back to this listener with its
+/// sender's address intact — including the ephemeral port of the socket that
+/// sent it. Recognising that port is how a loop is told from a client, so it is
+/// kept rather than guessed at.
+static FORWARD_PORTS: std::sync::Mutex<Option<HashSet<u16>>> = std::sync::Mutex::new(None);
 
 /// One UDP listener and the family its control messages speak. Two sockets
 /// rather than one dual-stack socket because the packet-info option that carries
@@ -295,7 +322,9 @@ pub(crate) fn serve_loop(listeners: Vec<Listener>, stop: Arc<AtomicBool>) {
     // The redirect layout only loop-proofs itself through the fwmark; if the
     // mark cannot be set (no `CAP_NET_ADMIN`) say so once, loudly, instead of
     // burning a query storm in silence.
-    if !probe_mark() {
+    let mark_ok = probe_mark();
+    MARK_OK.store(mark_ok, Ordering::Relaxed);
+    if !mark_ok {
         crate::logbuf::push(
             "proxy: cannot set the firewall mark (needs root); with nft redirect \
              rules installed, DNS forwarding may loop — run AdFree as root or use \
@@ -369,6 +398,19 @@ fn serve_one(listener: &Listener, query: &Inquiry, stop: &AtomicBool) {
     // arrives; a query from another machine is not ours to answer, and
     // silence leaves no open resolver on the network.
     if !super::is_local_peer(client) {
+        return;
+    }
+    // A query this listener forwarded coming back: under the redirect rules an
+    // unmarked upstream query returns here instead of leaving, and answering it
+    // starts another hop. Dropping it is where the loop ends.
+    if is_own_forward(&client) {
+        static WARNED: AtomicBool = AtomicBool::new(false);
+        if !WARNED.swap(true, Ordering::Relaxed) {
+            crate::logbuf::push(
+                "proxy: a forwarded DNS query came back to the listener; \
+                 dropping the loop instead of forwarding it again",
+            );
+        }
         return;
     }
     let Some(parsed) = dns::parse_query(&query.body) else {
@@ -574,27 +616,133 @@ fn answer_text(message: &[u8]) -> String {
 /// of filtering is answered by it: the provider this app was pointed at is
 /// usually a filtering one, and its blocklist would answer 0.0.0.0 for
 /// exactly the hosts the exception exists to let through.
+/// Marks a forwarding socket's port as ours for as long as it is alive.
+struct ForwardPort(u16);
+
+impl ForwardPort {
+    fn new(port: u16) -> Self {
+        if let Ok(mut slot) = FORWARD_PORTS.lock() {
+            slot.get_or_insert_with(HashSet::new).insert(port);
+        }
+        ForwardPort(port)
+    }
+}
+
+impl Drop for ForwardPort {
+    fn drop(&mut self) {
+        if let Ok(mut slot) = FORWARD_PORTS.lock() {
+            if let Some(ports) = slot.as_mut() {
+                ports.remove(&self.0);
+            }
+        }
+    }
+}
+
+/// Whether a query arrived from this process's own forwarding socket.
+fn is_own_forward(peer: &SocketAddr) -> bool {
+    if !peer.ip().is_loopback() {
+        return false;
+    }
+    FORWARD_PORTS
+        .lock()
+        .ok()
+        .and_then(|slot| slot.as_ref().map(|ports| ports.contains(&peer.port())))
+        .unwrap_or(false)
+}
+
 fn forward_query(body: &[u8], stop: &AtomicBool, plain: bool) -> Option<Vec<u8>> {
-    let resolver = if plain {
-        system_resolver().or_else(resolver_addr)?
+    let started = std::time::Instant::now();
+    let left = || FORWARD_TIMEOUT_MS - started.elapsed().as_millis() as i32;
+    let candidates = forward_targets(plain);
+    if candidates.is_empty() {
+        return None;
+    }
+    // Unmarked, a datagram to port 53 is redirected by the same rule that
+    // delivered the client's query: it would come back here and never reach a
+    // resolver. Port 53 over TCP is not in those rules.
+    let udp = MARK_OK.load(Ordering::Relaxed);
+    if udp {
+        for (index, resolver) in candidates.iter().enumerate() {
+            let remaining = left();
+            if remaining <= 0 {
+                break;
+            }
+            // Split what is left over the servers not yet tried, so a dead
+            // primary cannot starve the second opinion behind it.
+            let share = remaining / (candidates.len() - index) as i32;
+            if let Some(reply) = forward_over_udp(body, *resolver, stop, share.max(ATTEMPT_MS)) {
+                return Some(reply);
+            }
+        }
+    }
+    // Every server dropped every copy, or this process cannot mark a datagram:
+    // the connection-oriented framing is the one path left.
+    for resolver in &candidates {
+        let remaining = left();
+        if remaining <= 0 {
+            return None;
+        }
+        if let Some(reply) = forward_over_tcp(body, *resolver, remaining) {
+            return Some(reply);
+        }
+    }
+    None
+}
+
+/// The servers a query may be sent to, in the order they are tried: the
+/// configured one, then the machine's own, which is the second opinion a
+/// filtered or lossy upstream needs.
+fn forward_targets(plain: bool) -> Vec<SocketAddr> {
+    let mut targets = Vec::new();
+    let primary = if plain {
+        system_resolver().or_else(resolver_addr)
     } else {
-        resolver_addr()?
+        resolver_addr()
     };
+    if let Some(primary) = primary {
+        targets.push(primary);
+    }
+    if let Some(system) = system_resolver() {
+        if !targets.contains(&system) {
+            targets.push(system);
+        }
+    }
+    targets
+}
+
+/// One query over UDP, with a resend inside `budget_ms` when the first copy is
+/// not answered.
+fn forward_over_udp(
+    body: &[u8],
+    resolver: SocketAddr,
+    stop: &AtomicBool,
+    budget_ms: i32,
+) -> Option<Vec<u8>> {
     let local: SocketAddr = if resolver.is_ipv4() {
         (Ipv4Addr::UNSPECIFIED, 0).into()
     } else {
         (Ipv6Addr::UNSPECIFIED, 0).into()
     };
     let socket = UdpSocket::bind(local).ok()?;
+    // Registered before the first byte leaves: the redirect can turn the query
+    // around faster than the next line runs.
+    let _port = ForwardPort::new(socket.local_addr().ok()?.port());
     try_mark(socket.as_raw_fd());
-    socket.send_to(body, resolver).ok()?;
     let fd = socket.as_raw_fd();
     let started = std::time::Instant::now();
     let mut reply = vec![0u8; 4096];
+    let mut attempt = 0u32;
     loop {
-        if stop.load(Ordering::Relaxed) || started.elapsed().as_millis() as i32 > FORWARD_TIMEOUT_MS
-        {
+        let elapsed = started.elapsed().as_millis() as i32;
+        if stop.load(Ordering::Relaxed) || elapsed >= budget_ms {
             return None;
+        }
+        // Halfway through the budget with nothing back: send the same query
+        // again, up to ATTEMPT_MS apart, rather than wait out the whole window
+        // on a datagram that was dropped.
+        if elapsed >= (attempt + 1) as i32 * ATTEMPT_MS {
+            attempt += 1;
+            socket.send_to(body, resolver).ok()?;
         }
         if !poll_readable(fd, POLL_SLICE_MS) {
             continue;
@@ -612,6 +760,33 @@ fn forward_query(body: &[u8], stop: &AtomicBool, plain: bool) -> Option<Vec<u8>>
             Err(_) => return None,
         }
     }
+}
+
+/// One query over DNS-over-TCP (RFC 1035 4.2.2): a two-byte length, the
+/// message, and the same framing back.
+///
+/// The redirect rules cover UDP port 53 only, so this path is open to a process
+/// that cannot mark its sockets. It costs a connection per answer, which is the
+/// right trade for a case that only arises when the mark is unavailable.
+fn forward_over_tcp(body: &[u8], resolver: SocketAddr, budget_ms: i32) -> Option<Vec<u8>> {
+    let budget = std::time::Duration::from_millis(budget_ms.max(250) as u64);
+    let mut stream = TcpStream::connect_timeout(&resolver, budget).ok()?;
+    stream.set_read_timeout(Some(budget)).ok()?;
+    stream.set_write_timeout(Some(budget)).ok()?;
+    let len = u16::try_from(body.len()).ok()?;
+    let mut framed = Vec::with_capacity(body.len() + 2);
+    framed.extend_from_slice(&len.to_be_bytes());
+    framed.extend_from_slice(body);
+    stream.write_all(&framed).ok()?;
+    let mut header = [0u8; 2];
+    stream.read_exact(&mut header).ok()?;
+    let mut reply = vec![0u8; u16::from_be_bytes(header) as usize];
+    stream.read_exact(&mut reply).ok()?;
+    if reply.len() < 12 {
+        return None;
+    }
+    dns::patch_txid(&mut reply, dns::parse_query(body).map(|q| q.id).unwrap_or(0));
+    Some(reply)
 }
 
 /// Resolves one name the way an excepted page is resolved: over the marked
@@ -836,6 +1011,56 @@ mod tests {
         // The container may have no nameserver line at all; either answer is
         // fine as long as the parser never panics on what the host wrote.
         let _ = system_resolver();
+    }
+
+    /// The port registry is what tells a loop from a client: a forwarding
+    /// socket's port is ours only while the socket lives.
+    #[test]
+    fn a_forwarding_port_is_ours_only_while_it_exists() {
+        let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind");
+        let port = socket.local_addr().expect("addr").port();
+        let peer = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+        assert!(!is_own_forward(&peer), "nothing registered yet");
+        let guard = ForwardPort::new(port);
+        assert!(is_own_forward(&peer));
+        // An address that is not this machine's is never our own loop, whatever
+        // port it names.
+        assert!(!is_own_forward(&SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::new(192, 0, 2, 9)),
+            port
+        )));
+        drop(guard);
+        assert!(!is_own_forward(&peer), "the port went with the socket");
+    }
+
+    /// A forwarded query framed over TCP comes back as a DNS message, which is
+    /// the path an unprivileged run uses.
+    #[test]
+    fn a_query_over_tcp_comes_back_patched() {
+        use std::net::TcpListener;
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind");
+        let address = listener.local_addr().expect("addr");
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut len = [0u8; 2];
+            stream.read_exact(&mut len).expect("length");
+            let mut query = vec![0u8; u16::from_be_bytes(len) as usize];
+            stream.read_exact(&mut query).expect("query");
+            // Answer with the question echoed under the server's own id.
+            let mut reply = crate::dns::build_query("example.com", crate::dns::TYPE_A, 0x1234)
+                .expect("reply");
+            reply[2] |= 0x80; // QR
+            let mut framed = (reply.len() as u16).to_be_bytes().to_vec();
+            framed.extend_from_slice(&reply);
+            stream.write_all(&framed).expect("write");
+            query.len()
+        });
+        let query = crate::dns::build_query("example.com", crate::dns::TYPE_A, 0x4242).expect("query");
+        let reply = forward_over_tcp(&query, address, FORWARD_TIMEOUT_MS).expect("answer");
+        let parsed = crate::dns::parse_query(&reply).expect("parse");
+        assert_eq!(parsed.id, 0x4242, "the client's own id rides back");
+        assert!(parsed.is_query() == false, "an answer, not a query");
+        assert_eq!(server.join().expect("thread"), query.len());
     }
 
     #[test]

@@ -7,7 +7,10 @@
 //! half-written list behind.
 
 use std::io::Read as _;
+use std::net::ToSocketAddrs as _;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
+use std::sync::OnceLock;
 use std::time::{Duration, UNIX_EPOCH};
 
 /// AdFree's own request header, the same one the Kotlin client used.
@@ -42,13 +45,69 @@ pub struct Outcome {
     pub modified_ms: i64,
 }
 
+/// How long a name may take before the download is declared failed.
+///
+/// `getaddrinfo` has no timeout of its own, and when the system resolver is
+/// unreachable it takes minutes to say so. The request's own timeout does not
+/// cover it — it starts counting at the first byte of socket I/O.
+const RESOLVE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// A resolver with a deadline, for downloads only.
+///
+/// The caller waits; the `getaddrinfo` call cannot be interrupted, so a thread
+/// left behind by a hung resolver finishes on its own and is dropped. That is
+/// one thread per hung name, which is a bounded price for an app that keeps
+/// answering.
+struct BoundedResolver;
+
+impl ureq::Resolver for BoundedResolver {
+    fn resolve(&self, netloc: &str) -> std::io::Result<Vec<std::net::SocketAddr>> {
+        let (tx, rx) = mpsc::channel();
+        let target = netloc.to_string();
+        std::thread::Builder::new()
+            .name("adfree-resolve".into())
+            .spawn(move || {
+                let _ = tx.send(
+                    target
+                        .to_socket_addrs()
+                        .map(|addrs| addrs.collect::<Vec<_>>()),
+                );
+            })
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
+        match rx.recv_timeout(RESOLVE_TIMEOUT) {
+            Ok(Ok(addrs)) if !addrs.is_empty() => Ok(addrs),
+            Ok(Ok(_)) => Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "the name has no address",
+            )),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "the resolver did not answer",
+            )),
+        }
+    }
+}
+
+/// The agent downloads use: the same TLS and gzip as before, with the resolver
+/// above under it.
+fn download_agent() -> &'static ureq::Agent {
+    static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
+    AGENT.get_or_init(|| {
+        ureq::AgentBuilder::new()
+            .resolver(BoundedResolver)
+            .build()
+    })
+}
+
 /// Fetches a text body with a hard size cap and timeout. Used by the normal
 /// list/script download and by `@require` resolution at install time.
 pub fn fetch_text(url: &str, max_bytes: u64, timeout: Duration) -> Result<String, String> {
     if !url.starts_with("https://") && !url.starts_with("http://") {
         return Err("the list has no URL".to_string());
     }
-    let response = ureq::get(url)
+    let response = download_agent()
+        .get(url)
         .set("User-Agent", USER_AGENT)
         .timeout(timeout)
         .call()
@@ -494,6 +553,22 @@ mod tests {
         let dir = temp_dir("bad");
         assert!(fetch(&dir, "x", "txt", "ftp://example.com/list.txt", true).is_err());
         assert!(fetch_text("ftp://example.com/req.js", 1024, Duration::from_secs(1)).is_err());
+    }
+
+    /// The resolver under the download agent answers like the system one, and
+    /// a name it cannot answer is an error rather than a wait.
+    #[test]
+    fn the_download_resolver_answers_or_fails() {
+        use ureq::Resolver as _;
+        let addrs = BoundedResolver.resolve("localhost:443").expect("localhost resolves");
+        assert!(addrs.iter().any(|addr| addr.ip().is_loopback()), "{addrs:?}");
+        let started = std::time::Instant::now();
+        assert!(BoundedResolver
+            .resolve("no-such-name.invalid:443")
+            .is_err());
+        // The `.invalid` TLD exists to be unanswerable; the point here is that
+        // the wait is the resolver's, not ours.
+        assert!(started.elapsed() < RESOLVE_TIMEOUT + Duration::from_secs(5));
         assert_eq!(format_iso_date("not a date"), None);
         assert_eq!(format_iso_date("short"), None);
     }
