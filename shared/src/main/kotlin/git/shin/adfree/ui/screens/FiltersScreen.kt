@@ -100,6 +100,7 @@ import git.shin.adfree.model.filterUrlError
 import git.shin.adfree.ui.AdGuardIntent
 import git.shin.adfree.ui.AdGuardViewModel
 import git.shin.adfree.ui.CoreText
+import git.shin.adfree.ui.components.rememberEditingValue
 import git.shin.adfree.ui.theme.AdGuardBlueDns
 import git.shin.adfree.ui.theme.AdGuardDarkBg
 import git.shin.adfree.ui.theme.AdGuardDarkOutline
@@ -162,6 +163,8 @@ fun FiltersScreen(
         }
     }
     val query = state.filterSearchQuery
+    // The field owns its caret; `query` is what the screen filters on.
+    val queryField = rememberEditingValue(state.filterSearchQuery)
     // Catalogue text is localized at render time; search has to see the same
     // words the user does, not the stable brand/filename fields.
     val displayNames = state.filterLists.associate { it.id to filterDisplayName(it) }
@@ -367,8 +370,11 @@ fun FiltersScreen(
             Spacer(modifier = Modifier.height(12.dp))
 
             OutlinedTextField(
-                value = query,
-                onValueChange = { viewModel.onIntent(AdGuardIntent.FilterSearchQueryChanged(it)) },
+                value = queryField.value,
+                onValueChange = {
+                    queryField.value = it
+                    viewModel.onIntent(AdGuardIntent.FilterSearchQueryChanged(it.text))
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("filter_search_field"),

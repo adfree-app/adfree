@@ -83,6 +83,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
+import git.shin.adfree.ui.components.rememberEditingValue
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -193,6 +194,9 @@ fun FilteringLogScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val listState = rememberLazyListState()
+    // The caret belongs to the field: see `rememberEditingValue`. Handing the
+    // box a bare string put it back where the previous echo of the text ended.
+    val searchField = rememberEditingValue(state.searchQuery)
     var showClearConfirm by remember { mutableStateOf(false) }
     val files = currentFileHost()
     val exportScope = rememberCoroutineScope()
@@ -311,8 +315,11 @@ fun FilteringLogScreen(
                 // is 56dp tall before it holds a single character, which next to
                 // 20dp switches reads as a search box from a different program.
                 BasicTextField(
-                    value = state.searchQuery,
-                    onValueChange = { viewModel.onIntent(AdGuardIntent.SearchQueryChanged(it)) },
+                    value = searchField.value,
+                    onValueChange = {
+                        searchField.value = it
+                        viewModel.onIntent(AdGuardIntent.SearchQueryChanged(it.text))
+                    },
                     singleLine = true,
                     textStyle = TextStyle(fontSize = 12.sp, color = AdGuardTextPrimary),
                     cursorBrush = SolidColor(AdGuardGreenPrimary),
@@ -576,8 +583,11 @@ fun FilteringLogScreen(
             Spacer(modifier = Modifier.height(12.dp))
 
             OutlinedTextField(
-                value = state.searchQuery,
-                onValueChange = { viewModel.onIntent(AdGuardIntent.SearchQueryChanged(it)) },
+                value = searchField.value,
+                onValueChange = {
+                    searchField.value = it
+                    viewModel.onIntent(AdGuardIntent.SearchQueryChanged(it.text))
+                },
                 placeholder = {
                     Text(
                         L10n.get(Strings.log_search_hint),
