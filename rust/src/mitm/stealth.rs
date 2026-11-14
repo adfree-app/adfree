@@ -340,19 +340,83 @@ pub fn is_third_party(request_host: &str, referer: Option<&str>, site: Option<&s
     !same_site(request_host, referer_host)
 }
 
-/// Whether two hosts belong to the same site, by the suffix rule the cookie
-/// boundary uses: `a.example.com` and `b.example.com` are the same site,
-/// `example.com.evil.test` is not.
+/// Whether two hosts belong to the same site: `a.example.com` and
+/// `b.example.com` are, `example.com.evil.test` is not.
 fn same_site(left: &str, right: &str) -> bool {
-    let left = left.trim_start_matches("www.").to_ascii_lowercase();
-    let right = right.trim_start_matches("www.").to_ascii_lowercase();
     if left.is_empty() || right.is_empty() {
         return true;
     }
-    if left == right {
-        return true;
+    registrable(left) == registrable(right)
+}
+
+/// The suffixes that are a site boundary on their own.
+///
+/// Comparing "the last two labels" is right for `example.com` and wrong for
+/// everything below: `a.github.io` and `b.github.io` are two different people,
+/// and `shop.example.co.uk` and `other.example.co.uk` are one. This is the part
+/// of the Public Suffix List that decides which of those cases a host is; the
+/// full list is a megabyte of data that changes weekly, and a host that is not
+/// named here falls back to the last-two-labels rule the way the list's own
+/// default does.
+const PUBLIC_SUFFIXES: &[&str] = &[
+    // Second levels in wide use, by country.
+    "co.uk", "org.uk", "me.uk", "ac.uk", "gov.uk", "net.uk", "sch.uk",
+    "com.au", "net.au", "org.au", "edu.au", "gov.au", "id.au",
+    "co.nz", "net.nz", "org.nz",
+    "co.jp", "ne.jp", "or.jp", "ac.jp", "go.jp",
+    "co.kr", "or.kr", "ne.kr",
+    "com.br", "net.br", "org.br",
+    "com.cn", "net.cn", "org.cn", "gov.cn",
+    "com.vn", "net.vn", "org.vn", "edu.vn", "gov.vn",
+    "co.th", "in.th", "or.th",
+    "co.id", "or.id", "web.id", "ac.id", "go.id",
+    "com.tr", "net.tr", "org.tr",
+    "co.za", "org.za", "net.za",
+    "com.mx", "org.mx",
+    "com.ar", "org.ar",
+    "com.sg", "edu.sg", "gov.sg", "org.sg",
+    "com.my", "org.my",
+    "com.ph", "org.ph",
+    "com.tw", "org.tw", "edu.tw",
+    "com.hk", "org.hk", "edu.hk",
+    "co.il", "org.il", "ac.il",
+    "com.ua", "org.ua", "net.ua",
+    "com.pl", "org.pl", "net.pl",
+    "co.in", "net.in", "org.in", "ac.in",
+    "com.es", "org.es", "nom.es",
+    "co.ke", "co.ug", "co.tz",
+    "com.pk", "com.ng", "com.co", "com.pe", "com.ve", "com.ec",
+    "com.sa", "com.eg", "com.kw", "com.qa", "com.jo",
+    // Hosting and publishing platforms: every name under one is its own site.
+    "github.io", "gitlab.io", "pages.dev", "workers.dev", "netlify.app",
+    "vercel.app", "web.app", "firebaseapp.com", "appspot.com",
+    "herokuapp.com", "azurewebsites.net", "cloudfront.net", "s3.amazonaws.com",
+    "blogspot.com", "wordpress.com", "tumblr.com", "weebly.com", "wixsite.com",
+    "myshopify.com", "square.site", "substack.com", "neocities.org",
+    "fly.dev", "onrender.com", "glitch.me", "surge.sh", "repl.co",
+    "duckdns.org", "ngrok-free.app", "trycloudflare.com",
+];
+
+/// The part of a host that names the site: its last label, plus one more for
+/// the name in front of it — three when the last two are a public suffix, four
+/// when the last three are.
+fn registrable(host: &str) -> String {
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    let labels: Vec<&str> = host.split('.').collect();
+    // An address has no labels to weigh, and a bare `localhost` has nothing in
+    // front of it: both compare as themselves.
+    if labels.len() < 3 || host.parse::<std::net::IpAddr>().is_ok() {
+        return host;
     }
-    left.ends_with(&format!(".{right}")) || right.ends_with(&format!(".{left}"))
+    let last3 = labels[labels.len() - 3..].join(".");
+    if labels.len() > 3 && PUBLIC_SUFFIXES.contains(&last3.as_str()) {
+        return labels[labels.len() - 4..].join(".");
+    }
+    let last2 = labels[labels.len() - 2..].join(".");
+    if PUBLIC_SUFFIXES.contains(&last2.as_str()) {
+        return labels[labels.len() - 3..].join(".");
+    }
+    last2
 }
 
 /// STUN/TURN ports: the signalling WebRTC uses to discover a public address.
@@ -456,6 +520,38 @@ mod tests {
             None
         ));
         assert!(!is_third_party("shop.test", None, None));
+    }
+
+    #[test]
+    fn a_shared_hosting_suffix_is_not_one_site() {
+        // Two names under a hosting suffix belong to two different owners, so a
+        // request between them is third-party even though one host is the
+        // other's suffix.
+        assert!(is_third_party(
+            "b.github.io",
+            Some("https://a.github.io/page"),
+            None
+        ));
+        assert!(is_third_party(
+            "other.netlify.app",
+            Some("https://mine.netlify.app/"),
+            None
+        ));
+        // And a country suffix is not the site either: the name in front of it
+        // is.
+        assert!(!is_third_party(
+            "static.shop.co.uk",
+            Some("https://www.shop.co.uk/page"),
+            None
+        ));
+        assert!(is_third_party(
+            "other.co.uk",
+            Some("https://shop.co.uk/page"),
+            None
+        ));
+        // An address is its own site, and `localhost` has no site around it.
+        assert!(is_third_party("10.0.0.2", Some("http://10.0.0.1/"), None));
+        assert!(!is_third_party("localhost", Some("http://localhost/"), None));
     }
 
     #[test]
