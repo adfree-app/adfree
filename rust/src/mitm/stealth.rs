@@ -349,74 +349,94 @@ fn same_site(left: &str, right: &str) -> bool {
     registrable(left) == registrable(right)
 }
 
-/// The suffixes that are a site boundary on their own.
+/// The Public Suffix List, embedded as publicsuffix.org publishes it.
 ///
 /// Comparing "the last two labels" is right for `example.com` and wrong for
-/// everything below: `a.github.io` and `b.github.io` are two different people,
-/// and `shop.example.co.uk` and `other.example.co.uk` are one. This is the part
-/// of the Public Suffix List that decides which of those cases a host is; the
-/// full list is a megabyte of data that changes weekly, and a host that is not
-/// named here falls back to the last-two-labels rule the way the list's own
-/// default does.
-const PUBLIC_SUFFIXES: &[&str] = &[
-    // Second levels in wide use, by country.
-    "co.uk", "org.uk", "me.uk", "ac.uk", "gov.uk", "net.uk", "sch.uk",
-    "com.au", "net.au", "org.au", "edu.au", "gov.au", "id.au",
-    "co.nz", "net.nz", "org.nz",
-    "co.jp", "ne.jp", "or.jp", "ac.jp", "go.jp",
-    "co.kr", "or.kr", "ne.kr",
-    "com.br", "net.br", "org.br",
-    "com.cn", "net.cn", "org.cn", "gov.cn",
-    "com.vn", "net.vn", "org.vn", "edu.vn", "gov.vn",
-    "co.th", "in.th", "or.th",
-    "co.id", "or.id", "web.id", "ac.id", "go.id",
-    "com.tr", "net.tr", "org.tr",
-    "co.za", "org.za", "net.za",
-    "com.mx", "org.mx",
-    "com.ar", "org.ar",
-    "com.sg", "edu.sg", "gov.sg", "org.sg",
-    "com.my", "org.my",
-    "com.ph", "org.ph",
-    "com.tw", "org.tw", "edu.tw",
-    "com.hk", "org.hk", "edu.hk",
-    "co.il", "org.il", "ac.il",
-    "com.ua", "org.ua", "net.ua",
-    "com.pl", "org.pl", "net.pl",
-    "co.in", "net.in", "org.in", "ac.in",
-    "com.es", "org.es", "nom.es",
-    "co.ke", "co.ug", "co.tz",
-    "com.pk", "com.ng", "com.co", "com.pe", "com.ve", "com.ec",
-    "com.sa", "com.eg", "com.kw", "com.qa", "com.jo",
-    // Hosting and publishing platforms: every name under one is its own site.
-    "github.io", "gitlab.io", "pages.dev", "workers.dev", "netlify.app",
-    "vercel.app", "web.app", "firebaseapp.com", "appspot.com",
-    "herokuapp.com", "azurewebsites.net", "cloudfront.net", "s3.amazonaws.com",
-    "blogspot.com", "wordpress.com", "tumblr.com", "weebly.com", "wixsite.com",
-    "myshopify.com", "square.site", "substack.com", "neocities.org",
-    "fly.dev", "onrender.com", "glitch.me", "surge.sh", "repl.co",
-    "duckdns.org", "ngrok-free.app", "trycloudflare.com",
-];
+/// everything under a suffix that is already a site: `a.github.io` and
+/// `b.github.io` are two owners, `shop.example.co.uk` and `other.example.co.uk`
+/// are one. The list is the only thing that knows which is which — it carries
+/// the country second levels, the hosting platforms, and the wildcard and
+/// exception rules that go with them.
+///
+/// MPL 2.0, from <https://publicsuffix.org/list/public_suffix_list.dat>. Refresh
+/// it by replacing the file; nothing else needs to change. The version it holds
+/// is the first `// VERSION:` line, and a test fails if the file is missing.
+const PUBLIC_SUFFIX_LIST: &str = include_str!("../../assets/public_suffix_list.dat");
 
-/// The part of a host that names the site: its last label, plus one more for
-/// the name in front of it — three when the last two are a public suffix, four
-/// when the last three are.
+/// The three shapes a rule takes in the list.
+#[derive(Default)]
+struct SuffixRules {
+    /// `example.com`, `co.uk`: the suffix itself.
+    exact: std::collections::HashSet<&'static str>,
+    /// `*.ck`, stored as `ck`: any one label in front of it is the suffix too.
+    wildcard: std::collections::HashSet<&'static str>,
+    /// `!www.ck`, stored as `www.ck`: the label before this one is part of the
+    /// name, so the rule stops the walk one label shorter.
+    exceptions: std::collections::HashSet<&'static str>,
+}
+
+fn suffix_rules() -> &'static SuffixRules {
+    static RULES: std::sync::OnceLock<SuffixRules> = std::sync::OnceLock::new();
+    RULES.get_or_init(|| {
+        let mut rules = SuffixRules::default();
+        for line in PUBLIC_SUFFIX_LIST.lines() {
+            let line = line.trim();
+            // Section markers are comments too, and a rule is the first word of
+            // its line whatever follows it.
+            if line.is_empty() || line.starts_with("//") {
+                continue;
+            }
+            let rule = line.split_whitespace().next().unwrap_or("");
+            if let Some(rest) = rule.strip_prefix("!") {
+                rules.exceptions.insert(rest);
+            } else if let Some(rest) = rule.strip_prefix("*.") {
+                rules.wildcard.insert(rest);
+            } else if !rule.is_empty() {
+                rules.exact.insert(rule);
+            }
+        }
+        rules
+    })
+}
+
+/// The name that identifies the site a host belongs to: the public suffix plus
+/// the one label in front of it.
+///
+/// The walk takes the longest rule that matches, the exception rules first: a
+/// rule of `*` (the list's own default) leaves only the last label a suffix, so
+/// a host no rule mentions keeps the two-labels answer.
 fn registrable(host: &str) -> String {
     let host = host.trim_end_matches('.').to_ascii_lowercase();
     let labels: Vec<&str> = host.split('.').collect();
     // An address has no labels to weigh, and a bare `localhost` has nothing in
     // front of it: both compare as themselves.
-    if labels.len() < 3 || host.parse::<std::net::IpAddr>().is_ok() {
+    if labels.len() < 2 || host.parse::<std::net::IpAddr>().is_ok() {
         return host;
     }
-    let last3 = labels[labels.len() - 3..].join(".");
-    if labels.len() > 3 && PUBLIC_SUFFIXES.contains(&last3.as_str()) {
-        return labels[labels.len() - 4..].join(".");
+    let rules = suffix_rules();
+    let mut suffix_len = 1;
+    for k in (1..=labels.len()).rev() {
+        let candidate = labels[labels.len() - k..].join(".");
+        if rules.exceptions.contains(candidate.as_str()) {
+            // `!www.ck` for `www.ck`: the suffix is what follows the rule's own
+            // first label, so the name keeps one more label than it would have.
+            suffix_len = k.saturating_sub(1).max(1);
+            break;
+        }
+        if rules.exact.contains(candidate.as_str()) {
+            suffix_len = k;
+            break;
+        }
+        if k >= 2 && rules.wildcard.contains(labels[labels.len() - k + 1..].join(".").as_str())
+        {
+            suffix_len = k;
+            break;
+        }
     }
-    let last2 = labels[labels.len() - 2..].join(".");
-    if PUBLIC_SUFFIXES.contains(&last2.as_str()) {
-        return labels[labels.len() - 3..].join(".");
+    if labels.len() <= suffix_len {
+        return host;
     }
-    last2
+    labels[labels.len() - suffix_len - 1..].join(".")
 }
 
 /// STUN/TURN ports: the signalling WebRTC uses to discover a public address.
@@ -520,6 +540,31 @@ mod tests {
             None
         ));
         assert!(!is_third_party("shop.test", None, None));
+    }
+
+    #[test]
+    fn a_wildcard_rule_makes_one_label_the_whole_suffix() {
+        // `*.ck` in the list: every name under it is its own site, so two of
+        // them are two sites — and the exception `!www.ck` says `www.ck` itself
+        // is a name, not a suffix.
+        assert!(is_third_party("foo.ck", Some("https://bar.ck/"), None));
+        assert!(!is_third_party("www.ck", Some("https://www.ck/"), None));
+        assert_eq!(registrable("www.ck"), "www.ck");
+        assert_eq!(registrable("a.www.ck"), "www.ck");
+        // `*.ck` makes `foo.ck` the suffix, so the name is what sits in front.
+        assert_eq!(registrable("a.b.foo.ck"), "b.foo.ck");
+    }
+
+    #[test]
+    fn the_embedded_list_is_the_real_one() {
+        let list = PUBLIC_SUFFIX_LIST;
+        assert!(
+            list.starts_with("// This Source Code Form is subject to the terms of the Mozilla"),
+            "the list must be the file publicsuffix.org publishes"
+        );
+        assert!(list.contains("// VERSION: "), "the list carries its version");
+        assert!(list.contains("\nco.uk\n"), "a country second level is there");
+        assert!(suffix_rules().exact.len() > 8_000, "the whole list is read");
     }
 
     #[test]
