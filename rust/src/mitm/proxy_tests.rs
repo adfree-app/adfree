@@ -2197,34 +2197,34 @@ Origin: https://site.example\r\nAccess-Control-Request-Headers: content-type,x-c
 }
 
 #[test]
-fn a_response_that_already_answers_cors_is_left_alone() {
-    // A `$redirect` stub is a local asset, and local assets already carry a
-    // wildcard. A second `Access-Control-Allow-Origin` would be read as
-    // `*, https://site.example`, which the browser refuses outright.
+fn a_stub_answers_the_asking_origin_not_a_wildcard() {
+    // A page that asked with credentials cannot read a `*` answer at all: the
+    // browser rejects it before the status. The stub therefore carries no
+    // wildcard, and `with_cors` echoes the origin instead so the block reads as
+    // an empty success either way.
     let stub = redirect_response("data:application/javascript;base64,").expect("stub");
+    assert!(!String::from_utf8_lossy(&stub).contains("Access-Control-Allow-Origin"));
     let head = b"GET /a.js HTTP/1.1\r\nHost: ads.example\r\nOrigin: https://site.example\r\n\r\n";
-    let answered = with_cors(stub.clone(), head);
-    let text = String::from_utf8_lossy(&answered);
+    let text = String::from_utf8_lossy(&with_cors(stub, head)).to_string();
     assert_eq!(text.matches("Access-Control-Allow-Origin").count(), 1, "{text}");
-    assert!(text.contains("Access-Control-Allow-Origin: *"), "{text}");
-    assert_eq!(answered, stub);
+    assert!(text.contains("Access-Control-Allow-Origin: https://site.example"), "{text}");
+    assert!(text.contains("Access-Control-Allow-Credentials: true"), "{text}");
+    assert!(!text.contains("Access-Control-Allow-Origin: *"), "{text}");
 }
 
 #[test]
-fn a_stub_served_to_a_fetch_is_readable() {
-    // `$redirect=nooptext` on an `$xhr` is a replacement the page is meant to
-    // read: the stub is a local asset, so it already answers CORS, and the
-    // answer must survive being handled as a blocked request.
+fn a_preflight_for_a_stub_names_the_origin_and_its_credentials() {
+    // The case that broke a Google XHR: a credentialed preflight answered with
+    // `*` fails the browser's check, so the page's request errored instead of
+    // returning the empty stub.
     let stub = redirect_response("data:text/plain;base64,").expect("stub");
-    let cross = with_cors(
-        stub.clone(),
-        b"POST /a HTTP/1.1\r\nHost: ads.example\r\nOrigin: https://site.example\r\n\r\n",
-    );
-    let text = String::from_utf8_lossy(&cross);
-    assert!(text.starts_with("HTTP/1.1 200 OK"), "{text}");
-    assert_eq!(text.matches("Access-Control-Allow-Origin").count(), 1, "{text}");
-    // Nothing was spliced in: the head and the body are the stub's own.
-    assert_eq!(cross, stub);
+    let head = b"OPTIONS /log HTTP/1.1\r\nHost: ads.example\r\nOrigin: https://www.example\r\n\
+                 Access-Control-Request-Method: POST\r\n\
+                 Access-Control-Request-Headers: content-type\r\n\r\n";
+    let text = String::from_utf8_lossy(&with_cors(stub, head)).to_string();
+    assert!(text.contains("Access-Control-Allow-Origin: https://www.example"), "{text}");
+    assert!(text.contains("Access-Control-Allow-Credentials: true"), "{text}");
+    assert!(text.contains("Access-Control-Allow-Headers: content-type"), "{text}");
 }
 
 

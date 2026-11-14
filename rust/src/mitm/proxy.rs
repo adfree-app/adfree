@@ -3513,7 +3513,13 @@ pub(super) fn redirect_response(data_url: &str) -> Option<Vec<u8>> {
     let mime = mime.strip_suffix(";base64")?;
     let body = BASE64_STANDARD.decode(payload).ok()?;
     let mime = if mime.is_empty() { "text/plain" } else { mime };
-    Some(local_response(mime, "max-age=3600", &body, false, true))
+    // No `Access-Control-Allow-Origin` here on purpose. The wildcard this used
+    // to carry is refused outright by a request that was sent with
+    // credentials — the browser reads `*` next to `withCredentials: true` as a
+    // CORS failure, so the page saw a network error instead of the empty answer
+    // a block is supposed to look like. `with_cors` echoes the asking origin on
+    // the way out, which is readable with credentials and without.
+    Some(local_response(mime, "max-age=3600", &body, false, false))
 }
 
 /// The body a request announced, as far as answering it locally goes.
