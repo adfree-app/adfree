@@ -3237,10 +3237,13 @@ fn header_lookup(head: &[u8], name: &str) -> Option<String> {
 }
 
 /// A `204` for the preflight: no body, and the methods the endpoint takes.
-fn preflight_response(allowed: Option<&str>) -> Vec<u8> {
+///
+/// No `Content-Length`: RFC 9110 forbids that header on a `204`, and a body is
+/// already impossible there ("No Content" says so itself).
+pub(super) fn preflight_response(allowed: Option<&str>) -> Vec<u8> {
     let cors = allowed_origin_headers(allowed);
     format!(
-        "HTTP/1.1 204 No Content\r\n{cors}Access-Control-Allow-Methods: POST, OPTIONS\r\nAccess-Control-Allow-Headers: content-type\r\nContent-Length: 0\r\n\r\n"
+        "HTTP/1.1 204 No Content\r\n{cors}Access-Control-Allow-Methods: POST, OPTIONS\r\nAccess-Control-Allow-Headers: content-type\r\n\r\n"
     )
     .into_bytes()
 }
@@ -3430,19 +3433,21 @@ fn cors_headers(head: &[u8]) -> String {
     let Some(origin) = origin else {
         return String::new();
     };
-    // A preflight names the headers it wants; a blocked answer may only claim
-    // the ones actually asked for, or the preflight fails and the block is
-    // visible again.
-    let allow = requested.unwrap_or("*");
-    format!(
+    let mut cors = format!(
         "Access-Control-Allow-Origin: {origin}\r\n\
          Access-Control-Allow-Credentials: true\r\n\
-         Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS\r\n\
-         Access-Control-Allow-Headers: {allow}\r\n\
-         Access-Control-Max-Age: 600\r\n\
-         Timing-Allow-Origin: {origin}\r\n\
-         Vary: Origin\r\n"
-    )
+         Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS\r\n"
+    );
+    // Only a preflight names the headers it wants; a plain answer that carried
+    // a list here would be claiming one nobody asked for, and `*` is not a
+    // valid list next to credentials anyway.
+    if let Some(want) = requested {
+        cors.push_str(&format!("Access-Control-Allow-Headers: {want}\r\n"));
+    }
+    cors.push_str(&format!(
+        "Access-Control-Max-Age: 600\r\nTiming-Allow-Origin: {origin}\r\nVary: Origin\r\n"
+    ));
+    cors
 }
 
 /// Adds the CORS answer to a response this proxy wrote for a blocked request:

@@ -1004,10 +1004,49 @@ pub fn set_header_value(head: &[u8], name: &str, value: &str) -> Option<Vec<u8>>
 /// origin each time. The validators go because a `304` would hand back the
 /// copy the browser already has: the headers would be fresh and the body would
 /// still be the one without our script in it.
+///
+/// The directive is added, never substituted: `Cache-Control` carries the
+/// page's own promises (`private`, `no-store`, `must-revalidate`) beside its
+/// lifetime, and replacing the line would delete whichever of them was there.
+/// `no-store`, in particular, forbids a cache from writing the answer down at
+/// all — swapping it for `no-cache` would *permit* the write, putting a
+/// document the origin refused to have stored onto the disk.
 pub fn require_revalidation(head: &[u8]) -> Vec<u8> {
     let names = ["etag".to_string(), "last-modified".to_string()];
     let head = drop_headers(head, &names).unwrap_or_else(|| head.to_vec());
-    set_header_value(&head, "Cache-Control", "no-cache").unwrap_or(head)
+    if cache_control_says(&head, "no-cache") || cache_control_says(&head, "no-store") {
+        return head;
+    }
+    let merged = match header_text(&head, "cache-control") {
+        // An empty `Cache-Control:` would be a syntax error without a value.
+        Some(current) if !current.is_empty() => format!("{current}, no-cache"),
+        _ => "no-cache".to_string(),
+    };
+    set_header_value(&head, "Cache-Control", &merged).unwrap_or(head)
+}
+
+/// The value of one header in a head, as it arrived.
+fn header_text(head: &[u8], name: &str) -> Option<String> {
+    let text = String::from_utf8_lossy(head);
+    text.split("\r\n")
+        .skip(1)
+        .filter_map(|line| line.split_once(':'))
+        .find(|(key, _)| key.trim().eq_ignore_ascii_case(name))
+        .map(|(_, value)| value.trim().to_string())
+}
+
+/// Whether a `Cache-Control` in the head carries one directive.
+fn cache_control_says(head: &[u8], directive: &str) -> bool {
+    let text = String::from_utf8_lossy(head);
+    text.split("\r\n")
+        .skip(1)
+        .filter_map(|line| line.split_once(':'))
+        .filter(|(name, _)| name.trim().eq_ignore_ascii_case("cache-control"))
+        .any(|(_, value)| {
+            value.split(',').any(|part| {
+                part.trim().eq_ignore_ascii_case(directive)
+            })
+        })
 }
 
 /// Takes the named headers out of a message head (`CRLFCRLF` included).
@@ -2936,6 +2975,32 @@ mod tests {
             "GET / HTTP/1.1\r\nHost: a.test\r\nuser-agent: new\r\n\r\n"
         );
         assert!(set_header_value(head, "user-agent", "new").is_some());
+    }
+
+    #[test]
+    fn revalidation_keeps_a_no_store_and_a_private_a_page_asked_for() {
+        // `no-store` forbids writing the answer down; `no-cache` allows the
+        // write. The line is therefore merged into, never replaced.
+        for value in ["no-store", "private, no-store", "private, max-age=600"] {
+            let head = format!("HTTP/1.1 200 OK\r\nCache-Control: {value}\r\n\r\n");
+            let out = String::from_utf8(require_revalidation(head.as_bytes())).unwrap();
+            assert!(out.contains(value), "{value} was replaced: {out}");
+            if value.contains("no-store") {
+                assert!(!out.contains("no-cache,"), "no-store needs no addition: {out}");
+            }
+        }
+    }
+
+    #[test]
+    fn revalidation_still_asks_for_a_page_cached_for_an_hour() {
+        let head = b"HTTP/1.1 200 OK\r\nCache-Control: public, max-age=3600\r\nETag: \"a\"\r\n\r\n";
+        let out = String::from_utf8(require_revalidation(head)).unwrap();
+        assert!(out.contains("Cache-Control: public, max-age=3600, no-cache"), "{out}");
+        assert!(!out.to_lowercase().contains("etag"), "{out}");
+        // A page that said nothing gets the directive alone.
+        let quiet = b"HTTP/1.1 200 OK\r\n\r\n";
+        let out = String::from_utf8(require_revalidation(quiet)).unwrap();
+        assert!(out.contains("Cache-Control: no-cache"), "{out}");
     }
 
     #[test]

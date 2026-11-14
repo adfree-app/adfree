@@ -614,11 +614,17 @@ async fn relay_response(
     }
 
     apply_response_plan(&mut wire, plan, host);
-    if let Some(nonce) = nonce.as_deref() {
-        // The page keeps its policy: it just learns the nonce the snippet's
-        // tags carry.
-        wire = crate::mitm::http::csp_with_nonce(&wire, nonce, LOCAL_CSP_ORIGIN);
-    }
+    // The same header work the HTTP/1.1 path does, for the same reasons: an
+    // injected page learns the nonce its tags carry and is asked for again
+    // rather than reused from a cache, while a page we did not write still
+    // learns the source its cached copy's tags will need.
+    wire = match nonce.as_deref() {
+        Some(nonce) => {
+            let wire = crate::mitm::http::csp_with_nonce(&wire, nonce, LOCAL_CSP_ORIGIN);
+            crate::mitm::http::require_revalidation(&wire)
+        }
+        None => crate::mitm::http::csp_with_host_source(&wire, LOCAL_CSP_ORIGIN),
+    };
     if let Some(bytes) = edited_body.as_ref() {
         wire = crate::mitm::http::head_for_new_body(
             &wire,
@@ -1300,14 +1306,17 @@ mod tests {
                 headers.get("x-internal").is_none(),
                 "$removeheader must take the response header out"
             );
-            assert_eq!(
-                headers
-                    .get("content-security-policy")
-                    .expect("$csp adds the policy")
-                    .to_str()
-                    .expect("policy text"),
-                "script-src 'self'"
-            );
+            // The `$csp` value the rule asked for, plus the one source the
+            // page needs to run what this app put in it — the HTTP/1.1 path
+            // answers a response the same way.
+            let policy = headers
+                .get("content-security-policy")
+                .expect("$csp adds the policy")
+                .to_str()
+                .expect("policy text")
+                .to_string();
+            assert!(policy.starts_with("script-src 'self'"), "{policy}");
+            assert!(policy.contains(LOCAL_CSP_ORIGIN), "{policy}");
             let length: usize = headers
                 .get("content-length")
                 .expect("the edited body declares its length")

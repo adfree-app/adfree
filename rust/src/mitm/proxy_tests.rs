@@ -6,7 +6,8 @@
 
 use super::proxy::{
     blocked_response, closing_response, content_hash, local_asset,
-    origin_form, rebuilt_head, redirect_response, request_facts, request_url, rewritable,
+    origin_form, preflight_response, rebuilt_head, redirect_response, request_facts,
+    request_url, rewritable,
     swallow_body, take_local_request, with_cors,
     ClientDiscard, ProxySession, RequestBody, HIDE_PATH,
 };
@@ -2164,6 +2165,18 @@ fn a_redirect_the_crate_cannot_bind_is_answered_from_the_table() {
 }
 
 #[test]
+fn a_store_preflight_sends_no_content_length() {
+    // `204` means no body, and RFC 9110 forbids naming a length on one: a
+    // length that is there invites a reader to wait for bytes that never come.
+    let answer = preflight_response(Some("https://greasyfork.org"));
+    let text = String::from_utf8_lossy(&answer).to_string();
+    assert!(text.starts_with("HTTP/1.1 204 No Content\r\n"), "{text}");
+    assert!(!text.to_lowercase().contains("content-length"), "{text}");
+    assert!(text.contains("Access-Control-Allow-Origin: https://greasyfork.org"), "{text}");
+    assert!(text.ends_with("\r\n\r\n"), "{text}");
+}
+
+#[test]
 fn a_blocked_answer_carries_the_cross_origin_answer() {
     // A page's `fetch()` to a blocked URL fails the CORS check before it can
     // read the status, which is both console noise and a signal an anti-adblock
@@ -2177,6 +2190,10 @@ Accept: */*\r\n\r\n";
     assert!(text.contains("Access-Control-Allow-Credentials: true"), "{text}");
     assert!(text.contains("Timing-Allow-Origin: https://site.example"), "{text}");
     assert!(text.contains("Content-Length: 0"), "{text}");
+    // Nothing asked for a header list, so none is offered: `*` there would be
+    // an answer to a question nobody asked, and an invalid one beside
+    // `Allow-Credentials`.
+    assert!(!text.contains("Access-Control-Allow-Headers"), "{text}");
 
     // A request with no origin is not a cross-origin read: it gets the plain
     // block, with no header that means anything to a cache.
