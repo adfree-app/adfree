@@ -761,6 +761,85 @@ test('a legacy same-origin tag still finds the host and origin', async () => {
   expect(page.errors).toEqual([]);
 });
 
+// A blocked ad leaves its box behind. These pin the pass that collapses it:
+// what counts as a slot, what counts as empty, and how far up the box goes.
+describe('emptied ad slots', () => {
+  /// The leftover on click2houston.com: the wrapper reserves 250 px and the
+  /// ad inside it is named `fixedAd`, a name no attribute selector covers.
+  test('a slot named only by its class is collapsed, wrapper and all', async () => {
+    const page = await openPage({
+      html: {
+        head: '<style>#band{height:250px;background:#333}</style>',
+        body:
+          '<div id="band"><div id="MileTech_LEADER_BOARD1_DESKTOP" class="fixedAd fixedAd-rendered"></div></div>' +
+          '<main style="height:800px">story</main>',
+      },
+    });
+
+    await expect.poll(() => page.display('#band')).toBe('none');
+    expect(await page.display('main')).not.toBe('none');
+    expect(page.errors).toEqual([]);
+  });
+
+  /// The other half of the same page: a sticky frame at the bottom of the
+  /// viewport with its own close button. The button is a control, not content,
+  /// and goes with the frame — otherwise the frame keeps covering the story.
+  /// Its icon is drawn with an `<svg>`, and a picture inside a control is still
+  /// a control: the first cut of this pass read it as content and left the
+  /// 90 px frame on screen.
+  test('a close button does not keep an emptied frame on screen', async () => {
+    const page = await openPage({
+      html: {
+        head:
+          '<style>.floatingWrapper{position:fixed;bottom:0;left:0;right:0;height:90px;background:#222}</style>',
+        body:
+          '<div class="floatingWrapper">' +
+          '<button class="close" style="width:48px;height:32px"><span><div class="buttonIcon">' +
+          '<svg aria-hidden="true" viewBox="0 0 512 512" style="width:16px;height:16px"></svg>' +
+          '</div></span>Close</button>' +
+          '<div id="MileTech_FOOTER_DESKTOP" class="fixedAd"></div></div>',
+      },
+    });
+
+    await expect.poll(() => page.display('.floatingWrapper')).toBe('none');
+    expect(page.errors).toEqual([]);
+  });
+
+  /// The walk has to stop at content: a picture in the wrapper is the story,
+  /// not the ad, so the wrapper keeps its box even though the slot collapses.
+  test('a wrapper holding a picture keeps its box', async () => {
+    const page = await openPage({
+      html: {
+        body:
+          '<div id="keep"><div class="ad-slot"></div>' +
+          '<img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" width="120" height="60"></div>',
+      },
+    });
+
+    await expect.poll(() => page.display('.ad-slot')).toBe('none');
+    expect(await page.display('#keep')).not.toBe('none');
+    expect(page.errors).toEqual([]);
+  });
+
+  /// `Advertisement` is the page telling the reader an ad would be here; a
+  /// sentence is not, and a slot carrying one is left alone rather than
+  /// guessed at.
+  test('only the ad label counts as nothing in a slot', async () => {
+    const page = await openPage({
+      html: {
+        head: '<style>.ad-slot{height:120px}</style>',
+        body:
+          '<div class="ad-slot" id="label">Advertisement</div>' +
+          '<div class="ad-slot" id="promo">Bán hàng giảm giá hôm nay</div>',
+      },
+    });
+
+    await expect.poll(() => page.display('#label')).toBe('none');
+    expect(await page.display('#promo')).not.toBe('none');
+    expect(page.errors).toEqual([]);
+  });
+});
+
 // The one check that is not simulated: a Chrome running on the emulator with
 // the app's VPN up, driven over CDP. Off unless ADFREE_CDP is set, e.g.
 //

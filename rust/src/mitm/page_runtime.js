@@ -981,7 +981,12 @@
   }
 
   const note = (kind, token) => {
-    if (!token || token.length > 64) {
+    // Our own markers are not the page's vocabulary: the collapse pass writes
+    // classes on the elements it empties and keeps its rule in a `<style>`, the
+    // observer sees both, and asking the engine about `__adfree_empty_slot` or
+    // `adfree-empty-slots` would waste a round trip and hand back a selector
+    // nobody can use.
+    if (!token || token.length > 64 || token.startsWith('__adfree') || token.startsWith('adfree-')) {
       return;
     }
     const key = kind + token;
@@ -1065,6 +1070,81 @@
   // The box a site reserved around a slot: it holds the gap, not the ad.
   const SLOT_PARENT_COLLAPSED = '__adfree_empty_slot_parent';
 
+  // A slot is just as often named only by its class: `fixedAd`, `mpu-wrap`.
+  // The selector list above cannot see those, and the reserved height they
+  // carry is the band the reader gets — 250 px across the top of
+  // click2houston.com and a 90 px frame at the bottom, both named `fixedAd`.
+  // The name is read twice: split into words, where the short names have to
+  // stand alone (`header`, `loading`, `shadow` are not ads), and flattened,
+  // where only the long unambiguous ones count (`LEADER_BOARD` is one word).
+  const SLOT_WORD = /(?:^|[^a-z])(?:ad|ads|adv|advert|adverts|gpt|dfp|promo|sponsor|sponsored|promoted)(?![a-z])/;
+  const SLOT_COMPOUND = /(?:advertisement|advertising|adslot|adunit|adbox|adbanner|adcontainer|adwrapper|leaderboard|billboard|skyscraper|doubleclick|googlesyndication|sponsor|promoted)/;
+  const slotNames = new WeakMap();
+  const namedAsSlot = (el) => {
+    let hit = slotNames.get(el);
+    if (hit === undefined) {
+      const name = `${el.id || ''} ${el.getAttribute('class') || ''}`
+        .replace(/([a-z])([A-Z])/g, '$1 $2')
+        .toLowerCase();
+      hit = SLOT_WORD.test(name) || SLOT_COMPOUND.test(name.replace(/[^a-z0-9]/g, ''));
+      slotNames.set(el, hit);
+    }
+    return hit;
+  };
+
+  // What a slot says when the ad it wanted never arrived. `Advertisement` is a
+  // label, not content, and a wrapper around one is still a wrapper around
+  // nothing. A short phrase carrying an ad word counts as the label too; more
+  // than a few words is content and keeps its box.
+  const SLOT_LABEL_TAIL = /[:·|,.;\s\-–—]*$/;
+  const SLOT_LABEL_WORD = /(?:^|[^a-z])(?:ad|ads|adv|advert|advertisement|advertising|sponsor|sponsored|promo|promoted)(?![a-z])/i;
+  const SLOT_LABEL_LOCAL = /^(?:quảng cáo|quang cao|publicité|publicite|anzeige|werbung|reklam|pubblicità|pubblicita|anúncio|anuncio|реклама|广告|広告|광고)/i;
+  const labelOnly = (text) => {
+    const t = (text || '').replace(/\s+/g, ' ').trim();
+    if (!t) {
+      return true;
+    }
+    if (t.split(' ').length > 3) {
+      return false;
+    }
+    const bare = t.replace(SLOT_LABEL_TAIL, '');
+    return SLOT_LABEL_WORD.test(bare) || SLOT_LABEL_LOCAL.test(bare);
+  };
+
+  // What a wrapper still shows once the slot is lifted out of it. A close
+  // button hung on an ad frame is a control, not content — it goes with the
+  // frame — so a box smaller than a thumbnail is skipped whatever it draws
+  // inside it (the close button on click2houston.com carries a 16×16 icon, and
+  // asking whether it held a picture kept the 90 px frame on screen). A bigger
+  // box with a picture, a player or words beyond the label keeps the wrapper
+  // alive; `null` means "not empty".
+  const CONTROL_W = 60;
+  const CONTROL_H = 40;
+  const slotResidual = (el, slot) => {
+    let text = '';
+    for (const node of el.childNodes) {
+      if (node === slot) {
+        continue;
+      }
+      if (node.nodeType === 3) {
+        text += node.nodeValue || '';
+        continue;
+      }
+      if (node.nodeType !== 1 || node.classList?.contains(SLOT_COLLAPSED)) {
+        continue;
+      }
+      const rect = node.getBoundingClientRect();
+      if (rect.width < CONTROL_W || rect.height < CONTROL_H) {
+        continue;
+      }
+      if (node.matches?.('img,video,canvas,svg,picture,object,embed') || slotHasContent(node)) {
+        return null;
+      }
+      text += node.textContent || '';
+    }
+    return text;
+  };
+
   // Anything a reader can actually see inside the slot. A wrapper around a
   // zero-sized frame is empty; one around a picture or a video is not.
   const slotHasContent = (el) => {
@@ -1105,40 +1185,49 @@
   };
 
   const collapseSlots = (root) => {
+    const scope = root?.querySelectorAll ? root : document;
     let slots;
     try {
-      slots = (root?.querySelectorAll ? root : document).querySelectorAll(SLOT_SELECTOR);
+      slots = [...scope.querySelectorAll(SLOT_SELECTOR)];
     } catch {
       return;
+    }
+    // The slots the selector cannot name by attribute. Cheap enough to sweep:
+    // a name is read once per element and kept on the element.
+    try {
+      for (const el of scope.querySelectorAll('[id],[class]')) {
+        if (namedAsSlot(el)) {
+          slots.push(el);
+        }
+      }
+    } catch {
+      /* the ones the selector named are still worth collapsing */
     }
     for (const el of slots) {
       if (el.classList?.contains(SLOT_COLLAPSED) || !el.isConnected) {
         continue;
       }
-      // A slot on screen with nothing in it is the leftover to remove. Height
-      // is read once: an element the page hid itself needs no help.
-      const rect = el.getBoundingClientRect();
-      if (rect.height < 8 || slotHasContent(el)) {
+      // A slot holding anything a reader can see is either filled or not a
+      // slot at all. Its own height is *not* asked: a slot the page already
+      // flattened to 0×0 still reserves its wrapper's height, and that reserve
+      // is the band the reader sees.
+      if (slotHasContent(el) || !labelOnly(el.innerText)) {
         continue;
       }
       try {
         ensureSlotStyle();
         el.classList.add(SLOT_COLLAPSED);
         // A slot is usually wrapped in a box the site reserved for it, and the
-        // reserved height is the gap the reader sees. The wrapper is collapsed
-        // only while the collapsed slot is all it holds.
+        // reserved height lives on the wrapper. Walk up while the wrapper holds
+        // nothing but the collapsed slot, its label, and the controls hung on
+        // it (a close button on a sticky frame).
         let parent = el.parentElement;
         for (let depth = 0; parent && depth < 3; depth += 1) {
           if (parent === document.body || parent === document.documentElement) {
             break;
           }
-          if ((parent.innerText || '').trim() || parent.querySelector('img,video,canvas,svg,picture')) {
-            break;
-          }
-          const others = [...parent.children].filter(
-            (child) => !child.classList?.contains(SLOT_COLLAPSED) && child.getBoundingClientRect().height >= 8,
-          );
-          if (others.length) {
+          const residual = slotResidual(parent, el);
+          if (residual === null || !labelOnly(residual)) {
             break;
           }
           parent.classList.add(SLOT_PARENT_COLLAPSED);
