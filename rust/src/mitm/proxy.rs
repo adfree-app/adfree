@@ -3392,6 +3392,16 @@ pub(super) fn blocked_response() -> Vec<u8> {
     //
     // The length is explicit: the body is empty and the connection stays open
     // for the next request on it.
+    //
+    // Closing the connection without a byte — the closest a proxy can come to
+    // a cancel — was measured instead of guessed at: twelve refused scripts,
+    // each way, on a plain HTTP page. `403` cost zero extra requests; the
+    // zero-byte close cost six, every one of them a fresh TCP and TLS
+    // handshake, because the browser cannot tell a cancel from a broken
+    // connection and asks again. The allowed requests interleaved with the
+    // refused ones were fetched once either way, so the close buys no
+    // correctness, only `net::ERR_EMPTY_RESPONSE` in place of a readable
+    // status.
     b"HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\nCache-Control: no-store\r\n\
       Content-Length: 0\r\n\r\n"
         .to_vec()
