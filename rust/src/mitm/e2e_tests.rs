@@ -1425,7 +1425,7 @@ fn url_rules_are_applied_on_the_https_path() {
         "/ads/tracker.js",
         "Sec-Fetch-Dest: script\r\nReferer: https://shop.test/\r\n",
     );
-    assert!(head.starts_with("HTTP/1.1 204"), "{head}");
+    assert!(head.starts_with("HTTP/1.1 403"), "{head}");
     assert!(body.is_empty(), "{body:?}");
     {
         let seen = origin.requests.lock().expect("requests");
@@ -2186,14 +2186,14 @@ fn a_blocked_request_body_is_swallowed_and_the_connection_goes_on() {
 
     // A declared length first.
     let (head, body) = post_with(&mut tcp, &mut conn, "/blockme", b"{\"track\": true}", "");
-    assert!(head.starts_with("HTTP/1.1 204 No Content"), "{head}");
+    assert!(head.starts_with("HTTP/1.1 403 Forbidden"), "{head}");
     assert!(body.is_empty(), "{body:?}");
 
     // Then a chunked body: the swallow has to follow its framing.
     let chunked = b"POST /blockme HTTP/1.1\r\nHost: shop.test\r\nConnection: keep-alive\r\n\
                     Transfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n";
     let (head, body) = send_and_read(&mut tcp, &mut conn, chunked);
-    assert!(head.starts_with("HTTP/1.1 204 No Content"), "{head}");
+    assert!(head.starts_with("HTTP/1.1 403 Forbidden"), "{head}");
     assert!(body.is_empty(), "{body:?}");
 
     // The next request on the same connection is read as a request, not as
@@ -2293,7 +2293,7 @@ fn a_urlblock_exception_lets_the_pages_own_requests_through() {
         "Sec-Fetch-Dest: script\r\nReferer: https://other.test/\r\n",
     );
     assert!(
-        head.starts_with("HTTP/1.1 204"),
+        head.starts_with("HTTP/1.1 403"),
         "a page without the exception must still be covered: {head}"
     );
 
@@ -3219,7 +3219,7 @@ fn an_app_exception_does_not_lift_a_generic_block_for_other_apps() {
     let mut tcp = Client::connect(core.clone(), origin.port);
     let mut conn = handshake(&mut tcp, client_config(ca_der));
     let (head, body) = request(&mut tcp, &mut conn, "/pathpage");
-    assert!(head.starts_with("HTTP/1.1 204"), "{head}");
+    assert!(head.starts_with("HTTP/1.1 403"), "{head}");
     assert!(body.is_empty(), "{body:?}");
     assert!(
         origin.requests.lock().expect("requests").is_empty(),
@@ -3277,7 +3277,7 @@ fn an_app_scoped_block_applies_to_its_app() {
     let mut conn = handshake(&mut tcp, client_config(ca_der));
     let (head, body) = request(&mut tcp, &mut conn, "/pathpage");
     assert!(
-        head.starts_with("HTTP/1.1 204"),
+        head.starts_with("HTTP/1.1 403"),
         "the named app is blocked: {head}"
     );
     assert!(body.is_empty(), "{body:?}");
@@ -3334,7 +3334,7 @@ fn a_platform_lookup_drives_the_app_shard() {
     let mut conn = handshake(&mut tcp, client_config(ca_der));
     let (head, body) = request(&mut tcp, &mut conn, "/pathpage");
     assert!(
-        head.starts_with("HTTP/1.1 204"),
+        head.starts_with("HTTP/1.1 403"),
         "the app the platform named is blocked: {head}"
     );
     assert!(body.is_empty(), "{body:?}");

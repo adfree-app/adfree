@@ -327,9 +327,9 @@ pub(crate) fn decide_request(
                 .and_then(|data_url| redirect_response(&data_url))
         })
         .unwrap_or_else(blocked_response);
-    // A page that asked cross-origin must be able to read the answer: a stub
-    // it cannot read is a stub it treats as a failure, and a block it cannot
-    // read is the network error every anti-adblock probe waits for.
+    // A page that asked cross-origin must be able to read the answer: a
+    // refusal it cannot read is indistinguishable from a network failure,
+    // which is exactly what an anti-adblock probe waits for.
     response = with_cors(response, &head[..head_end]);
     if method == "HEAD" {
         // A HEAD answer is headers only. The length of the body the same

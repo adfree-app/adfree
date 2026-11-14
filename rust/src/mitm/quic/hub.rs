@@ -1355,7 +1355,11 @@ mod tests {
                 get("https://blocked.test/ad.js"),
             )
             .await;
-            assert_eq!(status, StatusCode::NO_CONTENT);
+            assert_eq!(
+                status,
+                StatusCode::FORBIDDEN,
+                "a block is a refusal, not an empty success"
+            );
             assert!(body.is_empty(), "a blocked answer carries no body");
         });
     }

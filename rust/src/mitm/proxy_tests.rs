@@ -2017,7 +2017,7 @@ fn request_facts_know_who_wants_the_connection_closed() {
     let head = String::from_utf8_lossy(&marked);
     assert!(head.contains("Connection: close\r\n\r\n"), "{head}");
     let (head, body) = split_local(&marked);
-    assert!(head.starts_with("HTTP/1.1 204 No Content\r\n"), "{head}");
+    assert!(head.starts_with("HTTP/1.1 403 Forbidden\r\n"), "{head}");
     assert!(body.is_empty(), "{body:?}");
 }
 
@@ -2098,8 +2098,10 @@ fn a_rewritten_head_only_changes_the_target() {
 fn blocked_and_redirect_answers_are_shaped_for_a_browser() {
     let blocked = blocked_response();
     let head = String::from_utf8_lossy(&blocked);
-    assert!(head.starts_with("HTTP/1.1 204 No Content\r\n"), "{head}");
-    assert!(!head.to_lowercase().contains("content-length"), "{head}");
+    assert!(head.starts_with("HTTP/1.1 403 Forbidden\r\n"), "{head}");
+    // A refusal with a body it does not have: the length is stated so the
+    // connection can carry the next request.
+    assert!(head.contains("Content-Length: 0\r\n"), "{head}");
 
     let redirect = redirect_response("data:application/javascript;base64,KGZ1bmN0aW9uKCl7fSkoKTs=")
         .expect("decodable");
@@ -2185,11 +2187,11 @@ fn a_blocked_answer_carries_the_cross_origin_answer() {
 Accept: */*\r\n\r\n";
     let answer = with_cors(blocked_response(), head);
     let text = String::from_utf8_lossy(&answer);
-    assert!(text.starts_with("HTTP/1.1 204 No Content\r\n"), "{text}");
+    assert!(text.starts_with("HTTP/1.1 403 Forbidden\r\n"), "{text}");
     assert!(text.contains("Access-Control-Allow-Origin: https://site.example"), "{text}");
     assert!(text.contains("Access-Control-Allow-Credentials: true"), "{text}");
     assert!(text.contains("Timing-Allow-Origin: https://site.example"), "{text}");
-    assert!(!text.to_lowercase().contains("content-length"), "{text}");
+    assert!(text.contains("Content-Length: 0"), "{text}");
     // Nothing asked for a header list, so none is offered: `*` there would be
     // an answer to a question nobody asked, and an invalid one beside
     // `Allow-Credentials`.

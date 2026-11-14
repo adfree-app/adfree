@@ -3383,9 +3383,18 @@ fn not_found_response() -> Vec<u8> {
 /// The answer to a request a network rule blocked: no body and no cache entry,
 /// so the page sees a failed subresource rather than a bogus one.
 pub(super) fn blocked_response() -> Vec<u8> {
-    // No `Content-Length`: RFC 9110 forbids it on a `204`, and "No Content"
-    // already says the body is empty.
-    b"HTTP/1.1 204 No Content\r\nCache-Control: no-store\r\n\r\n".to_vec()
+    // A refusal, not an empty success. `204` is what a *served* resource with
+    // no body looks like, so a blocked script asking for one was told "here is
+    // your empty file" — a shape an anti-adblock probe reads as success. A
+    // `403` says the request was refused, which is as close as a proxy can come
+    // to the cancel uBlock Origin performs inside the browser (`net::
+    // ERR_BLOCKED_BY_CLIENT` is a code only an extension can raise).
+    //
+    // The length is explicit: the body is empty and the connection stays open
+    // for the next request on it.
+    b"HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\nCache-Control: no-store\r\n\
+      Content-Length: 0\r\n\r\n"
+        .to_vec()
 }
 
 /// Whether a written response already carries a header.
@@ -3523,8 +3532,8 @@ pub(super) fn redirect_response(data_url: &str) -> Option<Vec<u8>> {
     // No `Access-Control-Allow-Origin` here on purpose. The wildcard this used
     // to carry is refused outright by a request that was sent with
     // credentials — the browser reads `*` next to `withCredentials: true` as a
-    // CORS failure, so the page saw a network error instead of the empty answer
-    // a block is supposed to look like. `with_cors` echoes the asking origin on
+    // CORS failure, so the page saw a network error instead of the refusal a
+    // block is supposed to look like. `with_cors` echoes the asking origin on
     // the way out, which is readable with credentials and without.
     Some(local_response(mime, "max-age=3600", &body, false, false))
 }
