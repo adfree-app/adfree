@@ -1228,7 +1228,10 @@ mod tests {
             let answer = OriginAnswer {
                 content_type: Some("text/html; charset=utf-8"),
                 body: Some("<html><head><title>t</title></head><body>hi</body></html>"),
-                headers: vec![("content-security-policy", "script-src 'self'")],
+                headers: vec![
+                    ("content-security-policy", "script-src 'self'"),
+                    ("etag", "\"v1\""),
+                ],
             };
             let (status, headers, body) = exchange_with(
                 answer,
@@ -1248,6 +1251,18 @@ mod tests {
             assert!(
                 body.contains("adfree-page.js?dmn=filtered.test"),
                 "the runtime tag must be injected: {body}"
+            );
+            // The HTTP/1.1 splice asks for the page again rather than trusting
+            // a copy, so the QUIC path must not keep a validator either.
+            assert!(
+                headers.get("etag").is_none(),
+                "an edited page keeps no ETag"
+            );
+            assert!(
+                headers
+                    .get("cache-control")
+                    .is_some_and(|v| v.to_str().is_ok_and(|v| v.contains("no-cache"))),
+                "an edited page must be asked for again: {headers:?}"
             );
             let nonce = body
                 .split("nonce=\"")
