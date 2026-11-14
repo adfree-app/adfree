@@ -15,7 +15,7 @@
   "use strict";
 
   const state = window.__adfree_store;
-  if (!state || !state.api || !document.getElementById("install-area")) {
+  if (!state || !state.api) {
     return;
   }
 
@@ -183,10 +183,17 @@
   }
 
   if (!attach()) {
-    // The page renders the install area after its scripts run; a repository
-    // that never does leaves the button out, which is the whole failure mode.
+    // This tag is written at the end of `<head>`, so the install area is not in
+    // the document yet when the script runs: the wait belongs here, not in the
+    // guard above — giving up on a page that will render the area a moment
+    // later is exactly how the button never reached Greasy Fork.
+    //
+    // The observer stays until the deadline rather than disconnecting on the
+    // first success: a store page may repaint its install area (a version
+    // banner replaces it), which takes our node with it.
     const observer = new MutationObserver(() => {
-      if (attach()) observer.disconnect();
+      if (document.getElementById("adfree-store-button")) return;
+      attach();
     });
     observer.observe(document.documentElement, { childList: true, subtree: true });
     window.setTimeout(() => observer.disconnect(), 15000);

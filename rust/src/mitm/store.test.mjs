@@ -146,4 +146,40 @@ describe('the store button', () => {
     await page.addScriptTag({ content: STORE });
     expect(await page.locator('#adfree-store-button').count()).toBe(0);
   });
+
+  /// Where the proxy actually puts the tag: the end of `<head>`, before the
+  /// document has a body. The first version gave up there — the install area
+  /// did not exist yet — and the button never reached a real Greasy Fork page.
+  test('a tag in the head waits for the install area', async () => {
+    const context = await browser.newContext();
+    contexts.push(context);
+    const page = await context.newPage();
+    const head = `<!doctype html><html lang="vi"><head><meta charset="utf-8">
+<script>window.__adfree_store=${JSON.stringify({ api: API, host: 'greasyfork.org', token: TOKEN, installed: [] })};</script>
+<script src="${SITE}/adfree-store.js"></script>
+</head><body>${PAGE.slice(PAGE.indexOf('<body>') + 6, PAGE.indexOf('</body>'))}</body></html>`;
+    await page.route(`${SITE}/**`, (route) =>
+      route.request().url().endsWith('/adfree-store.js')
+        ? route.fulfill({ status: 200, contentType: 'application/javascript; charset=utf-8', body: STORE })
+        : route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: head }),
+    );
+    await page.goto(`${SITE}/en/scripts/550659-find-scripts-for-this-site`);
+    const button = page.locator('#adfree-store-button');
+    await expect.poll(() => button.count()).toBe(1);
+    expect(await button.textContent()).toContain('Cài đặt');
+    // Still between the site's own link and the help icon.
+    const order = await page.$$eval('#install-area > *', (nodes) => nodes.map((n) => n.id || n.className));
+    expect(order[1]).toContain('adfree-store-button');
+  });
+
+  /// A store page may repaint the install area, which takes our node with it.
+  test('the button comes back after the site repaints its install area', async () => {
+    const { page } = await open();
+    await expect.poll(() => page.locator('#adfree-store-button').count()).toBe(1);
+    await page.evaluate(() => {
+      const area = document.getElementById('install-area');
+      area.replaceChildren(...area.children);
+    });
+    await expect.poll(() => page.locator('#adfree-store-button').count()).toBe(1);
+  });
 });
