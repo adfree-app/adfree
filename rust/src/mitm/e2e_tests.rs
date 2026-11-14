@@ -2831,7 +2831,7 @@ fn the_injection_origin_is_answered_without_a_peer() {
     let mut conn = handshake_with(
         &mut tcp,
         client_config(ca_der),
-        ServerName::try_from("192.0.2.1").expect("address literal"),
+        ServerName::try_from(crate::mitm::proxy::LOCAL_ORIGIN_HOST).expect("local origin"),
     );
     assert!(
         !conn.is_handshaking(),
@@ -2989,7 +2989,8 @@ fn a_page_without_a_doctype_is_injected_like_any_other() {
         );
         assert!(
             page.contains(&format!(
-                "<script nonce=\"{nonce}\" src=\"https://192.0.2.1/adfree-page.js"
+                "<script nonce=\"{nonce}\" src=\"{}/adfree-page.js",
+                crate::mitm::proxy::LOCAL_ORIGIN
             )),
             "the runtime must travel with the same nonce into a {mode:?} page: {page}"
         );

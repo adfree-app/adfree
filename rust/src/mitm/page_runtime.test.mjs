@@ -9,8 +9,8 @@
 // browser `bunx playwright install chromium` fetched.
 //
 // The proxy is not part of these tests: `page.route` answers for both origins
-// instead — the site, and the app's own `https://192.0.2.1` — so a test can
-// hand the runtime any payload and any lookup answer it likes. The end-to-end
+// instead — the site, and the app's own injection origin under `/local` — so a
+// test can hand the runtime any payload and any lookup answer it likes. The end-to-end
 // path through the real VPN is checked on the emulator (docs/injection.md);
 // a Chrome already running behind it can be driven from here by setting
 // `ADFREE_CDP`, see the last describe block.
@@ -21,8 +21,10 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest';
 
 const RUNTIME = readFileSync(new URL('./page_runtime.js', import.meta.url), 'utf8');
 
-// The address the tunnel answers itself: see docs/injection.md.
-const ORIGIN = 'https://192.0.2.1';
+// The origin the tunnel answers itself: see docs/injection.md. Every endpoint
+// sits under `/local`, and the runtime derives them from its own tag's
+// directory, so this is also what the prefixes below are checked against.
+const ORIGIN = 'https://yuuki-kagura.github.io/local';
 const SITE = 'https://shop.test';
 const PAGE_URL = `${SITE}/tin-tuc/`;
 
@@ -67,14 +69,15 @@ const openPage = async (options = {}) => {
 
   await page.route(`${ORIGIN}/**`, async (route) => {
     const url = new URL(route.request().url());
-    if (url.pathname === '/adfree-page.js') {
+    const path = url.pathname.replace(/^\/local/, '');
+    if (path === '/adfree-page.js') {
       return route.fulfill({
         status: 200,
         contentType: 'application/javascript; charset=utf-8',
         body: RUNTIME,
       });
     }
-    if (url.pathname === '/adfree-hide.css') {
+    if (path === '/adfree-hide.css') {
       hides.push(url);
       return route.fulfill({
         status: 200,
@@ -82,7 +85,7 @@ const openPage = async (options = {}) => {
         body: options.hideCss ?? '',
       });
     }
-    if (url.pathname === '/adfree-assistant.json') {
+    if (path === '/adfree-assistant.json') {
       assistantCalls.push(url);
       const answer = typeof options.assistant === 'function'
         ? options.assistant(url)
@@ -94,7 +97,7 @@ const openPage = async (options = {}) => {
         body: JSON.stringify(answer),
       });
     }
-    if (url.pathname === '/adfree-generic.js') {
+    if (path === '/adfree-generic.js') {
       lookups.push(url);
       if (options.lookupFails) {
         return route.fulfill({ status: 500, contentType: 'text/plain', body: 'no' });
@@ -112,7 +115,9 @@ const openPage = async (options = {}) => {
 
   await page.route(`${SITE}/**`, async (route) => {
     const url = new URL(route.request().url());
-    if (url.pathname === '/adfree-page.js') {
+    // The legacy shape: an injected tag served from the page's own origin.
+    const path = url.pathname;
+    if (path === '/adfree-page.js') {
       // A page cached before the channel moved: the tag is same-origin.
       return route.fulfill({
         status: 200,
@@ -120,7 +125,7 @@ const openPage = async (options = {}) => {
         body: RUNTIME,
       });
     }
-    if (url.pathname === '/adfree-generic.js') {
+    if (path === '/adfree-generic.js') {
       // The runtime asks its own origin in that same legacy case.
       lookups.push(url);
       const answer = typeof options.answer === 'function' ? options.answer(url) : options.answer;
@@ -252,7 +257,10 @@ test('a strict policy is satisfied by the nonce and the origin, carriers include
     // nonce, and our origin sits where the lookup's fetch lands. Nothing
     // without one of those gets through, so a rule that lands proves its
     // carrier was accepted by the browser's own policy check.
-    csp: `default-src 'none' ${ORIGIN}; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'`,
+    // The origin carries a trailing slash, as the proxy writes it: a CSP source
+    // without one matches its last path segment exactly and would allow
+    // `/local` while refusing `/local/adfree-….js`.
+    csp: `default-src 'none' ${ORIGIN}/; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'`,
     // The document carries what the proxy injects, nonce included: the payload
     // inline, the stylesheet link, then the runtime tag — which is how
     // `currentScript` hands the runtime its own nonce.
@@ -336,8 +344,10 @@ test('tokens the page adds later are looked up once, and the answer hides them',
 
   await expect.poll(() => page.lookups.length).toBe(1);
   const url = page.lookups[0];
-  expect(url.origin).toBe(ORIGIN);
-  expect(url.pathname).toBe('/adfree-generic.js');
+  // The lookup goes back to the directory the runtime was served from: the
+  // prefix is part of the base, so every endpoint keeps it.
+  expect(`${url.origin}${url.pathname}`.startsWith(`${ORIGIN}/`)).toBe(true);
+  expect(url.pathname).toBe('/local/adfree-generic.js');
   expect(url.searchParams.get('dmn')).toBe('shop.test');
   expect(url.searchParams.get('c')).toBe('sponsored lazily-added');
   expect(url.searchParams.get('i')).toBe('sponsored-1');
@@ -867,7 +877,7 @@ describe.skipIf(!process.env.ADFREE_CDP)('behind the running VPN', () => {
       return page.evaluate(() =>
         [...document.querySelectorAll('script[src], link[href]')]
           .map((el) => el.src || el.href)
-          .filter((u) => u.includes('192.0.2.1'))
+          .filter((u) => u.includes('/local/'))
       );
     };
 
@@ -889,12 +899,12 @@ describe.skipIf(!process.env.ADFREE_CDP)('behind the running VPN', () => {
     expect(tags.some((url) => url.includes('/adfree-hide.css'))).toBe(true);
 
     // The lookup is the one endpoint a page may read cross-origin: the answer
-    // is JSON, and asking for it also proves the certificate for the address
-    // literal was accepted including the CORS header.
+    // is JSON, and asking for it also proves the certificate for the injection
+    // host was accepted including the CORS header.
     const host = new URL(url).host;
     const answer = await page.evaluate(
       (dmn) =>
-        fetch(`https://192.0.2.1/adfree-generic.js?dmn=${dmn}&c=adfree-canary&i=adfree-canary`, {
+        fetch(`https://yuuki-kagura.github.io/local/adfree-generic.js?dmn=${dmn}&c=adfree-canary&i=adfree-canary`, {
           cache: 'no-store',
         }).then((r) => r.json()),
       host
@@ -947,7 +957,7 @@ describe('the AdGuard Assistant bridge', () => {
     expect(answered).toBe(true);
     await expect.poll(() => page.assistantCalls.length).toBe(1);
     const url = page.assistantCalls[0];
-    expect(url.pathname).toBe('/adfree-assistant.json');
+    expect(url.pathname).toBe('/local/adfree-assistant.json');
     expect(url.searchParams.get('act')).toBe('rule');
     expect(url.searchParams.get('rule')).toBe('shop.test##.banner');
     expect(url.searchParams.get('dmn')).toBe('shop.test');

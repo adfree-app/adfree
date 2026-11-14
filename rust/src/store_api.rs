@@ -1,13 +1,21 @@
-//! The other half of the store button: a loopback endpoint the injected page
-//! calls when someone clicks "Cài đặt" beside Greasy Fork's own install link.
+//! The other half of the store button: the answer to the click, served from the
+//! same local origin the button itself comes from.
 //!
 //! The button is not in the app: the page is rewritten in flight (see
 //! [`crate::mitm::decide`]), so the browser shows an extra control that installs,
 //! updates or removes a userscript the way a store page does. The page still
-//! runs on `greasyfork.org`, so the only way back into the app is a request,
-//! and a request needs a surface to arrive on. That surface is here: a socket on
-//! `127.0.0.1` that answers nothing at all without the token the injection
-//! carries.
+//! runs on `greasyfork.org`, so the only way back into the app is a request, and
+//! a request needs a surface to arrive on. That surface is the injection origin —
+//! `https://yuuki-kagura.github.io/local` — where the proxy already answers for
+//! `adfree-cosmetics.json` and the page runtime.
+//!
+//! It was a socket on `127.0.0.1` first, and that was wrong twice over: a browser
+//! gates a page's request to a loopback address behind a local-network
+//! permission prompt (Chrome 157 leaves the preflight pending until the user
+//! answers, so the button sat on "Installing…" forever), and a loopback port is
+//! a surface any other program on the machine can also probe. The synthetic
+//! origin has neither problem: it is a host name the proxy terminates, so the
+//! request never leaves the tunnel.
 //!
 //! Why a token instead of a custom URL scheme: registering `adfree://` means an
 //! OS-level handler that any page can aim at, and the app would have to guess
@@ -16,10 +24,8 @@
 //! hosts below — a page anywhere else has nothing to present.
 
 use crate::state::model::ScriptRecord;
-use std::io::{Read as _, Write as _};
-use std::net::{Ipv4Addr, TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::OnceLock;
 
 /// Where the button is injected. Greasy Fork and its NSFW sibling share a
 /// layout, so one injector covers both; ScriptCat and OpenUserJS are wired to the
@@ -35,30 +41,22 @@ const STORE_HOSTS: &[&str] = &[
 /// The asset path the injected page fetches its code from.
 pub const STORE_SCRIPT_PATH: &str = "/adfree-store.js";
 
-/// Bound on one request: headers, then a body that is only ever a small JSON
-/// object naming a URL.
-const MAX_REQUEST: usize = 8 * 1024;
-
-/// How long a click may take to answer. A second install of the same script is
-/// a second download, so this is the download's budget plus the write.
-const MAX_CONNECTIONS: usize = 8;
+/// Bound on one request body: headers are not read here, only the JSON object
+/// that names a URL.
+pub(crate) const MAX_REQUEST: usize = 8 * 1024;
 
 /// Bound on one downloaded userscript body.
 const MAX_SCRIPT_BYTES: u64 = 4 * 1024 * 1024;
 
-static RUN: Mutex<Option<Running>> = Mutex::new(None);
+/// Where the answers live on the injection origin. The button posts to
+/// `{API_PREFIX}/install` and `{API_PREFIX}/uninstall`.
+pub(crate) const API_PREFIX: &str = "/userscript";
 
 /// Bumped whenever the store changes the script list, so a UI that keeps its
 /// own copy knows to re-read it. The app is the one place the list lives; this
 /// is only the signal that it moved.
-static REVISION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+static REVISION: AtomicU64 = AtomicU64::new(1);
 static TOKEN: OnceLock<String> = OnceLock::new();
-
-struct Running {
-    port: u16,
-    stop: Arc<AtomicBool>,
-    thread: Option<std::thread::JoinHandle<()>>,
-}
 
 /// The per-run secret the injected page presents. Minted once, kept in this
 /// process, and never written anywhere but the pages the store hosts receive.
@@ -74,210 +72,38 @@ pub fn is_store_host(host: &str) -> bool {
         .any(|candidate| host == *candidate || host.ends_with(&format!(".{candidate}")))
 }
 
-/// The port the endpoint listens on, or 0 when it is not running.
-pub fn port() -> u16 {
-    match RUN.lock() {
-        Ok(slot) => slot.as_ref().map(|run| run.port).unwrap_or(0),
-        Err(poisoned) => poisoned
-            .into_inner()
-            .as_ref()
-            .map(|run| run.port)
-            .unwrap_or(0),
-    }
-}
-
-/// Raises the listener. Idempotent: a second call keeps the port already held,
-/// so a proxy restart does not leave the injected pages pointing at nothing.
-pub fn start(preferred_port: u16) -> Option<u16> {
-    let mut slot = match RUN.lock() {
-        Ok(slot) => slot,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-    if let Some(run) = slot.as_ref() {
-        return Some(run.port);
-    }
-    let mut listener = None;
-    for port in [preferred_port, preferred_port + 1, preferred_port + 2, 0] {
-        match TcpListener::bind((Ipv4Addr::LOCALHOST, port)) {
-            Ok(bound) => {
-                listener = Some(bound);
-                break;
-            }
-            Err(_) => continue,
-        }
-    }
-    let listener = listener?;
-    let port = listener.local_addr().ok()?.port();
-    let stop = Arc::new(AtomicBool::new(false));
-    let thread_stop = Arc::clone(&stop);
-    let thread = std::thread::Builder::new()
-        .name("adfree-store-api".into())
-        .spawn(move || accept_loop(listener, thread_stop));
-    let thread = match thread {
-        Ok(thread) => thread,
-        Err(_) => return None,
-    };
-    crate::logbuf::push(&format!(
-        "store: the userscript button answers on 127.0.0.1:{port}"
-    ));
-    *slot = Some(Running {
-        port,
-        stop,
-        thread: Some(thread),
-    });
-    Some(port)
-}
-
-pub fn stop() {
-    let running = match RUN.lock() {
-        Ok(mut slot) => slot.take(),
-        Err(poisoned) => poisoned.into_inner().take(),
-    };
-    let Some(mut running) = running else { return };
-    running.stop.store(true, Ordering::SeqCst);
-    // The accept loop wakes on the closed listener; connecting to it is the
-    // cheapest way to make that happen from here.
-    let _ = TcpStream::connect((Ipv4Addr::LOCALHOST, running.port));
-    if let Some(thread) = running.thread.take() {
-        let _ = thread.join();
-    }
-}
-
-fn accept_loop(listener: TcpListener, stop: Arc<AtomicBool>) {
-    let mut live = 0usize;
-    while !stop.load(Ordering::Relaxed) {
-        let Ok((stream, peer)) = listener.accept() else {
-            if stop.load(Ordering::Relaxed) {
-                return;
-            }
-            continue;
-        };
-        if !peer.ip().is_loopback() {
-            continue;
-        }
-        if live >= MAX_CONNECTIONS {
-            continue;
-        }
-        live += 1;
-        let stop = Arc::clone(&stop);
-        let spawned = std::thread::Builder::new()
-            .name("adfree-store-req".into())
-            .spawn(move || {
-                serve(stream, &stop);
-            });
-        if spawned.is_err() {
-            live -= 1;
-            continue;
-        }
-        // The count is only a guard against a flood of half-open sockets; a
-        // proper accounting would need the thread's own Drop, and a leaked
-        // slot here costs nothing but some slack.
-        live = live.saturating_sub(1);
-    }
-}
-
-/// One request: headers, an optional JSON body, and an answer.
-fn serve(mut stream: TcpStream, stop: &AtomicBool) {
-    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
-    let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(5)));
-    let mut buffer = Vec::new();
-    let mut chunk = [0u8; 1024];
-    let head_end = loop {
-        if stop.load(Ordering::Relaxed) {
-            return;
-        }
-        match stream.read(&mut chunk) {
-            Ok(0) => return,
-            Ok(n) => buffer.extend_from_slice(&chunk[..n]),
-            Err(_) => return,
-        }
-        if let Some(pos) = find_head_end(&buffer) {
-            break pos;
-        }
-        if buffer.len() > MAX_REQUEST {
-            return;
-        }
-    };
-    let head = String::from_utf8_lossy(&buffer[..head_end]).into_owned();
-    let mut lines = head.split("\r\n");
-    let request_line = lines.next().unwrap_or_default();
-    let mut method = "";
-    let mut target = "";
-    let mut parts = request_line.split_whitespace();
-    if let (Some(m), Some(t)) = (parts.next(), parts.next()) {
-        method = m;
-        target = t;
-    }
-    let origin = lines.clone().find_map(|line| {
-        let (name, value) = line.split_once(':')?;
-        if name.eq_ignore_ascii_case("origin") {
-            Some(value.trim().to_string())
-        } else {
-            None
-        }
-    });
-    // The header has to echo the origin exactly — scheme included — while the
-    // allowlist is decided on the host it names.
-    let allowed_origin = origin
-        .as_deref()
-        .filter(|origin| origin_host(origin).is_some_and(is_store_host));
-    // A preflight is the browser asking whether the page may talk to us at all.
-    // The answer names the store origin it asked from, never `*`: another page
-    // reading this port learns nothing it can use.
-    if method == "OPTIONS" {
-        let mut extra = Vec::new();
-        if head.to_ascii_lowercase().contains("access-control-request-private-network") {
-            extra.push("Access-Control-Allow-Private-Network: true");
-        }
-        write_response(
-            &mut stream,
-            "204 No Content",
-            &extra,
-            "application/json",
-            "",
-            allowed_origin,
-        );
-        return;
-    }
-    let Some(allowed_origin) = allowed_origin else {
-        write_json(&mut stream, "403 Forbidden", "{\"ok\":false,\"error\":\"origin\"}", None);
-        return;
-    };
-    // The body: whatever follows the header block. Everything that matters is
-    // small JSON, and a longer body is a request this endpoint does not serve.
-    let body = if buffer.len() > head_end {
-        String::from_utf8_lossy(&buffer[head_end..]).into_owned()
-    } else {
-        String::new()
-    };
-    let body = if body.is_empty() { read_body(&mut stream) } else { body };
-    let answer = route(method, target, &body);
-    match answer {
-        Answer::Json(payload) => write_json(&mut stream, "200 OK", &payload, Some(allowed_origin)),
-        Answer::Status(code, payload) => {
-            write_json(&mut stream, code, &payload, Some(allowed_origin))
-        }
-    }
-}
-
-fn read_body(stream: &mut TcpStream) -> String {
-    let mut body = String::new();
-    let _ = stream.read_to_string(&mut body);
-    body.chars().take(MAX_REQUEST).collect()
-}
-
-fn find_head_end(bytes: &[u8]) -> Option<usize> {
-    bytes
-        .windows(4)
-        .position(|w| w == b"\r\n\r\n")
-        .map(|pos| pos + 4)
-}
-
 /// The host an `Origin` header names, without the scheme or port.
 fn origin_host(origin: &str) -> Option<&str> {
     let rest = origin.split_once("://").map(|(_, rest)| rest)?;
     let host = rest.split(['/', ':']).next()?;
     Some(host)
+}
+
+/// The `Origin` to echo back, when the page asking is a store. A preflight and
+/// the request that follows both need it, and it has to be the whole origin: a
+/// browser rejects a prefix.
+pub(crate) fn allowed_origin(origin: &str) -> Option<&str> {
+    let origin = origin.trim();
+    origin_host(origin)
+        .filter(|host| is_store_host(host))
+        .map(|_| origin)
+}
+
+/// One answer, as the proxy needs it: status code and body. The proxy owns the
+/// HTTP framing and the CORS headers, because it owns the sockets.
+pub(crate) fn answer(method: &str, target: &str, body: &str) -> (u16, String) {
+    match route(method, target, body) {
+        Answer::Json(payload) => (200, payload),
+        Answer::Status(status, payload) => (status_code(status), payload),
+    }
+}
+
+fn status_code(status: &str) -> u16 {
+    status
+        .split(' ')
+        .next()
+        .and_then(|code| code.parse().ok())
+        .unwrap_or(400)
 }
 
 enum Answer {
@@ -345,40 +171,6 @@ fn envelope(ok: bool, name: Option<&str>, error: &str) -> String {
     }
 }
 
-fn write_json(stream: &mut TcpStream, status: &str, body: &str, origin: Option<&str>) {
-    write_response(stream, status, &[], "application/json; charset=utf-8", body, origin);
-}
-
-fn write_response(
-    stream: &mut TcpStream,
-    status: &str,
-    extra: &[&str],
-    content_type: &str,
-    body: &str,
-    origin: Option<&str>,
-) {
-    let mut head = format!(
-        "HTTP/1.1 {status}\r\n\
-         Content-Type: {content_type}\r\n\
-         Content-Length: {}\r\n\
-         Cache-Control: no-store\r\n\
-         Vary: Origin\r\n",
-        body.len()
-    );
-    if let Some(origin) = origin {
-        head.push_str(&format!("Access-Control-Allow-Origin: {origin}\r\n"));
-        head.push_str("Access-Control-Allow-Methods: POST, OPTIONS\r\n");
-        head.push_str("Access-Control-Allow-Headers: content-type\r\n");
-    }
-    for line in extra {
-        head.push_str(line);
-        head.push_str("\r\n");
-    }
-    head.push_str("Connection: close\r\n\r\n");
-    let _ = stream.write_all(head.as_bytes());
-    let _ = stream.write_all(body.as_bytes());
-    let _ = stream.flush();
-}
 
 fn query_param<'a>(query: &'a str, name: &str) -> Option<&'a str> {
     query.split('&').find_map(|pair| {
@@ -473,11 +265,15 @@ fn installed() -> Vec<ScriptRecord> {
 ///
 /// The token rides along because the page has nowhere else to get it. It is
 /// only ever written into responses for [`is_store_host`] hosts, so no other
-/// origin can read it, and it is worthless without the socket it names.
+/// origin can read it, and the endpoint it names refuses everything else.
+///
+/// The endpoint is on the injection origin, not on a port of this machine: a
+/// loopback request from a public page is what the browser gates behind its
+/// local-network prompt.
 pub fn page_payload(host: &str) -> String {
     format!(
         "{{\"api\":{},\"host\":{},\"token\":{},\"installed\":{}}}",
-        quote(&format!("http://127.0.0.1:{}/userscript", port())),
+        quote(&format!("{}{}", crate::mitm::proxy::LOCAL_ORIGIN, API_PREFIX)),
         quote(host),
         quote(token()),
         installed_json()

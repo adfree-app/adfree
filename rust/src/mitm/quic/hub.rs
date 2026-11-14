@@ -23,7 +23,7 @@ use crate::filter::FilterEngine;
 use crate::mitm::decide::{self, Injector, RequestContext, RequestPlan, ResponsePlans};
 use crate::mitm::proxy::{
     request_facts, request_url, take_local_request, MitmBlock, MitmFacts, MitmSink, ProxySession,
-    LOCAL_ORIGIN,
+    LOCAL_CSP_ORIGIN,
 };
 use crate::mitm::tls::UpstreamTls;
 
@@ -617,7 +617,7 @@ async fn relay_response(
     if let Some(nonce) = nonce.as_deref() {
         // The page keeps its policy: it just learns the nonce the snippet's
         // tags carry.
-        wire = crate::mitm::http::csp_with_nonce(&wire, nonce, LOCAL_ORIGIN);
+        wire = crate::mitm::http::csp_with_nonce(&wire, nonce, LOCAL_CSP_ORIGIN);
     }
     if let Some(bytes) = edited_body.as_ref() {
         wire = crate::mitm::http::head_for_new_body(

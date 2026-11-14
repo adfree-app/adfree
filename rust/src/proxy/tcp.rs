@@ -203,6 +203,8 @@ fn handle(client: TcpStream, stop: &AtomicBool) {
         return;
     }
 
+    // The retired injection origin, still recognised so a page cached before the
+    // move keeps its flow on the machine. The live origin is a host name.
     let local = addr.ip() == crate::mitm::proxy::local_origin_addr();
     // AdGuard for Windows' "Filter localhost": off leaves this machine's own
     // conversations alone — a local dev server is not intercepted, its

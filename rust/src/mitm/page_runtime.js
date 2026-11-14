@@ -30,9 +30,11 @@
   'use strict';
 
   // Where this runtime was served from, and the host whose rules it applies:
-  // both travel in its own tag (`<script src="https://192.0.2.1/…?dmn=…">`),
-  // the same way AdGuard's content script carries `dmn`. The fallbacks keep a
-  // legacy same-origin tag (a page cached before an app update) working.
+  // both travel in its own tag (`<script src="https://…/local/adfree-page.js?dmn=…">`),
+  // the same way AdGuard's content script carries `dmn`. The base is the tag's
+  // *directory*, not its origin: the endpoints all live under the same prefix,
+  // and an origin alone would lose it. The fallbacks keep a legacy same-origin
+  // tag (a page cached before an app update) working.
   let base = location.origin;
   let dmn = location.hostname;
   let nonce = '';
@@ -41,7 +43,7 @@
     const selfSrc = self?.src;
     if (selfSrc) {
       const selfUrl = new URL(selfSrc);
-      base = selfUrl.origin;
+      base = selfUrl.origin + selfUrl.pathname.replace(/\/[^/]*$/, '');
       dmn = selfUrl.searchParams.get('dmn') || dmn;
     }
     // The nonce our tags carry — the proxy taught it to the page's policy, and

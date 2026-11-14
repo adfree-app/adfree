@@ -2279,8 +2279,8 @@ impl Core {
             return;
         };
         if server.as_ip() == crate::mitm::proxy::local_origin_addr() {
-            // The injection origin is a TCP-only local service: a stray
-            // datagram (a QUIC probe) must not leak out to a reserved address.
+            // The retired injection origin: a reserved address nothing answers
+            // any more, so a stray datagram must not leak out to it.
             return;
         }
         let key = UdpKey {
@@ -2432,8 +2432,8 @@ impl Core {
             return;
         };
         if server.as_ip() == crate::mitm::proxy::local_origin_addr() {
-            // The injection origin is a TCP-only local service: a QUIC probe
-            // must not leak out towards a reserved address.
+            // The retired injection origin: a reserved address nothing answers
+            // any more, so a QUIC probe must not leak out towards it.
             return;
         }
         let key = UdpKey {
@@ -3196,11 +3196,11 @@ impl Core {
             self.refuse_setup(&pkt, job.port, job.my_seq, Some(reason));
             return;
         }
-        // The local injection origin: a reserved address (TEST-NET-1) that the
-        // app answers out of the tunnel. Nothing is ever dialed for it — and
-        // without TLS termination there is nothing to answer with, so a stray
-        // connection is refused instead of leaking a SYN to a documentation
-        // address.
+        // The retired local origin: a reserved address (TEST-NET-1) that pages
+        // cached before the move may still ask for. Nothing is ever dialed for
+        // it — and without TLS termination there is nothing to answer with, so a
+        // stray connection is refused instead of leaking a SYN to a
+        // documentation address.
         let local = dst.as_ip() == crate::mitm::proxy::local_origin_addr();
         let mitm_armed =
             self.mitm_ready(cfg) && pkt.dst_port == self.mitm_port.load(Ordering::Relaxed);

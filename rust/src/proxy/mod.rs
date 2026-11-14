@@ -61,10 +61,6 @@ const POLL_SLICE_MS: i32 = 200;
 /// Hard cap on live connection threads; a new flow past it is refused.
 const MAX_CONNECTIONS: usize = 512;
 
-/// The first port tried for the userscript store endpoint. A page reaches it
-/// by the number the injection carries, so any free neighbour works.
-const STORE_API_PORT: u16 = 3130;
-
 static LIVE: AtomicUsize = AtomicUsize::new(0);
 
 /// Said once per start, when the slot table is full: a refusal is silent on the
@@ -121,10 +117,6 @@ static OWN: Mutex<Option<(std::time::Instant, Vec<std::net::IpAddr>)>> = Mutex::
 /// addresses is filtered or merely carried.
 pub fn start(tcp_port: u16, dns_port: u16, filter_localhost: bool) -> ProxyStatus {
     FILTER_LOCALHOST.store(filter_localhost, Ordering::Relaxed);
-    // The store button lives on the page and has to reach the app somehow: the
-    // endpoint it calls comes up with the proxy, because the injection starts
-    // with the first rewritten store page.
-    crate::store_api::start(STORE_API_PORT);
     CAP_ANNOUNCED.store(false, Ordering::Relaxed);
     let mut guard = match RUN.lock() {
         Ok(guard) => guard,
@@ -250,7 +242,6 @@ pub fn stop() {
         return;
     };
     run.stop.store(true, Ordering::SeqCst);
-    crate::store_api::stop();
     for worker in run.loops {
         let _ = worker.join();
     }

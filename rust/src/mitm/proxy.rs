@@ -86,26 +86,56 @@ const IMMUTABLE_CACHE: &str = "max-age=31536000, immutable";
 
 /// Origin every injected asset is fetched from.
 ///
-/// A reserved address (TEST-NET-1, RFC 5737) that the app answers out of the
-/// tunnel and never dials. A separate origin is what keeps the page's service
-/// worker out of the way: a worker intercepts *every* same-origin fetch and
-/// may answer it with a shell document, a stale cache entry or a 404 — on the
-/// sites that use one (most large Vietnamese news sites) that silently kills
-/// cosmetic filtering. AdGuard solves the same problem by serving from
-/// `local.adguard.org`; an address literal is what makes it work without DNS,
-/// whose lookup Chrome would otherwise take over (secure DNS / Private DNS)
-/// and never route through the filter.
-pub const LOCAL_ORIGIN: &str = "https://192.0.2.1";
+/// A separate origin is what keeps the page's service worker out of the way: a
+/// worker intercepts *every* same-origin fetch and may answer it with a shell
+/// document, a stale cache entry or a 404 — on the sites that use one (most large
+/// Vietnamese news sites) that silently kills cosmetic filtering. AdGuard solves
+/// the same problem by serving from `local.adguard.org`.
+///
+/// The name is a public one on purpose. An address literal (TEST-NET-1) needs no
+/// DNS, but a browser reads a bare address as a machine on the user's own
+/// network and puts the request behind its local-network permission prompt — a
+/// click waiting on an unanswered prompt looks like a broken button. A host name
+/// the proxy terminates is asked exactly like any other site, so nothing about
+/// it is special to the browser.
+///
+/// Every path lives under [`LOCAL_PREFIX`], so the origin is a directory on a
+/// site rather than a claim on the whole host: a request to
+/// `https://yuuki-kagura.github.io/anything-else` is somebody else's and passes
+/// through untouched.
+pub const LOCAL_ORIGIN: &str = "https://yuuki-kagura.github.io/local";
 
 /// The host part of [`LOCAL_ORIGIN`], and the name its leaf is minted for.
-pub const LOCAL_ORIGIN_HOST: &str = "192.0.2.1";
+pub const LOCAL_ORIGIN_HOST: &str = "yuuki-kagura.github.io";
 
-/// The IPv4 address of [`LOCAL_ORIGIN`], for the packet path.
+/// The path prefix every local endpoint sits under. A request target is stripped
+/// of it before it is matched against the endpoint constants above.
+pub const LOCAL_PREFIX: &str = "/local";
+
+/// [`LOCAL_ORIGIN`] as a CSP host source — with the trailing slash on purpose.
+/// A source without one matches its last path segment *exactly*, so
+/// `https://host/local` would allow `/local` and refuse `/local/adfree-…js`,
+/// which is what every rewritten page's policy would then do to the runtime's
+/// own lookups.
+pub const LOCAL_CSP_ORIGIN: &str = "https://yuuki-kagura.github.io/local/";
+
+/// The address literal the origin used to be, kept for the packet path's
+/// "never dial this" checks while pages cached before the move are still out
+/// there. Nothing is injected under it any more.
 pub const LOCAL_ORIGIN_V4: [u8; 4] = [192, 0, 2, 1];
 
 /// Prefixes an injected path with the local origin.
 pub(crate) fn local_asset(path: &str) -> String {
     format!("{LOCAL_ORIGIN}{path}")
+}
+
+/// A request target without [`LOCAL_PREFIX`]. One that never had it — a page
+/// cached before an update sent its tag to the old shape — is matched as it is.
+pub(crate) fn local_target(target: &str) -> &str {
+    match target.strip_prefix(LOCAL_PREFIX) {
+        Some(rest) if rest.starts_with('/') => rest,
+        _ => target,
+    }
 }
 
 /// The origin-absolute URL the injected user-script `<script src>` carries.
@@ -518,10 +548,10 @@ impl StreamState {
         };
         let mut head = std::mem::take(&mut self.head);
         head = if injecting {
-            let head = http::csp_with_nonce(&head, &self.nonce, LOCAL_ORIGIN);
+            let head = http::csp_with_nonce(&head, &self.nonce, LOCAL_CSP_ORIGIN);
             http::require_revalidation(&head)
         } else {
-            http::csp_with_host_source(&head, LOCAL_ORIGIN)
+            http::csp_with_host_source(&head, LOCAL_CSP_ORIGIN)
         };
         out.extend_from_slice(&http::head_for_chunked_body(&head, encoding));
     }
@@ -586,7 +616,7 @@ fn emit_passthrough(
     // Even a body we did not write travels under a policy that allows our
     // origin: a `304` from the site replaces the cached policy with its own,
     // and the cached body — with our tags in it — would otherwise be blocked.
-    let head = http::csp_with_host_source(head, LOCAL_ORIGIN);
+    let head = http::csp_with_host_source(head, LOCAL_CSP_ORIGIN);
     match framing {
         Framing::Length(_) => {
             out.extend_from_slice(&head);
@@ -605,7 +635,7 @@ fn emit_passthrough(
 /// The head goes out with the length of what follows it, compressed again when
 /// the origin's body was: a page that arrived compressed leaves compressed.
 fn emit_edited(out: &mut Vec<u8>, head: &[u8], body: &[u8], recompress: bool) {
-    let head = http::csp_with_host_source(head, LOCAL_ORIGIN);
+    let head = http::csp_with_host_source(head, LOCAL_CSP_ORIGIN);
     let head = head.as_slice();
     match (recompress, http::gzip_encode(body)) {
         (true, Some(gzipped)) => {
@@ -2368,7 +2398,7 @@ impl ProxySession {
                     // origin in that policy the browser drops our script, and
                     // the page quietly loses every cosmetic rule.
                     if info.bodyless() || req.info.head {
-                        out.extend_from_slice(&http::csp_with_host_source(&head, LOCAL_ORIGIN));
+                        out.extend_from_slice(&http::csp_with_host_source(&head, LOCAL_CSP_ORIGIN));
                         continue;
                     }
                     let framing = if info.chunked {
@@ -2636,7 +2666,7 @@ impl ProxySession {
                         ));
                         // The page keeps its policy: it just learns the nonce
                         // the snippet's tags carry.
-                        let head = http::csp_with_nonce(&head, &edited.nonce, LOCAL_ORIGIN);
+                        let head = http::csp_with_nonce(&head, &edited.nonce, LOCAL_CSP_ORIGIN);
                         emit_edited(&mut out, &head, &new_body, recompress);
                     } else if edited.edited {
                         // A rewrite without a snippet: the head only learns the
@@ -2922,8 +2952,15 @@ pub fn take_local_request(
     let head = header_end(buffer)?;
     let line_end = buffer.windows(2).position(|w| w == b"\r\n")?;
     let first_line = std::str::from_utf8(&buffer[..line_end]).ok()?.to_string();
-    let target = request_target(&first_line)?;
     let gzip = http::accepts_gzip(&buffer[..head]);
+    // The store button's write, and the preflight the browser sends before it.
+    // Answered first because it is the only endpoint that is not a GET and the
+    // only one that does not need a filter engine.
+    let head_bytes = buffer[..head].to_vec();
+    if let Some(response) = take_store_request(&first_line, &head_bytes, buffer) {
+        return Some(response);
+    }
+    let target = local_target(request_target(&first_line)?);
 
     if !serve_path.is_empty() && !script_body.is_empty() && target == serve_path {
         buffer.drain(..head);
@@ -3138,6 +3175,97 @@ fn request_target(first_line: &str) -> Option<&str> {
         Some(i) => &target[..i],
         None => target,
     })
+}
+
+/// `POST /local/userscript/<action>`, and the `OPTIONS` that comes before it.
+///
+/// Greasy Fork's page and ScriptCat's both live on their own origin, so the
+/// request is cross-origin: the preflight and the `Origin` echo are the browser's
+/// rules, not ours. Only a store host is allowed to be answered.
+///
+/// The body is read only once all of it has arrived. The caller hands over
+/// whatever the socket has so far, and a half-read JSON object would be a
+/// refused install instead of a slow one.
+fn take_store_request(first_line: &str, head_bytes: &[u8], buffer: &mut Vec<u8>) -> Option<Vec<u8>> {
+    let mut parts = first_line.split(' ');
+    let method = parts.next()?;
+    let raw_target = parts.next()?;
+    let path = local_target(raw_target.split('?').next().unwrap_or(raw_target));
+    if !path.starts_with(crate::store_api::API_PREFIX) {
+        return None;
+    }
+    let head = head_bytes.len();
+    let origin = header_lookup(head_bytes, "origin");
+    let allowed = origin.as_deref().and_then(crate::store_api::allowed_origin);
+    if method == "OPTIONS" {
+        buffer.drain(..head);
+        return Some(preflight_response(allowed.as_deref()));
+    }
+    let Some(allowed) = allowed else {
+        buffer.drain(..head);
+        return Some(store_response(
+            403,
+            "{\"ok\":false,\"error\":\"origin\"}",
+            None,
+        ));
+    };
+    let want: usize = header_lookup(head_bytes, "content-length")
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0);
+    if want > crate::store_api::MAX_REQUEST {
+        buffer.drain(..head);
+        return Some(store_response(400, "{\"ok\":false,\"error\":\"size\"}", Some(&allowed)));
+    }
+    if buffer.len() < head + want {
+        return None;
+    }
+    let body = String::from_utf8_lossy(&buffer[head..head + want]).into_owned();
+    let (code, payload) = crate::store_api::answer(method, path, &body);
+    buffer.drain(..head + want);
+    Some(store_response(code, &payload, Some(&allowed)))
+}
+
+/// The value of one header, matched case-insensitively.
+fn header_lookup(head: &[u8], name: &str) -> Option<String> {
+    let text = String::from_utf8_lossy(head);
+    text.split("\r\n").skip(1).find_map(|line| {
+        let (key, value) = line.split_once(':')?;
+        key.trim()
+            .eq_ignore_ascii_case(name)
+            .then(|| value.trim().to_string())
+    })
+}
+
+/// A `204` for the preflight: no body, and the methods the endpoint takes.
+fn preflight_response(allowed: Option<&str>) -> Vec<u8> {
+    let cors = allowed_origin_headers(allowed);
+    format!(
+        "HTTP/1.1 204 No Content\r\n{cors}Access-Control-Allow-Methods: POST, OPTIONS\r\nAccess-Control-Allow-Headers: content-type\r\nContent-Length: 0\r\n\r\n"
+    )
+    .into_bytes()
+}
+
+fn store_response(code: u16, payload: &str, allowed: Option<&str>) -> Vec<u8> {
+    let reason = match code {
+        200 => "OK",
+        403 => "Forbidden",
+        404 => "Not Found",
+        405 => "Method Not Allowed",
+        _ => "Bad Request",
+    };
+    let cors = allowed_origin_headers(allowed);
+    format!(
+        "HTTP/1.1 {code} {reason}\r\nContent-Type: application/json; charset=utf-8\r\nCache-Control: no-store\r\n{cors}Content-Length: {}\r\n\r\n{payload}",
+        payload.len()
+    )
+    .into_bytes()
+}
+
+fn allowed_origin_headers(allowed: Option<&str>) -> String {
+    match allowed {
+        Some(origin) => format!("Access-Control-Allow-Origin: {origin}\r\nVary: Origin\r\n"),
+        None => String::new(),
+    }
 }
 
 /// Classes and ids out of `GET /adfree-generic.js?c=a%20b&i=x HTTP/1.1`.
