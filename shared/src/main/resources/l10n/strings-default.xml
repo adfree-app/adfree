@@ -546,7 +546,6 @@
     <string name="hub_network_https_off">%1$s • HTTPS off</string>
     <string name="hub_back">Back</string>
     <string name="home_scripts_title">Userscripts</string>
-    <string name="home_scripts_counts">%1$d installed · %2$d on</string>
 
     <!-- Common actions -->
     <string name="common_cancel">Cancel</string>

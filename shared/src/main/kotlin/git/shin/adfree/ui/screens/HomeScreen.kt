@@ -11,7 +11,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -72,6 +74,7 @@ import git.shin.adfree.ui.AdGuardIntent
 import git.shin.adfree.ui.AdGuardTab
 import git.shin.adfree.ui.AdGuardUiState
 import git.shin.adfree.ui.AdGuardViewModel
+import git.shin.adfree.ui.ProtectionSection
 import git.shin.adfree.ui.theme.AdGuardBlueDns
 import git.shin.adfree.ui.theme.AdGuardDarkBg
 import git.shin.adfree.ui.theme.AdGuardDarkOutline
@@ -120,7 +123,9 @@ fun HomeScreen(
             },
             onOpenPrivateDns = { platform.openPrivateDnsSettings() },
             onOpenScripts = {
-                viewModel.onIntent(AdGuardIntent.SelectTab(AdGuardTab.PROTECTION))
+                viewModel.onIntent(
+                    AdGuardIntent.OpenProtectionSection(ProtectionSection.EXTENSIONS)
+                )
             },
             quickModuleRow = {
                 QuickModuleRow(
@@ -193,18 +198,19 @@ fun HomeScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            StatsGrid(
+            StatsSection(
                 stats = state.stats,
-                onCardClick = { viewModel.onIntent(AdGuardIntent.SelectTab(AdGuardTab.STATISTICS)) }
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            ScriptsSummaryCard(
-                installed = state.userscripts.size,
-                enabled = state.userscripts.count { it.isEnabled },
-                masterOn = state.scriptsMasterEnabled,
-                onClick = { viewModel.onIntent(AdGuardIntent.SelectTab(AdGuardTab.PROTECTION)) },
+                scriptsInstalled = state.userscripts.size,
+                scriptsEnabled = state.userscripts.count { it.isEnabled },
+                scriptsMasterOn = state.scriptsMasterEnabled,
+                onOpenStatistics = {
+                    viewModel.onIntent(AdGuardIntent.SelectTab(AdGuardTab.STATISTICS))
+                },
+                onOpenScripts = {
+                    viewModel.onIntent(
+                        AdGuardIntent.OpenProtectionSection(ProtectionSection.EXTENSIONS)
+                    )
+                },
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -642,178 +648,158 @@ fun AdGuardShieldHero(
     }
 }
 
-/** Four counters, two per row, each one opening the filtering log. */
-@Composable
-private fun StatsGrid(
-    stats: ProtectionStats,
-    onCardClick: () -> Unit = {}
-) {
-
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            StatCard(
-                title = L10n.get(Strings.home_stat_ads),
-                value = CountFormat.compact(stats.adsBlocked),
-                icon = Icons.Default.Block,
-                accentColor = AdGuardGreenPrimary,
-                onClick = onCardClick,
-                modifier = Modifier.weight(1f)
-            )
-            StatCard(
-                title = L10n.get(Strings.home_stat_trackers),
-                value = CountFormat.compact(stats.trackersBlocked),
-                icon = Icons.Default.TrackChanges,
-                accentColor = AdGuardOrangeWarning,
-                onClick = onCardClick,
-                modifier = Modifier.weight(1f)
-            )
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            StatCard(
-                title = L10n.get(Strings.home_stat_data),
-                value = L10n.format(Strings.home_stat_data_value, CountFormat.data(stats.dataSavedBytes)),
-                icon = Icons.Default.CloudDownload,
-                accentColor = AdGuardBlueDns,
-                onClick = onCardClick,
-                modifier = Modifier.weight(1f)
-            )
-            StatCard(
-                title = L10n.get(Strings.home_stat_battery),
-                value = L10n.format(Strings.home_stat_battery_value,
-                    stats.estimatedBatterySavedPercent,
-                ),
-                icon = Icons.Default.BatteryChargingFull,
-                accentColor = AdGuardGreenLight,
-                onClick = onCardClick,
-                modifier = Modifier.weight(1f)
-            )
-        }
-    }
-}
+/** One number, its icon, and where tapping it goes. */
+private data class StatTile(
+    val value: String,
+    val label: String,
+    val icon: ImageVector,
+    val accent: Color,
+    val onClick: () -> Unit,
+)
 
 /**
- * How many userscripts the app has, and how many of them run.
+ * The counters, as one horizontally scrolling card.
  *
- * One row rather than a fifth stat card: the grid above counts what the filter
- * did to the network, and this counts something the reader installed, which is
- * a different kind of number. It sits under the grid on a phone and under the
- * strip on a window, and it opens the tab the scripts are switched on in.
+ * They used to be four separate tiles in a two-by-two grid on a phone and a
+ * bare strip of numbers on a window, which is two layouts to keep in step for
+ * the same four facts. One card scrolls sideways instead: the fifth counter —
+ * the userscripts the reader installed — joins them without a second row, and
+ * a narrow window shows three and slides rather than shrinking every number
+ * until it wraps.
+ *
+ * When the window is wide enough for every tile, they share the width evenly
+ * and nothing scrolls; a card with half its surface empty would read as a
+ * loading state. Both branches are the same tiles, so the count of layouts is
+ * one.
  */
 @Composable
-private fun ScriptsSummaryCard(
-    installed: Int,
-    enabled: Int,
-    masterOn: Boolean,
-    onClick: () -> Unit,
+private fun StatsSection(
+    stats: ProtectionStats,
+    scriptsInstalled: Int,
+    scriptsEnabled: Int,
+    scriptsMasterOn: Boolean,
+    onOpenStatistics: () -> Unit,
+    onOpenScripts: () -> Unit,
 ) {
+    // A master switch that is off means nothing runs, whatever the per-script
+    // flags still say; showing "4/6" there would be the one line on this screen
+    // that lies.
+    val running = if (scriptsMasterOn) scriptsEnabled else 0
+    val tiles = listOf(
+        StatTile(
+            value = CountFormat.compact(stats.adsBlocked),
+            label = L10n.get(Strings.home_stat_ads),
+            icon = Icons.Default.Block,
+            accent = AdGuardGreenPrimary,
+            onClick = onOpenStatistics,
+        ),
+        StatTile(
+            value = CountFormat.compact(stats.trackersBlocked),
+            label = L10n.get(Strings.home_stat_trackers),
+            icon = Icons.Default.TrackChanges,
+            accent = AdGuardOrangeWarning,
+            onClick = onOpenStatistics,
+        ),
+        StatTile(
+            value = L10n.format(Strings.home_stat_data_value, CountFormat.data(stats.dataSavedBytes)),
+            label = L10n.get(Strings.home_stat_data),
+            icon = Icons.Default.CloudDownload,
+            accent = AdGuardBlueDns,
+            onClick = onOpenStatistics,
+        ),
+        StatTile(
+            value = L10n.format(
+                Strings.home_stat_battery_value,
+                stats.estimatedBatterySavedPercent,
+            ),
+            label = L10n.get(Strings.home_stat_battery),
+            icon = Icons.Default.BatteryChargingFull,
+            accent = AdGuardGreenLight,
+            onClick = onOpenStatistics,
+        ),
+        StatTile(
+            value = "$running/$scriptsInstalled",
+            label = L10n.get(Strings.home_scripts_title),
+            icon = Icons.Default.Extension,
+            accent = if (running > 0) AdGuardPurpleAI else AdGuardTextMuted,
+            onClick = onOpenScripts,
+        ),
+    )
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() },
+            .testTag("home_stats_card"),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = AdGuardDarkSurface),
         border = CardDefaults.outlinedCardBorder().copy(
             brush = Brush.linearGradient(
-                listOf(AdGuardDarkOutline, AdGuardPurpleAI.copy(alpha = 0.25f))
+                listOf(AdGuardDarkOutline, AdGuardPurpleAI.copy(alpha = 0.18f))
             )
         ),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = Icons.Default.Extension,
-                contentDescription = null,
-                tint = AdGuardPurpleAI,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = L10n.get(Strings.home_scripts_title),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = AdGuardTextPrimary,
-                )
-                // A master switch that is off is the more useful fact: with it on
-                // and nothing installed, the line says there is nothing to run.
-                Text(
-                    text = when {
-                        !masterOn -> L10n.get(Strings.hub_extensions_master_off)
-                        installed == 0 -> L10n.get(Strings.hub_extensions_none)
-                        else -> L10n.format(Strings.home_scripts_counts, installed, enabled)
-                    },
-                    fontSize = 11.sp,
-                    color = AdGuardTextMuted,
-                )
+        BoxWithConstraints {
+            // Room for every tile at the width below, or the row scrolls.
+            val fits = maxWidth >= TileWidth * tiles.size
+            Row(
+                modifier = if (fits) {
+                    Modifier.fillMaxWidth()
+                } else {
+                    Modifier.horizontalScroll(rememberScrollState())
+                },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                tiles.forEachIndexed { index, tile ->
+                    if (index > 0) {
+                        Box(
+                            modifier = Modifier
+                                .width(1.dp)
+                                .height(34.dp)
+                                .background(AdGuardTextMuted.copy(alpha = 0.16f)),
+                        )
+                    }
+                    StatTileCell(
+                        tile = tile,
+                        modifier = if (fits) Modifier.weight(1f) else Modifier.width(TileWidth),
+                    )
+                }
             }
-            Text(
-                text = "$enabled/$installed",
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Bold,
-                color = if (masterOn && enabled > 0) AdGuardGreenPrimary else AdGuardTextMuted,
-            )
         }
     }
 }
 
+private val TileWidth = 112.dp
+
+/** A tile inside [StatsSection]; keeps its icon and number on one line. */
 @Composable
-private fun StatCard(    title: String,
-    value: String,
-    icon: ImageVector,
-    accentColor: Color,
-    onClick: () -> Unit = {},
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier.clickable { onClick() },
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = AdGuardDarkSurface),
-        border = CardDefaults.outlinedCardBorder().copy(
-            brush = Brush.linearGradient(
-                listOf(AdGuardDarkOutline, accentColor.copy(alpha = 0.2f))
-            )
-        )
+private fun StatTileCell(tile: StatTile, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .clickable(onClick = tile.onClick)
+            .padding(horizontal = 10.dp, vertical = 12.dp),
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(10.dp)
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = accentColor,
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = value,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                color = AdGuardTextPrimary
-            )
-            Text(
-                text = title,
-                fontSize = 11.sp,
-                color = AdGuardTextMuted
-            )
-        }
+        Icon(
+            imageVector = tile.icon,
+            contentDescription = null,
+            tint = tile.accent,
+            modifier = Modifier.size(16.dp),
+        )
+        Spacer(modifier = Modifier.height(5.dp))
+        Text(
+            text = tile.value,
+            fontSize = 17.sp,
+            fontWeight = FontWeight.Bold,
+            color = AdGuardTextPrimary,
+            maxLines = 1,
+        )
+        Text(
+            text = tile.label,
+            fontSize = 11.sp,
+            color = AdGuardTextMuted,
+            maxLines = 1,
+        )
     }
 }
-
 
 /**
  * The desktop home, drawn the way AdGuard for Windows draws its own: one
@@ -877,18 +863,14 @@ private fun DesktopHome(
 
         Spacer(modifier = Modifier.height(30.dp))
 
-        DesktopStatStrip(stats = state.stats, onClick = onOpenStatistics)
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Box(modifier = Modifier.widthIn(max = 560.dp)) {
-            ScriptsSummaryCard(
-                installed = state.userscripts.size,
-                enabled = state.userscripts.count { it.isEnabled },
-                masterOn = state.scriptsMasterEnabled,
-                onClick = onOpenScripts,
-            )
-        }
+        StatsSection(
+            stats = state.stats,
+            scriptsInstalled = state.userscripts.size,
+            scriptsEnabled = state.userscripts.count { it.isEnabled },
+            scriptsMasterOn = state.scriptsMasterEnabled,
+            onOpenStatistics = onOpenStatistics,
+            onOpenScripts = onOpenScripts,
+        )
 
         if (privateDnsOn) {
             Spacer(modifier = Modifier.height(UiSize.sectionGap.dp))
@@ -936,54 +918,3 @@ private fun ProtectionSwitch(isActive: Boolean, onToggle: () -> Unit) {
     }
 }
 
-/** Four counters on one line, the way the reference client lists numbers. */
-@Composable
-private fun DesktopStatStrip(stats: ProtectionStats, onClick: () -> Unit) {
-    val cells = listOf(
-        CountFormat.compact(stats.adsBlocked) to L10n.get(Strings.home_stat_ads),
-        CountFormat.compact(stats.trackersBlocked) to L10n.get(Strings.home_stat_trackers),
-        L10n.format(Strings.home_stat_data_value, CountFormat.data(stats.dataSavedBytes)) to
-            L10n.get(Strings.home_stat_data),
-        L10n.format(Strings.home_stat_battery_value, stats.estimatedBatterySavedPercent) to
-            L10n.get(Strings.home_stat_battery),
-    )
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(AdGuardDarkSurface)
-            .clickable(onClick = onClick)
-            .testTag("home_stat_strip")
-            .padding(vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        cells.forEachIndexed { index, (value, label) ->
-            if (index > 0) {
-                Box(
-                    modifier = Modifier
-                        .width(1.dp)
-                        .height(28.dp)
-                        .background(AdGuardTextMuted.copy(alpha = 0.16f)),
-                )
-            }
-            Column(
-                modifier = Modifier.weight(1f),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(
-                    text = value,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = AdGuardTextPrimary,
-                    maxLines = 1,
-                )
-                Text(
-                    text = label,
-                    fontSize = 11.sp,
-                    color = AdGuardTextMuted,
-                    maxLines = 1,
-                )
-            }
-        }
-    }
-}

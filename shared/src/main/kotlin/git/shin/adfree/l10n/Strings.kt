@@ -515,7 +515,6 @@ object Strings {
     const val hub_network_https_off = "hub_network_https_off"
     const val hub_back = "hub_back"
     const val home_scripts_title = "home_scripts_title"
-    const val home_scripts_counts = "home_scripts_counts"
     const val common_cancel = "common_cancel"
     const val common_close = "common_close"
     const val common_clear_search = "common_clear_search"

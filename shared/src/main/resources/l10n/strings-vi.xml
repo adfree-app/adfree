@@ -546,7 +546,6 @@
     <string name="hub_network_https_off">%1$s • HTTPS tắt</string>
     <string name="hub_back">Quay lại</string>
     <string name="home_scripts_title">Userscript</string>
-    <string name="home_scripts_counts">%1$d đã cài · %2$d đang bật</string>
 
     <!-- Common actions -->
     <string name="common_cancel">Hủy</string>
