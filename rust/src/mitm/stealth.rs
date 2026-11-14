@@ -359,8 +359,9 @@ fn same_site(left: &str, right: &str) -> bool {
 /// exception rules that go with them.
 ///
 /// MPL 2.0, from <https://publicsuffix.org/list/public_suffix_list.dat>. Refresh
-/// it by replacing the file; nothing else needs to change. The version it holds
-/// is the first `// VERSION:` line, and a test fails if the file is missing.
+/// it by replacing the file; nothing else needs to change. `rust/scripts/check-psl.sh`
+/// says whether the copy has gone stale (and `--update` takes the new one), and a
+/// test fails if the file is missing or not the real list.
 const PUBLIC_SUFFIX_LIST: &str = include_str!("../../assets/public_suffix_list.dat");
 
 /// The three shapes a rule takes in the list.
