@@ -2,9 +2,10 @@
  * The store button.
  *
  * Injected into a script-repository page by the proxy, next to the site's own
- * "Install this script" link, so installing through AdFree looks like using the
- * page rather than the app. The page keeps working if this script never runs:
- * it only ever adds a control.
+ * install control, so installing through AdFree looks like using the page
+ * rather than the app. Greasy Fork names its install area; the other stores do
+ * not, so the control is found by what it points at — a userscript. The page
+ * keeps working if this script never runs: it only ever adds a control.
  *
  * Contract with the app: `window.__adfree_store` carries the endpoint, the
  * per-run token and the list of scripts already installed. Nothing here talks to
@@ -45,13 +46,48 @@
   const lang = (document.documentElement.lang || navigator.language || "en").slice(0, 2).toLowerCase();
   const t = STRINGS[lang] || STRINGS.en;
 
-  /* The one identity Greasy Fork never changes: the numeric script id. An
-     update can rename the file, and the slug in the URL follows the name. */
+  /* The one identity each store never changes: its numeric script id. An
+     update can rename the file, and the slug in the URL follows the name.
+     ScriptCat keeps the id in the install URL (`/scripts/code/58/<slug>.user.js`)
+     and in the page (`/script-show-page/58`), behind an optional locale. */
   function keyFor(url) {
     const flick = /update\.greasyfork\.org\/scripts\/(\d+)/.exec(url) ||
       /greasyfork\.org\/scripts\/(\d+)/.exec(url);
     if (flick) return "greasyfork:" + flick[1];
+    const scat = /scriptcat\.org\/(?:[a-z-]{2,7}\/)?(?:script-show-page|scripts\/code)\/(\d+)/.exec(url);
+    if (scat) return "scriptcat:" + scat[1];
     return String(url || "").split(/[?#]/)[0];
+  }
+
+  /* A store page is one that offers a userscript, whatever it calls the
+     control: the one thing they all share is a link to a `.user.js`. Greasy
+     Fork's markup is named as well, so the attribute is kept as the last
+     resort — an install link that has not been given its href yet still
+     resolves the moment it is. */
+  const INSTALL_SELECTOR = [
+    'a[href*=".user.js"]',
+    'a[href*="/scripts/code/"]',
+    'a.install-link',
+  ].join(',');
+
+  /* The version the store prints beside the control. Greasy Fork carries it in
+     an attribute; ScriptCat writes it into the label (`Install Script · v0.1`),
+     so the tail of the text is the fallback. */
+  function versionOf(link) {
+    const attr = link.getAttribute("data-script-version");
+    if (attr) return attr;
+    const tail = /v?(\d+(?:\.\d+)+)\s*$/.exec((link.textContent || "").trim());
+    return tail ? tail[1] : "";
+  }
+
+  /* The site's own control, never ours. A page can carry it twice — a phone
+     layout beside a desktop one — and the one with a box is the one a reader
+     sees. */
+  function siteLink() {
+    const links = [...document.querySelectorAll(INSTALL_SELECTOR)].filter(
+      (el) => !el.classList.contains("adfree-store-button"),
+    );
+    return links.find((el) => el.getBoundingClientRect().width > 0) || links[0] || null;
   }
 
   function installedEntry(url) {
@@ -81,14 +117,22 @@
     return response.json();
   }
 
-  function render(area, url, pageVersion) {
+  function render(area, url, pageVersion, link) {
     const existing = document.getElementById("adfree-store-button");
     if (existing) existing.remove();
     const entry = installedEntry(url);
     const actions = document.getElementById("adfree-store-uninstall");
     if (actions) actions.remove();
 
-    const install = button("install-link adfree-store-button", "", "");
+    // The site's own classes ride along: an install control is styled by the
+    // page it stands on, and an Ant Design button beside a plain link reads as
+    // a broken page.
+    const inherited = link ? link.getAttribute("class") || "" : "";
+    const install = button(
+      (inherited ? inherited + " " : "install-link ") + "adfree-store-button",
+      "",
+      "",
+    );
     install.id = "adfree-store-button";
 
     if (!entry) {
@@ -159,26 +203,26 @@
     }
   }
 
-  function paint(area, url, pageVersion) {
-    const link = area.querySelector("a.install-link:not(.adfree-store-button)");
-    const node = render(area, url, pageVersion);
-    // Right after the site's own link, before the "?" help icon: the pair reads
-    // as one control group, which is what a store page does.
-    if (link && link.nextSibling) {
-      area.insertBefore(node, link.nextSibling);
+  function paint(area, url, pageVersion, link) {
+    const anchor = link || siteLink();
+    const node = render(area, url, pageVersion, anchor);
+    // Right after the site's own link — inside whatever group it belongs to, so
+    // the pair keeps the site's spacing: a control group reads as one control.
+    if (anchor && anchor.parentElement === area && anchor.nextSibling) {
+      area.insertBefore(node, anchor.nextSibling);
     } else {
       area.appendChild(node);
     }
   }
 
   function attach() {
-    const area = document.getElementById("install-area");
-    const link = area && area.querySelector("a.install-link:not(.adfree-store-button)");
-    if (!area || !link) return false;
-    const url = link.getAttribute("href") || "";
+    const link = siteLink();
+    if (!link || !link.parentElement) return false;
+    // `href` and not `getAttribute`: the others write a path, and the app has to
+    // be given the whole URL it will download.
+    const url = link.href || "";
     if (!url) return false;
-    const pageVersion = link.getAttribute("data-script-version") || "";
-    paint(area, url, pageVersion);
+    paint(link.parentElement, url, versionOf(link), link);
     return true;
   }
 

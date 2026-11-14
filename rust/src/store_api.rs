@@ -22,9 +22,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// Where the button is injected. Greasy Fork and its NSFW sibling share a
-/// layout, so one injector covers both; OpenUserJS and ScriptCat use their own
-/// and are not wired yet.
-const STORE_HOSTS: &[&str] = &["greasyfork.org", "sleazyfork.org"];
+/// layout, so one injector covers both; ScriptCat and OpenUserJS are wired to the
+/// same injector because the button finds its place by what the page links to (a
+/// `.user.js`) rather than by the site's own markup.
+const STORE_HOSTS: &[&str] = &[
+    "greasyfork.org",
+    "sleazyfork.org",
+    "scriptcat.org",
+    "openuserjs.org",
+];
 
 /// The asset path the injected page fetches its code from.
 pub const STORE_SCRIPT_PATH: &str = "/adfree-store.js";
@@ -395,8 +401,14 @@ fn quote(value: &str) -> String {
 /// Greasy Fork hands out `https://update.greasyfork.org/scripts/<id>/<slug>.user.js`,
 /// and the slug carries a version-independent name, but the id is the only part
 /// that never changes: an update rewrites the URL's tail when the script is
-/// renamed. OpenUserJS and ScriptCat keep their own paths, so the key falls back
-/// to the URL itself, minus the query.
+/// renamed. ScriptCat spells the same thing differently —
+/// `https://scriptcat.org/scripts/code/58/<slug>.user.js` on the install link and
+/// `/en/script-show-page/58` on the page — and the id is still the stable part.
+/// OpenUserJS keeps its own paths, so the key falls back to the URL itself, minus
+/// the query.
+///
+/// The page computes the same key in `assets/store.js`; the two have to agree or
+/// an installed script is offered again as new.
 fn key_for(url: &str) -> String {
     if let Some(rest) = url.split("update.greasyfork.org/scripts/").nth(1) {
         let id: String = rest.chars().take_while(char::is_ascii_digit).collect();
@@ -408,6 +420,19 @@ fn key_for(url: &str) -> String {
         let id: String = rest.chars().take_while(char::is_ascii_digit).collect();
         if !id.is_empty() && url.contains("greasyfork.org") {
             return format!("greasyfork:{id}");
+        }
+    }
+    // `/en/script-show-page/58`, `/ja/script-show-page/58`, `/scripts/code/58/<slug>`:
+    // the locale sits between the host and whatever names the script, so the path
+    // is walked rather than matched whole.
+    if let Some(rest) = url.split("scriptcat.org/").nth(1) {
+        for marker in ["script-show-page/", "code/"] {
+            if let Some(tail) = rest.split(marker).nth(1) {
+                let id: String = tail.chars().take_while(char::is_ascii_digit).collect();
+                if !id.is_empty() {
+                    return format!("scriptcat:{id}");
+                }
+            }
         }
     }
     url.split(['?', '#']).next().unwrap_or(url).to_string()
@@ -596,6 +621,26 @@ mod tests {
         );
     }
 
+    /// ScriptCat keeps a numeric id too, behind an optional locale and one of two
+    /// spellings — the install link and the page a reader lands on — so a rename
+    /// lands on the script already installed there as well.
+    #[test]
+    fn a_scriptcat_key_survives_a_locale_and_a_rename() {
+        assert_eq!(
+            key_for("https://scriptcat.org/scripts/code/58/hook%20demo.user.js"),
+            "scriptcat:58"
+        );
+        assert_eq!(
+            key_for("https://scriptcat.org/en/script-show-page/58"),
+            "scriptcat:58"
+        );
+        assert_eq!(key_for("https://scriptcat.org/ja/script-show-page/58"), "scriptcat:58");
+        assert_ne!(
+            key_for("https://scriptcat.org/scripts/code/59/other.user.js"),
+            "scriptcat:58"
+        );
+    }
+
     #[test]
     fn only_store_hosts_get_the_button() {
         assert!(is_store_host("greasyfork.org"));
@@ -604,6 +649,13 @@ mod tests {
         assert!(!is_store_host("greasyfork.org.evil.example"));
         assert!(!is_store_host("evil.example"));
         assert!(!is_store_host("notgreasyfork.org"));
+        // The other stores, behind an optional locale, and the same
+        // suffix trap.
+        assert!(is_store_host("scriptcat.org"));
+        assert!(is_store_host("www.scriptcat.org"));
+        assert!(is_store_host("openuserjs.org"));
+        assert!(!is_store_host("scriptcat.org.evil.example"));
+        assert!(!is_store_host("notscriptcat.org"));
     }
 
     /// The one place the app writes a file a browser will execute: an HTML

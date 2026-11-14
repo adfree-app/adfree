@@ -49,19 +49,19 @@ afterAll(async () => {
   if (browser) await browser.close();
 });
 
-async function open({ installed = [], onCall } = {}) {
+async function open({ installed = [], onCall, html = PAGE, site = SITE, path = '/en/scripts/550659-find-scripts-for-this-site' } = {}) {
   const context = await browser.newContext();
   contexts.push(context);
   const page = await context.newPage();
   const calls = [];
-  await page.route(`${SITE}/**`, (route) => route.fulfill({ status: 200, contentType: 'text/html', body: PAGE }));
+  await page.route(`${site}/**`, (route) => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html }));
   await page.route(`${API}/**`, async (route) => {
     const body = route.request().postDataJSON();
     calls.push({ url: route.request().url(), body });
     const answer = onCall ? onCall(route.request().url(), body) : { ok: true, id: 'store-1', name: 'Find Scripts For This Site', version: '0.4.3' };
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(answer) });
   });
-  await page.goto(`${SITE}/en/scripts/550659-find-scripts-for-this-site`);
+  await page.goto(`${site}${path}`);
   await page.evaluate(
     ([api, token, list]) => {
       window.__adfree_store = { api, host: 'greasyfork.org', token, installed: list };
@@ -145,6 +145,51 @@ describe('the store button', () => {
     }, [API, TOKEN]);
     await page.addScriptTag({ content: STORE });
     expect(await page.locator('#adfree-store-button').count()).toBe(0);
+  });
+
+  /// A store that names nothing Greasy Fork names: ScriptCat's control is an Ant
+  /// Design button in a compact group and the version lives in its label. The
+  /// button finds it by what it links to — a userscript — not by the markup.
+  test('a second store is found by the link it offers, not by its markup', async () => {
+    const SC = 'https://scriptcat.org';
+    const script = '/scripts/code/58/hook demo.user.js';
+    const html = `<!doctype html>
+<html lang="en"><head><title>Script</title></head><body>
+<div class="ant-space-compact w-full">
+  <a class="ant-btn ant-btn-primary" href="${script}" style="display:none"><span>Install Script · v0.1</span></a>
+  <a class="ant-btn ant-btn-primary" href="${script}"><span>Install Script · v0.1</span></a>
+  <button class="ant-btn">Link</button>
+</div>
+</body></html>`;
+    const { page, calls } = await open({
+      site: SC,
+      html,
+      path: '/en/script-show-page/58',
+      // The version the label carried has to survive the round trip, or the
+      // page immediately offers an update it just performed.
+      onCall: () => ({ ok: true, id: 'sc-1', name: 'hook demo', version: '0.1' }),
+    });
+
+    const button = page.locator('#adfree-store-button');
+    await expect.poll(() => button.count()).toBe(1);
+    expect(await button.textContent()).toContain('Install with AdFree');
+    // Styled by the page: an Ant Design control beside a plain link reads as a
+    // broken page.
+    expect(await button.getAttribute('class')).toContain('ant-btn');
+    // After the control a reader sees, not the phone layout that has no box.
+    const after = await button.evaluate((el) => ({
+      prev: el.previousElementSibling?.getAttribute('class') || '',
+      prevWidth: el.previousElementSibling?.getBoundingClientRect().width || 0,
+    }));
+    expect(after.prev).toContain('ant-btn');
+    expect(after.prevWidth).toBeGreaterThan(0);
+
+    await button.click();
+    await expect.poll(() => button.textContent()).toContain('Installed');
+    // The path the page wrote, made whole: the app downloads this URL.
+    expect(calls[0].body.url).toBe(`${SC}/scripts/code/58/hook%20demo.user.js`);
+    // Same identity the app keys on, so a rename in the slug is still an update.
+    expect(calls[0].body.url.includes('/scripts/code/58/')).toBe(true);
   });
 
   /// Where the proxy actually puts the tag: the end of `<head>`, before the
