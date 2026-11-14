@@ -3252,6 +3252,19 @@ pub(super) fn blocked_response() -> Vec<u8> {
     b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nCache-Control: no-store\r\n\r\n".to_vec()
 }
 
+/// Whether a written response already carries a header.
+fn has_header(response: &[u8], name: &str) -> bool {
+    let Some(end) = header_end(response) else {
+        return false;
+    };
+    response[..end].split(|&b| b == b'\n').any(|line| {
+        std::str::from_utf8(line)
+            .ok()
+            .and_then(|line| line.split_once(':'))
+            .is_some_and(|(found, _)| found.trim().eq_ignore_ascii_case(name))
+    })
+}
+
 /// The CORS answer a locally written response owes a cross-origin caller.
 ///
 /// A `fetch()` to a blocked URL fails the browser's CORS check before the
@@ -3307,6 +3320,13 @@ fn cors_headers(head: &[u8]) -> String {
 pub(super) fn with_cors(response: Vec<u8>, head: &[u8]) -> Vec<u8> {
     let cors = cors_headers(head);
     if cors.is_empty() {
+        return response;
+    }
+    // A response that already answers the question keeps its own answer: two
+    // `Access-Control-Allow-Origin` headers are read as one value,
+    // `*, https://site`, which no browser accepts — and a wildcard cannot be
+    // paired with credentials, so mixing the two breaks either way.
+    if has_header(&response, "access-control-allow-origin") {
         return response;
     }
     // `head_end` points past the blank line that closes the head, and the two

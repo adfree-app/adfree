@@ -2197,9 +2197,24 @@ Origin: https://site.example\r\nAccess-Control-Request-Headers: content-type,x-c
 }
 
 #[test]
+fn a_response_that_already_answers_cors_is_left_alone() {
+    // A `$redirect` stub is a local asset, and local assets already carry a
+    // wildcard. A second `Access-Control-Allow-Origin` would be read as
+    // `*, https://site.example`, which the browser refuses outright.
+    let stub = redirect_response("data:application/javascript;base64,").expect("stub");
+    let head = b"GET /a.js HTTP/1.1\r\nHost: ads.example\r\nOrigin: https://site.example\r\n\r\n";
+    let answered = with_cors(stub.clone(), head);
+    let text = String::from_utf8_lossy(&answered);
+    assert_eq!(text.matches("Access-Control-Allow-Origin").count(), 1, "{text}");
+    assert!(text.contains("Access-Control-Allow-Origin: *"), "{text}");
+    assert_eq!(answered, stub);
+}
+
+#[test]
 fn a_stub_served_to_a_fetch_is_readable() {
     // `$redirect=nooptext` on an `$xhr` is a replacement the page is meant to
-    // read: without the CORS answer the stub is a network error instead.
+    // read: the stub is a local asset, so it already answers CORS, and the
+    // answer must survive being handled as a blocked request.
     let stub = redirect_response("data:text/plain;base64,").expect("stub");
     let cross = with_cors(
         stub.clone(),
@@ -2207,11 +2222,9 @@ fn a_stub_served_to_a_fetch_is_readable() {
     );
     let text = String::from_utf8_lossy(&cross);
     assert!(text.starts_with("HTTP/1.1 200 OK"), "{text}");
-    assert!(text.contains("Access-Control-Allow-Origin: https://site.example"), "{text}");
-    // The body is untouched: only the head grew.
-    let body_of = |r: &[u8]| {
-        let end = r.windows(4).position(|w| w == b"\r\n\r\n").map(|i| i + 4).unwrap_or(0);
-        r[end..].to_vec()
-    };
-    assert_eq!(body_of(&cross), body_of(&stub));
+    assert_eq!(text.matches("Access-Control-Allow-Origin").count(), 1, "{text}");
+    // Nothing was spliced in: the head and the body are the stub's own.
+    assert_eq!(cross, stub);
 }
+
+
