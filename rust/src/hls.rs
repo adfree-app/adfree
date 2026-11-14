@@ -605,6 +605,56 @@ preroll.ts
     /// covers only the URL line after it, a multi tag every line until the
     /// next tag of the same name.
     #[test]
+    fn a_stitched_ad_break_cannot_be_cut_without_losing_the_programme() {
+        // Shaped like a live SSAI playlist: the advert is already the
+        // publisher's own segments, so no URL says "advert" — the break is
+        // announced by `#EXT-X-DATERANGE` carrying the SCTE-35 payload the ad
+        // server inserted, and closed by `#EXT-X-CUE-IN`.
+        let playlist = "\
+#EXTM3U
+#EXT-X-VERSION:4
+#EXT-X-TARGETDURATION:3
+#EXTINF:3.000,
+programme-1.ts
+#EXT-X-DATERANGE:ID=\"1\",START-DATE=\"2026-11-14T16:18:37.440000Z\",PLANNED-DURATION=38.4,SCTE35-OUT=0xFC30200000
+#EXTINF:3.000,
+advert-1.ts
+#EXTINF:3.000,
+advert-2.ts
+#EXT-X-CUE-IN
+#EXTINF:3.000,
+programme-2.ts
+#EXTINF:3.000,
+programme-3.ts
+#EXT-X-DATERANGE:ID=\"2\",START-DATE=\"2026-11-14T16:20:38.400000Z\",PLANNED-DURATION=38.4,SCTE35-OUT=0xFC30200000
+#EXTINF:3.000,
+advert-3.ts
+";
+        // `DATERANGE` is a multi tag: it covers every segment after it until
+        // the next tag of the same name, which is the *next break*, not the
+        // `#EXT-X-CUE-IN` that closes this one. So the rule the operator would
+        // reach for takes the programme between the two breaks with it.
+        let rules = [rule("/SCTE35-OUT/t")];
+        let (out, applied) = apply_rules(&rules, BASE, playlist.as_bytes()).expect("removal");
+        let text = String::from_utf8(out).expect("utf8");
+        assert_eq!(applied.len(), 1);
+        assert!(text.contains("programme-1.ts"), "the break starts after it");
+        assert!(!text.contains("advert-"), "the adverts do go");
+        assert!(
+            !text.contains("programme-2.ts") && !text.contains("programme-3.ts"),
+            "and so does the programme the break interrupts: the tag that could \
+             close the range, `#EXT-X-CUE-IN`, is not one the model matches"
+        );
+        // The tag most playlists mark a break with is not recognized at all,
+        // so it cannot be used to bound the range either.
+        let cue = [rule("/CUE-OUT/t")];
+        assert!(
+            apply_rules(&cue, BASE, playlist.as_bytes()).is_none(),
+            "CUE-OUT is not a recognized tag"
+        );
+    }
+
+    #[test]
     fn tag_rules_read_the_tags_that_apply_to_each_segment() {
         let playlist = "\
 #EXTM3U

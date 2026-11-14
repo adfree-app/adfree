@@ -1456,14 +1456,16 @@ issue tracker, release notes and measured behavior rather than from code.
   not registered, because the engine would drop the duplicate silently and
   turn the rule into a hard block.
 - **Server-side ad insertion is not blocked.** A player can ask for a manifest
-  whose segments already contain the advert, stitched in by the publisher's ad
-  server: there is no advert URL for a rule to match, and the manifest URL is
-  one the player must have, so blocking it breaks the video rather than the
-  advert. The only layer that sees the advert is the manifest text —
-  `#EXT-X-CUE-OUT`, `#EXT-X-DATERANGE`, and the discontinuity that brackets the
-  stitched segments — and rewriting it changes the video path, where a mistake
-  is a broken player rather than a missing advert. Not attempted without
-  streams that prove the rewrite on every player that matters.
+  whose segments are already the advert, stitched in by the publisher's ad
+  server: no URL says "advert", and the manifest URL is one the player must
+  have, so blocking it breaks the video rather than the advert. `$hls`
+  (`rust/src/hls.rs`) can remove playlist segments, and the
+  break is visible as `#EXT-X-DATERANGE` carrying `SCTE35-OUT`, but a
+  `$hls=/SCTE35-OUT/t` rule is a multi tag: it covers every segment after the
+  break until the *next* break, because `#EXT-X-CUE-IN` and `#EXT-X-CUE-OUT`
+  are not tags the playlist model recognizes (a test pins both halves). Cutting
+  the advert therefore takes the programme around it with it, which is why no
+  rule ships.
 - Userscripts run in the page's main world. There is no `@resource`,
   `@connect`, `@sandbox` or CORS bypass; GM storage is page-origin
   `localStorage`, namespaced per script, and does not cross origins. The
