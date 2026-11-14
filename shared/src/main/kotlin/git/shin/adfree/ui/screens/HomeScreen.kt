@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.NotificationsOff
@@ -78,6 +79,7 @@ import git.shin.adfree.ui.theme.AdGuardDarkSurface
 import git.shin.adfree.ui.theme.AdGuardGreenLight
 import git.shin.adfree.ui.theme.AdGuardGreenPrimary
 import git.shin.adfree.ui.theme.AdGuardOrangeWarning
+import git.shin.adfree.ui.theme.AdGuardPurpleAI
 import git.shin.adfree.ui.theme.AdGuardRedBlocked
 import git.shin.adfree.ui.theme.AdGuardTextMuted
 import git.shin.adfree.ui.theme.AdGuardTextPrimary
@@ -117,6 +119,9 @@ fun HomeScreen(
                 viewModel.onIntent(AdGuardIntent.SelectTab(AdGuardTab.STATISTICS))
             },
             onOpenPrivateDns = { platform.openPrivateDnsSettings() },
+            onOpenScripts = {
+                viewModel.onIntent(AdGuardIntent.SelectTab(AdGuardTab.PROTECTION))
+            },
             quickModuleRow = {
                 QuickModuleRow(
                     adBlocking = state.settings.isAdBlockingEnabled,
@@ -191,6 +196,15 @@ fun HomeScreen(
             StatsGrid(
                 stats = state.stats,
                 onCardClick = { viewModel.onIntent(AdGuardIntent.SelectTab(AdGuardTab.STATISTICS)) }
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            ScriptsSummaryCard(
+                installed = state.userscripts.size,
+                enabled = state.userscripts.count { it.isEnabled },
+                masterOn = state.scriptsMasterEnabled,
+                onClick = { viewModel.onIntent(AdGuardIntent.SelectTab(AdGuardTab.PROTECTION)) },
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -686,9 +700,77 @@ private fun StatsGrid(
     }
 }
 
+/**
+ * How many userscripts the app has, and how many of them run.
+ *
+ * One row rather than a fifth stat card: the grid above counts what the filter
+ * did to the network, and this counts something the reader installed, which is
+ * a different kind of number. It sits under the grid on a phone and under the
+ * strip on a window, and it opens the tab the scripts are switched on in.
+ */
 @Composable
-private fun StatCard(
-    title: String,
+private fun ScriptsSummaryCard(
+    installed: Int,
+    enabled: Int,
+    masterOn: Boolean,
+    onClick: () -> Unit,
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = AdGuardDarkSurface),
+        border = CardDefaults.outlinedCardBorder().copy(
+            brush = Brush.linearGradient(
+                listOf(AdGuardDarkOutline, AdGuardPurpleAI.copy(alpha = 0.25f))
+            )
+        ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Default.Extension,
+                contentDescription = null,
+                tint = AdGuardPurpleAI,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = L10n.get(Strings.home_scripts_title),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = AdGuardTextPrimary,
+                )
+                // A master switch that is off is the more useful fact: with it on
+                // and nothing installed, the line says there is nothing to run.
+                Text(
+                    text = when {
+                        !masterOn -> L10n.get(Strings.hub_extensions_master_off)
+                        installed == 0 -> L10n.get(Strings.hub_extensions_none)
+                        else -> L10n.format(Strings.home_scripts_counts, installed, enabled)
+                    },
+                    fontSize = 11.sp,
+                    color = AdGuardTextMuted,
+                )
+            }
+            Text(
+                text = "$enabled/$installed",
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (masterOn && enabled > 0) AdGuardGreenPrimary else AdGuardTextMuted,
+            )
+        }
+    }
+}
+
+@Composable
+private fun StatCard(    title: String,
     value: String,
     icon: ImageVector,
     accentColor: Color,
@@ -751,6 +833,7 @@ private fun DesktopHome(
     onToggle: () -> Unit,
     onOpenStatistics: () -> Unit,
     onOpenPrivateDns: () -> Unit,
+    onOpenScripts: () -> Unit,
     quickModuleRow: @Composable () -> Unit,
 ) {
     Column(
@@ -795,6 +878,17 @@ private fun DesktopHome(
         Spacer(modifier = Modifier.height(30.dp))
 
         DesktopStatStrip(stats = state.stats, onClick = onOpenStatistics)
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Box(modifier = Modifier.widthIn(max = 560.dp)) {
+            ScriptsSummaryCard(
+                installed = state.userscripts.size,
+                enabled = state.userscripts.count { it.isEnabled },
+                masterOn = state.scriptsMasterEnabled,
+                onClick = onOpenScripts,
+            )
+        }
 
         if (privateDnsOn) {
             Spacer(modifier = Modifier.height(UiSize.sectionGap.dp))
