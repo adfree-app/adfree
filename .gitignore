@@ -33,3 +33,25 @@ adguard.apk
 
 # JavaScript test tooling (Vitest + Playwright, driven by bun — see package.json)
 node_modules/
+
+# Screenshots and captures taken while working on a page, never part of the tree
+.shot-*.png
+.shot-*.jpeg
+.shots/
+.log.png
+Screenshot_*.png
+*.tmp.mjs
+
+# Tool caches and local notes that belong to whoever is working here
+.perch/
+.qoder/
+note.txt
+*-khc.txt
+
+# Exported session transcripts (tens of megabytes each)
+pi-session-*.html
+
+# Benchmarks are built from the tracked sources beside them
+bench/dport
+bench/flows
+bench/probe
