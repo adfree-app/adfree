@@ -2228,3 +2228,14 @@ fn a_stub_served_to_a_fetch_is_readable() {
 }
 
 
+
+#[test]
+fn an_error_page_is_not_a_document_to_inject_into() {
+    // A `502`/`522` from the origin is not the page the reader asked for, and
+    // injecting the runtime into one was wasted bytes on a page nobody reads:
+    // the status decides that, not the content type.
+    for (status, injected) in [(200u16, true), (404, true), (410, true), (500, false), (522, false)] {
+        let renderable = status < 300 || (400..500).contains(&status);
+        assert_eq!(renderable, injected, "status {status}");
+    }
+}

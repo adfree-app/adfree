@@ -2376,9 +2376,12 @@ impl ProxySession {
                     } else {
                         info.content_length.map(Framing::Length)
                     };
-                    // A redirect's body is never rendered: nothing to hide
-                    // there, and injecting would only inflate it.
-                    let renderable = !(300..400).contains(&info.status);
+                    // A redirect's body is never rendered, and a gateway's
+                    // error page is not the page the reader asked for: nothing
+                    // to hide in either, and injecting would only inflate them.
+                    // A `4xx` is left in because sites serve their own layout
+                    // with it, and that layout carries the ads.
+                    let renderable = info.status < 300 || (400..500).contains(&info.status);
                     // Edit only what the next stage can actually handle: HTML
                     // we can decode, with a body we can bound. An HTTP/1.0
                     // client cannot read the chunked body streaming produces.
