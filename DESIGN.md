@@ -1455,6 +1455,15 @@ issue tracker, release notes and measured behavior rather than from code.
   rule would have produced. `.js` aliases that duplicate a scriptlet ident are
   not registered, because the engine would drop the duplicate silently and
   turn the rule into a hard block.
+- **Server-side ad insertion is not blocked.** A player can ask for a manifest
+  whose segments already contain the advert, stitched in by the publisher's ad
+  server: there is no advert URL for a rule to match, and the manifest URL is
+  one the player must have, so blocking it breaks the video rather than the
+  advert. The only layer that sees the advert is the manifest text —
+  `#EXT-X-CUE-OUT`, `#EXT-X-DATERANGE`, and the discontinuity that brackets the
+  stitched segments — and rewriting it changes the video path, where a mistake
+  is a broken player rather than a missing advert. Not attempted without
+  streams that prove the rewrite on every player that matters.
 - Userscripts run in the page's main world. There is no `@resource`,
   `@connect`, `@sandbox` or CORS bypass; GM storage is page-origin
   `localStorage`, namespaced per script, and does not cross origins. The
