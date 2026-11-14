@@ -2099,7 +2099,7 @@ fn blocked_and_redirect_answers_are_shaped_for_a_browser() {
     let blocked = blocked_response();
     let head = String::from_utf8_lossy(&blocked);
     assert!(head.starts_with("HTTP/1.1 204 No Content\r\n"), "{head}");
-    assert!(head.contains("Content-Length: 0\r\n"), "{head}");
+    assert!(!head.to_lowercase().contains("content-length"), "{head}");
 
     let redirect = redirect_response("data:application/javascript;base64,KGZ1bmN0aW9uKCl7fSkoKTs=")
         .expect("decodable");
@@ -2189,7 +2189,7 @@ Accept: */*\r\n\r\n";
     assert!(text.contains("Access-Control-Allow-Origin: https://site.example"), "{text}");
     assert!(text.contains("Access-Control-Allow-Credentials: true"), "{text}");
     assert!(text.contains("Timing-Allow-Origin: https://site.example"), "{text}");
-    assert!(text.contains("Content-Length: 0"), "{text}");
+    assert!(!text.to_lowercase().contains("content-length"), "{text}");
     // Nothing asked for a header list, so none is offered: `*` there would be
     // an answer to a question nobody asked, and an invalid one beside
     // `Allow-Credentials`.

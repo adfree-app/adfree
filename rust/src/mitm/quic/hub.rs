@@ -42,6 +42,7 @@ const HOP_BY_HOP: &[&str] = &[
     "keep-alive",
     "proxy-connection",
     "transfer-encoding",
+    "trailer",
     "upgrade",
 ];
 

@@ -3383,7 +3383,9 @@ fn not_found_response() -> Vec<u8> {
 /// The answer to a request a network rule blocked: no body and no cache entry,
 /// so the page sees a failed subresource rather than a bogus one.
 pub(super) fn blocked_response() -> Vec<u8> {
-    b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nCache-Control: no-store\r\n\r\n".to_vec()
+    // No `Content-Length`: RFC 9110 forbids it on a `204`, and "No Content"
+    // already says the body is empty.
+    b"HTTP/1.1 204 No Content\r\nCache-Control: no-store\r\n\r\n".to_vec()
 }
 
 /// Whether a written response already carries a header.
