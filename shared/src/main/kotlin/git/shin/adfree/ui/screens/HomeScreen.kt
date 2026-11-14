@@ -658,19 +658,17 @@ private data class StatTile(
 )
 
 /**
- * The counters, as one horizontally scrolling card.
+ * The counters, as their own cards in a row that scrolls sideways.
  *
- * They used to be four separate tiles in a two-by-two grid on a phone and a
- * bare strip of numbers on a window, which is two layouts to keep in step for
- * the same four facts. One card scrolls sideways instead: the fifth counter —
- * the userscripts the reader installed — joins them without a second row, and
- * a narrow window shows three and slides rather than shrinking every number
- * until it wraps.
+ * They used to be a two-by-two grid on a phone and a bare strip of numbers on a
+ * window — two layouts for one set of facts, neither with room for a fifth
+ * number. A single scrolling row fixes that, and each number keeps a card of
+ * its own so its colour and outline still say which counter it is; a shared
+ * card would have made five equal cells of five different things.
  *
- * When the window is wide enough for every tile, they share the width evenly
- * and nothing scrolls; a card with half its surface empty would read as a
- * loading state. Both branches are the same tiles, so the count of layouts is
- * one.
+ * When the window is wide enough for every card, they share the width evenly
+ * and nothing scrolls. Both branches are the same cards, so the count of
+ * layouts stays one.
  */
 @Composable
 private fun StatsSection(
@@ -726,78 +724,69 @@ private fun StatsSection(
         ),
     )
 
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("home_stats_card"),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = AdGuardDarkSurface),
-        border = CardDefaults.outlinedCardBorder().copy(
-            brush = Brush.linearGradient(
-                listOf(AdGuardDarkOutline, AdGuardPurpleAI.copy(alpha = 0.18f))
-            )
-        ),
-    ) {
-        BoxWithConstraints {
-            // Room for every tile at the width below, or the row scrolls.
-            val fits = maxWidth >= TileWidth * tiles.size
-            Row(
-                modifier = if (fits) {
-                    Modifier.fillMaxWidth()
-                } else {
-                    Modifier.horizontalScroll(rememberScrollState())
-                },
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                tiles.forEachIndexed { index, tile ->
-                    if (index > 0) {
-                        Box(
-                            modifier = Modifier
-                                .width(1.dp)
-                                .height(34.dp)
-                                .background(AdGuardTextMuted.copy(alpha = 0.16f)),
-                        )
-                    }
-                    StatTileCell(
-                        tile = tile,
-                        modifier = if (fits) Modifier.weight(1f) else Modifier.width(TileWidth),
-                    )
-                }
+    BoxWithConstraints(modifier = Modifier.testTag("home_stats_row")) {
+        // Room for every card at the width below, or the row scrolls.
+        val fits = maxWidth >= TileWidth * tiles.size + TileGap * (tiles.size - 1)
+        Row(
+            modifier = if (fits) {
+                Modifier.fillMaxWidth()
+            } else {
+                Modifier.horizontalScroll(rememberScrollState())
+            },
+            horizontalArrangement = Arrangement.spacedBy(TileGap),
+        ) {
+            tiles.forEach { tile ->
+                StatTileCell(
+                    tile = tile,
+                    modifier = if (fits) Modifier.weight(1f) else Modifier.width(TileWidth),
+                )
             }
         }
     }
 }
 
-private val TileWidth = 112.dp
+private val TileWidth = 108.dp
+private val TileGap = 10.dp
 
-/** A tile inside [StatsSection]; keeps its icon and number on one line. */
+/** One card of [StatsSection]: its icon, its number, and where it leads. */
 @Composable
 private fun StatTileCell(tile: StatTile, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier
-            .clickable(onClick = tile.onClick)
-            .padding(horizontal = 10.dp, vertical = 12.dp),
+    Card(
+        modifier = modifier.clickable(onClick = tile.onClick),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = AdGuardDarkSurface),
+        border = CardDefaults.outlinedCardBorder().copy(
+            brush = Brush.linearGradient(
+                listOf(AdGuardDarkOutline, tile.accent.copy(alpha = 0.22f))
+            )
+        ),
     ) {
-        Icon(
-            imageVector = tile.icon,
-            contentDescription = null,
-            tint = tile.accent,
-            modifier = Modifier.size(16.dp),
-        )
-        Spacer(modifier = Modifier.height(5.dp))
-        Text(
-            text = tile.value,
-            fontSize = 17.sp,
-            fontWeight = FontWeight.Bold,
-            color = AdGuardTextPrimary,
-            maxLines = 1,
-        )
-        Text(
-            text = tile.label,
-            fontSize = 11.sp,
-            color = AdGuardTextMuted,
-            maxLines = 1,
-        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(10.dp),
+        ) {
+            Icon(
+                imageVector = tile.icon,
+                contentDescription = null,
+                tint = tile.accent,
+                modifier = Modifier.size(17.dp),
+            )
+            Spacer(modifier = Modifier.height(5.dp))
+            Text(
+                text = tile.value,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Bold,
+                color = AdGuardTextPrimary,
+                maxLines = 1,
+            )
+            Text(
+                text = tile.label,
+                fontSize = 11.sp,
+                color = AdGuardTextMuted,
+                maxLines = 1,
+            )
+        }
     }
 }
 
@@ -805,11 +794,9 @@ private fun StatTileCell(tile: StatTile, modifier: Modifier = Modifier) {
  * The desktop home, drawn the way AdGuard for Windows draws its own: one
  * centred state, said once in a big line, with the switch right under it.
  *
- * The phone body stacks four stat cards under the power button because a
- * 400dp screen has nowhere else to put them. On a window this wide that grid
- * stretches into four wide, mostly-empty tiles, which is exactly what made
- * the app read as a phone screenshot blown up: here the counters become one
- * strip of numbers on the bare surface, separated by hairlines.
+ * The phone body stacks the counters under the power button because a 400dp
+ * screen has nowhere else to put them. On a window this wide the same row is
+ * still the right shape — it simply fits without scrolling.
  */
 @Composable
 private fun DesktopHome(
