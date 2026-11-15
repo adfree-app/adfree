@@ -191,4 +191,35 @@ class DesktopTrustStoresTest {
         assertEquals("read-only", results.first { it.keystore.path.contains("jdk-a") }.detail)
         assertEquals(null, results.first { it.keystore.path.contains("jdk-b") }.detail)
     }
+
+    /**
+     * The NSS tool is not the `certutil` Windows has.
+     *
+     * `C:\Windows\System32\certutil.exe` is a certificate manager; handed NSS
+     * arguments it answers `CertUtil: Unknown arg: -N`. Pointing the NSS step at
+     * it — as one build did — reports "cannot create the database" on a machine
+     * whose real problem is that Mozilla's tool is not installed. Mozilla ships
+     * the right one beside Firefox, so that is the only place worth looking.
+     */
+    @Test
+    fun windowsLooksForTheNssCertutilBesideFirefox() {
+        val root = File.createTempFile("adfree-pf", "").let { it.delete(); it.mkdirs(); it }
+        val firefox = File(root, "Mozilla Firefox").apply { mkdirs() }
+        val tool = File(firefox, "certutil.exe").apply { writeText("") }
+
+        assertEquals(
+            tool.path,
+            DesktopTrustStores.certutilPath("Windows 11", mapOf("ProgramFiles" to root.path)),
+        )
+        // No Firefox: no NSS tool, and nothing borrowed from System32.
+        assertEquals(
+            null,
+            DesktopTrustStores.certutilPath("Windows 11", mapOf("ProgramFiles" to File(root, "nope").path)),
+        )
+        // A machine with no such variable at all is the same answer.
+        assertEquals(null, DesktopTrustStores.certutilPath("Windows 11", emptyMap()))
+        // Every other platform has it on the path, and `ProgramFiles` may be set
+        // for unrelated reasons (a Wine prefix, a cross-compile shell).
+        assertEquals("certutil", DesktopTrustStores.certutilPath("Linux", mapOf("ProgramFiles" to root.path)))
+    }
 }

@@ -30,7 +30,7 @@ import java.io.File
  */
 class DesktopTrustStores(
     private val home: File = File(System.getProperty("user.home")),
-    private val certutilBinary: String = "certutil",
+    private val certutilBinary: String = certutilPath(System.getProperty("os.name").orEmpty()) ?: MISSING_CERTUTIL,
     /** Exit code plus combined output of one command; injected so tests need no `certutil`. */
     private val runner: (List<String>) -> Pair<Int, String> = ::runCommand,
     private val log: (String) -> Unit = { System.err.println("[trust] $it") },
@@ -136,16 +136,63 @@ class DesktopTrustStores(
         private const val FIREFOX_ROOT = ".mozilla/firefox"
         private const val FIREFOX_DB = "cert9.db"
 
-        private fun runCommand(argv: List<String>): Pair<Int, String> = runCatching {
+        /**
+         * The *NSS* `certutil`, which is not the `certutil` a Windows machine
+         * has.
+         *
+         * Windows ships its own `certutil.exe` in `System32`, and it is a
+         * different program with different options: handed NSS arguments it
+         * answers `CertUtil: Unknown arg: -N`. Naming it in place of NSS's tool
+         * — as this did for one build — turned "cannot find the tool" into
+         * "cannot create the database", which is a worse lie. Mozilla ships the
+         * right one beside Firefox, so that is where it is looked for; a
+         * machine with no Firefox and no NSS tools has no NSS database worth
+         * writing, and saying so is the honest answer.
+         */
+        fun certutilPath(osName: String, env: Map<String, String> = System.getenv()): String? {
+            if (!osName.lowercase().startsWith("windows")) return "certutil"
+            val roots = listOfNotNull(env["ProgramFiles"], env["ProgramFiles(x86)"])
+            for (root in roots) {
+                val candidate = File(File(root, "Mozilla Firefox"), "certutil.exe")
+                if (candidate.isFile) return candidate.path
+            }
+            return null
+        }
+
+        /** Stands in for a tool this machine does not have; never resolves. */
+        private const val MISSING_CERTUTIL: String = "certutil"
+
+        /** What a machine without the NSS tool is told, once per database. */
+        private const val NO_CERTUTIL: String =
+            "NSS certutil is not installed (Firefox ships one beside its executable); the shared " +
+                "NSS database on this machine is not written"
+
+        private fun runCommand(argv: List<String>): Pair<Int, String> {
+            if (argv.firstOrNull() == MISSING_CERTUTIL && certutilPath(System.getProperty("os.name").orEmpty()) == null) {
+                return -1 to NO_CERTUTIL
+            }
+            return runCommandOnce(argv)
+        }
+
+        private fun runCommandOnce(argv: List<String>): Pair<Int, String> = runCatching {
             val process = ProcessBuilder(argv)
-                // `certutil` asks for a password on a database it did not
-                // create; without a stdin the question arrives on this
-                // process's terminal and waits there forever.
-                .redirectInput(ProcessBuilder.Redirect.from(File("/dev/null")))
                 .redirectErrorStream(true)
                 .start()
+            // `certutil` asks for a password on a database it did not create;
+            // without a stdin the question arrives on this process's terminal
+            // and waits there forever. Closing the stream is what says "no
+            // answer is coming", and it is the one form that works everywhere:
+            // `Redirect.from(/dev/null)` names a file Windows does not have, and
+            // `Redirect.DISCARD` is an *output* redirect (Java answers "Redirect
+            // invalid for reading: WRITE"). Both were measured on Windows 11 and
+            // both left every NSS application untrusted.
+            process.outputStream.close()
             val output = process.inputStream.bufferedReader().readText()
             process.waitFor() to output
-        }.getOrDefault(-1 to "cannot run ${argv.firstOrNull() ?: "the command"}")
+        }.getOrElse { failure ->
+            // The reason belongs in the message: "cannot run X" alone sent the
+            // reader looking for a missing binary when the binary was there.
+            -1 to "cannot run ${argv.firstOrNull() ?: "the command"}: ${failure.message ?: failure.javaClass.simpleName}"
+        }
     }
 }
