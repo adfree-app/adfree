@@ -902,6 +902,23 @@ fn set_if_index(info: &mut libc::in6_pktinfo, value: u32) {
 
 /// True when a fresh socket can carry the firewall mark.
 fn probe_mark() -> bool {
+    // Windows has no `SO_MARK` to set: the loop proof there is the source-port
+    // range the redirect filter skips, and binding into it asks no privilege of
+    // anyone. There is nothing that can fail, so there is nothing to warn about
+    // — "run AdFree as root" is advice this platform cannot take.
+    #[cfg(windows)]
+    let ok = true;
+
+    #[cfg(not(windows))]
+    let ok = {
+        probe_mark_unix()
+    };
+
+    ok
+}
+
+#[cfg(not(windows))]
+fn probe_mark_unix() -> bool {
     let Ok(socket) = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)) else {
         return false;
     };
