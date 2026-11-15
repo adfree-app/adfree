@@ -103,6 +103,12 @@ class DesktopAutostart(
          * `schtasks /Create` for a logon task that runs with the highest
          * available token. `/F` overwrites, because the app's own path changes
          * when it is updated and an old action would point at nothing.
+         *
+         * `/IT` is what puts the task in the person's own session: a task
+         * without it runs where no window can be drawn, which for an app whose
+         * whole point is a window with a shield in it is a start that looks like
+         * nothing happened. The token is carried either way — `/RL HIGHEST` is
+         * the grant, and it is why this task can be started silently later.
          */
         internal fun schtasksCreate(appArgv: List<String>): List<String> = listOf(
             "schtasks",
@@ -115,6 +121,7 @@ class DesktopAutostart(
             "ONLOGON",
             "/RL",
             "HIGHEST",
+            "/IT",
             "/F",
         )
 

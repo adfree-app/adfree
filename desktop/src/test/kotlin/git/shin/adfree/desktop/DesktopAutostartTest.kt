@@ -93,6 +93,8 @@ class DesktopAutostartTest {
         )
         assertEquals("at logon, not at boot", "ONLOGON", argv[argv.indexOf("/SC") + 1])
         assertEquals("with the administrator token", "HIGHEST", argv[argv.indexOf("/RL") + 1])
+        // In the person's own session: a task without /IT has no window to draw.
+        assertTrue("interactive, so the window has a desktop", argv.contains("/IT"))
         assertTrue("repeatable", argv.contains("/F"))
     }
 
