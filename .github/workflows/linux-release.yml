@@ -25,6 +25,18 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The MSI is built by the workflow that already knows how to build it, rather
+  # than by a second copy of those steps that could drift from it. It is asked to
+  # publish, so the asset on the tag is the same build the artifact is.
+  windows-msi:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/windows-build.yml
+    with:
+      publish: true
+    secrets: inherit
+
   # The two userscripts this app ships are published with the release as well as
   # compiled in. A machine on an older build reads them from `latest/download`
   # on its own auto-update pass, so a fix to the YouTube module reaches it

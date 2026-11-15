@@ -127,13 +127,21 @@ fun main() {
     // than answering when the display it was told about is not the one this
     // session has. A tray is a convenience; it must not be the reason a
     // filtering process dies.
-    val sni = runCatching { TraySni.start() }
-        .onFailure { System.err.println("[desktop] tray unavailable: ${it.message}") }
-        .getOrNull()
+    val osName = System.getProperty("os.name").orEmpty()
+    val sni = if (askForStatusNotifier(osName)) {
+        runCatching { TraySni.start() }
+            .onFailure { System.err.println("[desktop] tray unavailable: ${it.message}") }
+            .getOrNull()
+    } else {
+        // Windows and macOS have no session bus: their field is the platform's.
+        null
+    }
+    val awtTraySupported = runCatching { java.awt.SystemTray.isSupported() }.getOrDefault(false)
+    val tray = trayBackend(sni != null, awtTraySupported)
     // Hiding is only a detour when there is a status field to come back
     // through. Many Linux sessions have no tray owner at all, and a hidden
     // window there is an app the user cannot reach: close quits instead.
-    val hasTray = sni != null || runCatching { java.awt.SystemTray.isSupported() }.getOrDefault(false)
+    val hasTray = tray != TrayBackend.None
     // A system unit can be started before the session has a display (or with a
     // display it can no longer reach). Filtering does not need a window, so a
     // missing one is answered with "keep filtering, say so in the journal"

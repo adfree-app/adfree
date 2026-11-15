@@ -5,13 +5,27 @@
 # core (wepoll is C, compiled by `build.rs`), jpackage's WiX toolchain, and the
 # existence of the signed WinDivert pair inside the built jar.
 #
-# Manual for now: the app is installable and filters, but the tray still speaks
-# KDE's D-Bus, so a Windows user gets no tray icon yet. The job is run from the
-# Actions tab to prove packaging, not to publish.
+# A push builds and keeps the MSI as an artifact — a packaging proof. The release
+# pipeline calls this workflow with `publish: true` and the same MSI is attached
+# to the tag, so the product a user downloads is the one this job built, not a
+# second build with its own idea of the tree.
+#
+# The tray on Windows is AWT's, not D-Bus: `askForStatusNotifier` keeps the
+# session-bus attempt out of a platform that has no session bus, and
+# `trayBackend` picks the platform field (see `TrayBackendTest`).
 name: Windows build
+
+permissions:
+  contents: write
 
 on:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      publish:
+        description: "Attach the MSI to the release of this version"
+        type: boolean
+        default: false
   push:
     paths:
       - "rust/src/**"
@@ -74,7 +88,12 @@ jobs:
         # whole job is loading a native library and reflecting over Compose state
         # is a change that deserves its own verification rather than riding along
         # with the first Windows package.
-        run: ./gradlew --no-daemon :desktop:packageMsi "-PversionName=1.0.${{ github.run_number }}"
+        # No version override: `gradle.properties` carries the release tag's
+        # version, and `msiPackageVersion` already clamps it to what WiX accepts.
+        # A CI-invented `1.0.<run number>` would publish an installer whose
+        # version disagrees with the release it sits in, and MSI upgrades match
+        # on that number.
+        run: ./gradlew --no-daemon :desktop:packageMsi
 
       - name: Where it landed
         shell: bash
@@ -85,3 +104,23 @@ jobs:
           name: adfree-msi-${{ matrix.arch }}
           path: desktop/build/compose/binaries/main/msi/*.msi
           if-no-files-found: error
+
+      # Only when the release pipeline asked: a push to main must not publish a
+      # package nobody reviewed a version for. The tag is read from the release
+      # the Android job created, the way the Linux packages find it.
+      - name: Attach the MSI to the release
+        if: inputs.publish
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+          echo "releasing into $tag"
+          msi=$(find desktop/build/compose/binaries/main/msi -name '*.msi' | head -1)
+          test -n "$msi" || { echo "no MSI built"; exit 1; }
+          # One asset name per architecture: jpackage writes the same file name
+          # for both, and a second upload would replace the first.
+          cp "$msi" "adfree-$(basename "$msi" .msi)-$ARCH.msi"
+          ls -l adfree-*-"$ARCH".msi
+          gh release upload "$tag" adfree-*-"$ARCH".msi --clobber
