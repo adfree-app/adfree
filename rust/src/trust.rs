@@ -983,17 +983,39 @@ fn certutil(args: &[&std::ffi::OsStr]) -> (bool, String) {
     /// `CREATE_NO_WINDOW`: the app has no console, and a flash of one on every
     /// start is the sort of thing users report as a bug.
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    match std::process::Command::new("certutil")
-        .args(args)
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-    {
-        Ok(out) => (
-            out.status.success(),
-            String::from_utf8_lossy(&out.stderr).trim().to_string(),
-        ),
-        Err(e) => (false, format!("cannot run certutil: {e}")),
+    // The absolute path first, because a packaged app is started by the shell
+    // and not by a login shell: its PATH is whatever Explorer handed it, and on
+    // a machine where that PATH is short, `Command::new("certutil")` fails with
+    // "cannot run certutil: the system cannot find the file specified" even
+    // though `certutil` is sitting in `C:\Windows\System32` — measured on
+    // Windows 11 as `[trust] NSS database skipped: cannot create the database:
+    // cannot run certutil`, which silently left Firefox untrusted. The bare name
+    // stays as the fallback for the machine with no `SystemRoot`.
+    let absolute = std::env::var_os("SystemRoot")
+        .map(|root| std::path::Path::new(&root).join("System32").join("certutil.exe"));
+    let mut candidates: Vec<std::ffi::OsString> = Vec::new();
+    if let Some(exe) = absolute {
+        candidates.push(exe.into_os_string());
     }
+    candidates.push("certutil".into());
+
+    let mut last = String::from("certutil not found");
+    for exe in candidates {
+        match std::process::Command::new(&exe)
+            .args(args)
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+        {
+            Ok(out) => {
+                return (
+                    out.status.success(),
+                    String::from_utf8_lossy(&out.stderr).trim().to_string(),
+                )
+            }
+            Err(e) => last = format!("cannot run {}: {e}", exe.to_string_lossy()),
+        }
+    }
+    (false, last)
 }
 
 /// The certificate's PEM text, written beside the user's temp files just long
