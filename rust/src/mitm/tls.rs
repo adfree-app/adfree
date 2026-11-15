@@ -210,6 +210,24 @@ pub fn system_root_store() -> rustls::RootCertStore {
     ] {
         add_pem_file(std::path::Path::new(file), &mut store);
     }
+    // Windows keeps its anchors in the registry, and the PEM files above are
+    // Linux's way of writing the same list down. Reading the store itself is the
+    // only way to see them: without it every HTTPS session on this platform has
+    // zero anchors and the proxy has to relay untouched, which is what "HTTPS
+    // filtering does nothing on Windows" looked like.
+    #[cfg(windows)]
+    {
+        let loaded = rustls_native_certs::load_native_certs();
+        for cert in loaded.certs {
+            store.add(cert).ok();
+        }
+        if !loaded.errors.is_empty() {
+            crate::logbuf::push(&format!(
+                "mitm: {} certificate(s) in the Windows store could not be read",
+                loaded.errors.len()
+            ));
+        }
+    }
     if store.is_empty() {
         crate::logbuf::push(
             "mitm: no trust anchors found; HTTPS filtering cannot verify servers \
