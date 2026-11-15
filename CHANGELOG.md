@@ -1,3 +1,10 @@
+# [1.10.0](https://github.com/yuuki-kagura/adfree/compare/v1.9.0...v1.10.0) (2026-11-15)
+
+
+### Features
+
+* **desktop:** give Windows the tray it already had the code for ([94eabd4](https://github.com/yuuki-kagura/adfree/commit/94eabd4c081da581a0ddc303930ce89da24686e3))
+
 # [1.9.0](https://github.com/yuuki-kagura/adfree/compare/v1.8.0...v1.9.0) (2026-11-15)
 
 
