@@ -117,6 +117,22 @@ const BUILTIN_COUNTERS: &[&str] = &[
     // makes every page carry a plan, and a page with a plan cannot stream.
     "nextchessmove.com$$script[tag-content=\"fs.cdi\"][max-length=\"262144\"]",
 ];
+/// Rules that unblock a host the *engine* needs, whatever the subscriptions say.
+///
+/// Every blocklist that blocks this host is right about the name and wrong about
+/// the consequence: `ogads-pa.clients6.google.com` is the OneGoogle
+/// `AsyncDataService` endpoint, and Google's AI answer page aborts the whole
+/// conversation without it — "Đã xảy ra lỗi. Bạn có muốn thử lại không?" with no
+/// request of ours in between. A search page without an AI answer is the same
+/// page; a conversation that dies on every question is a feature the filter
+/// removed.
+///
+/// These are exceptions, not engine features: they are compiled with the user's
+/// own lines (see `rebuild`) and an exception only ever subtracts from a block.
+/// The ad-serving `ogads-pa.googleapis.com` is deliberately *not* here — it is a
+/// different host, and blocking it breaks nothing this app promises.
+const BUILTIN_EXCEPTIONS: &[&str] = &["@@||ogads-pa.clients6.google.com^"];
+
 const MAX_SCRIPTLET_BYTES: usize = 128 * 1024;
 const MAX_GENERIC_SELECTORS: usize = 3000;
 /// How many `$path` subsets keep their side engine. A page usually matches
@@ -1991,6 +2007,12 @@ impl FilterEngine {
         // page is never nullable by ours.
         let mut source_rules = String::new();
         for rule in BUILTIN_COUNTERS {
+            source_rules.push_str(rule);
+            source_rules.push('\n');
+        }
+        // Before the user's lines, so one of theirs about the same host is the
+        // one the engine hears last.
+        for rule in BUILTIN_EXCEPTIONS {
             source_rules.push_str(rule);
             source_rules.push('\n');
         }
@@ -8117,6 +8139,48 @@ mod tests {
         assert!(fe.check_host("doubleclick.net").blocked);
         assert!(fe.check_host("googleads.g.doubleclick.net").blocked);
         assert!(fe.check_host("ads.example.com").blocked);
+    }
+
+    /// Two lists block Google's OneGoogle endpoint; the page that needs it is
+    /// Google's own AI answer, which aborts the conversation when the request
+    /// never resolves. The exception is the engine's, so it holds whatever the
+    /// subscriptions say — and it must not spread to the neighbouring host that
+    /// really does serve ads.
+    #[test]
+    fn a_host_the_ai_answer_needs_survives_the_lists_that_block_it() {
+        let dir = std::env::temp_dir().join("adfree-filter-ai-answer");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("lists.txt");
+        std::fs::write(
+            &path,
+            "||ogads-pa.clients6.google.com^\n||ogads-pa.googleapis.com^\n||other-tracker.example^\n",
+        )
+        .unwrap();
+        let list = FilterListInfo {
+            id: 11,
+            name: "Adapter".to_string(),
+            url: String::new(),
+            enabled: true,
+            local_path: Some(path),
+            format: ListFormat::Standard,
+            category: CAT_AD,
+            trusted: false,
+            rule_count: 0,
+            last_error: None,
+            dns_only: false,
+        };
+        let fe = engine(vec![list]);
+        assert!(
+            !fe.check_host("ogads-pa.clients6.google.com").blocked,
+            "the AI answer cannot start without this endpoint"
+        );
+        assert!(
+            fe.check_host("ogads-pa.googleapis.com").blocked,
+            "a different host: the ad-serving one stays blocked"
+        );
+        assert!(fe.check_host("other-tracker.example").blocked);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
