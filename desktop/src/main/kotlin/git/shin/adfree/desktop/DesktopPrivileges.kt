@@ -726,8 +726,7 @@ class DesktopPrivileges(
     }
 
     /** `powershell.exe` as the shell has it — always present on Windows 11. */
-    internal fun windowsPowerShell(): String =
-        File(System.getenv("SystemRoot") ?: "C:\\Windows", "System32/WindowsPowerShell/v1.0/powershell.exe").absolutePath
+    internal fun windowsPowerShell(): String = WindowsElevation.powershellExe()
 
     /**
      * The helper's own command line, unchanged from the Linux one: the same
@@ -746,35 +745,14 @@ class DesktopPrivileges(
     ) + helperArgs
 
     /**
-     * A PowerShell script that asks the consent dialog and reports the helper's
-     * own exit status.
-     *
-     * Written to a file rather than passed as `-Command` because the arguments
-     * are paths under `C:\Program Files`: quoting them into a one-line command
-     * is a second, invisible round of escaping, and a failure there looks like a
-     * broken certificate instead of a broken quote. `-ArgumentList` takes them
-     * as separate strings, so spaces stay spaces.
-     *
-     * A refused dialog makes `Start-Process` throw; 126 is `pkexec`'s "the
-     * person said no", so both platforms report a refusal the same way.
+     * The consent-dialog script for a short-lived helper: it waits and hands back
+     * the helper's own exit status, because that status is the answer.
      */
-    internal fun windowsElevationScript(argv: List<String>): String {
-        val file = psQuote(argv.first())
-        val args = argv.drop(1).joinToString(", ") { psQuote(it) }
-        return buildString {
-            appendLine("\$ErrorActionPreference = 'Stop'")
-            appendLine("try {")
-            appendLine("  \$p = Start-Process -FilePath $file -ArgumentList @($args) -Verb RunAs -PassThru -Wait")
-            appendLine("  exit \$p.ExitCode")
-            appendLine("} catch {")
-            appendLine("  Write-Output \"elevation refused: \$(\$_.Exception.Message)\"")
-            appendLine("  exit $PKEXEC_DENIED")
-            appendLine("}")
-        }
-    }
+    internal fun windowsElevationScript(argv: List<String>): String =
+        WindowsElevation.script(argv, waitForExit = true)
 
-    /** A PowerShell single-quoted literal: nothing interpolates, `'` doubles. */
-    internal fun psQuote(text: String): String = "'" + text.replace("'", "''") + "'"
+    /** A PowerShell single-quoted literal; see [WindowsElevation.quote]. */
+    internal fun psQuote(text: String): String = WindowsElevation.quote(text)
 
     /**
      * `deniedExit` is the code that means "the person said no" rather than

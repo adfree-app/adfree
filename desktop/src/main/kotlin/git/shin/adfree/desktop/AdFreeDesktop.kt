@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -83,6 +84,20 @@ fun main() {
     // first AWT call is what throws, and it throws hard enough to end the
     // process — and with it the filtering the unit exists for.
     DesktopSession.refreshDisplayEnvironment()
+    // Before anything is opened, locked or listened on: on Windows the whole
+    // filter needs Administrator, and an un-elevated instance would take the
+    // ports and the lock from the elevated copy that can actually use them. The
+    // hand-off happens first so this process owns nothing to let go of.
+    when (val handOff = DesktopElevation().handOff()) {
+        is ElevationHandOff.Started -> {
+            System.err.println("[desktop] starting an elevated instance through ${handOff.how}")
+            return
+        }
+        is ElevationHandOff.Failed -> {
+            System.err.println("[desktop] ${handOff.reason}")
+        }
+        ElevationHandOff.Unnecessary -> Unit
+    }
     val container = DesktopContainer()
     // One engine, one set of listeners, one set of redirect rules. A second
     // window is what takes the machine down rather than filtering it: the
