@@ -818,6 +818,21 @@ fn setup_core_named(origin: &Origin, tag: &str) -> (Arc<Core>, Vec<u8>) {
     setup_core_with_list(origin, tag, LIST)
 }
 
+/// A list file that belongs to this call alone.
+///
+/// These tests run in parallel and many of them name the same tag (`e2e`), so a
+/// path built from the tag is a file two of them write. `std::fs::write`
+/// truncates first, and a reader that arrives between the truncate and the bytes
+/// reads an empty list — which measures as a cosmetic rule that never existed,
+/// not as the race it is. The counter makes the name unique per call.
+fn temp_list_path(tag: &str) -> std::path::PathBuf {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let dir = std::env::temp_dir().join("adfree-e2e");
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    dir.join(format!("{}-{}-{}.txt", std::process::id(), n, tag))
+}
+
 fn setup_core_with_list(origin: &Origin, tag: &str, list: &str) -> (Arc<Core>, Vec<u8>) {
     let core = Arc::new(Core::new());
     core.set_socket_protector(Arc::new(AllowAll));
@@ -841,9 +856,7 @@ fn setup_core_with_list(origin: &Origin, tag: &str, list: &str) -> (Arc<Core>, V
     core.set_upstream_tls_config(tls::UpstreamTls::with_roots(roots));
 
     // Filter list from disk, exactly like the app ships them.
-    let dir = std::env::temp_dir().join("adfree-e2e");
-    std::fs::create_dir_all(&dir).expect("temp dir");
-    let path = dir.join(format!("{tag}-list.txt"));
+    let path = temp_list_path(tag);
     std::fs::write(&path, list).expect("write list");
     core.set_lists(
         vec![FilterListInfo {
@@ -878,6 +891,19 @@ fn setup_core_with_list(origin: &Origin, tag: &str, list: &str) -> (Arc<Core>, V
         scripts.set_enabled(true);
     }
     (core, ca_der)
+}
+
+/// The list file is the only state these tests share through the disk, and a
+/// shared one is a race: `std::fs::write` truncates, so a reader that arrives
+/// first sees an empty list.
+#[test]
+fn each_test_gets_a_list_file_of_its_own() {
+    let first = temp_list_path("e2e");
+    let second = temp_list_path("e2e");
+    assert_ne!(
+        first, second,
+        "two tests naming the same tag must not write the same file"
+    );
 }
 
 #[test]
