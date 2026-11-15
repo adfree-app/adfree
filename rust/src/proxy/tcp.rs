@@ -8,8 +8,8 @@
 //! splice for what is not terminated, [`ProxySession`] for HTTPS.
 
 use super::{
-    dial_marked, parse_sockaddr, poll2, reset_on_close, set_nonblocking, set_reuse,
-    write_all_nb, IDLE_TIMEOUT, POLL_SLICE_MS,
+    dial_marked, parse_sockaddr, poll2, reset_on_close, set_nonblocking, write_all_nb,
+    IDLE_TIMEOUT, POLL_SLICE_MS,
 };
 use crate::engine::core;
 use crate::mitm::proxy::ProxySession;
@@ -47,34 +47,46 @@ pub(crate) fn bind_listener(port: u16) -> std::io::Result<TcpListener> {
 }
 
 fn bind_v6(port: u16) -> std::io::Result<TcpListener> {
-    let listener = TcpListener::bind(std::net::SocketAddr::new(
-        std::net::IpAddr::V6(std::net::Ipv6Addr::UNSPECIFIED),
-        port,
-    ))?;
-    let fd = listener.as_raw_fd();
-    // Linux defaults to dual-stack, but `net.ipv6.bindv6only=1` would otherwise
-    // silently cost the v4 half of the redirect rules.
-    let off: libc::c_int = 0;
-    unsafe {
-        libc::setsockopt(
-            fd,
-            libc::IPPROTO_IPV6,
-            libc::IPV6_V6ONLY,
-            &off as *const libc::c_int as *const libc::c_void,
-            std::mem::size_of::<libc::c_int>() as libc::socklen_t,
-        )
-    };
-    set_reuse(fd);
-    set_nonblocking(fd);
-    Ok(listener)
+    let socket = socket2::Socket::new(
+        socket2::Domain::IPV6,
+        socket2::Type::STREAM,
+        Some(socket2::Protocol::TCP),
+    )?;
+    // `IPV6_V6ONLY` is a *pre-bind* option: set after `bind` it is refused, and
+    // the refusal is easy to miss because Linux is dual-stack by default and
+    // Windows is not. Windows therefore gave a v6-only listener that answered
+    // `[::1]` and refused `127.0.0.1`, which is the address every browser and
+    // every redirect rule actually uses. The socket has to be configured
+    // before it has an address, not after.
+    socket.set_only_v6(false)?;
+    socket.set_reuse_address(true)?;
+    socket.bind(
+        &std::net::SocketAddr::new(std::net::IpAddr::V6(std::net::Ipv6Addr::UNSPECIFIED), port)
+            .into(),
+    )?;
+    socket.set_nonblocking(true)?;
+    socket.listen(LISTEN_BACKLOG)?;
+    Ok(socket.into())
 }
 
 fn bind_v4(port: u16) -> std::io::Result<TcpListener> {
-    let listener = TcpListener::bind(("0.0.0.0", port))?;
-    set_reuse(listener.as_raw_fd());
-    set_nonblocking(listener.as_raw_fd());
-    Ok(listener)
+    let socket = socket2::Socket::new(
+        socket2::Domain::IPV4,
+        socket2::Type::STREAM,
+        Some(socket2::Protocol::TCP),
+    )?;
+    socket.set_reuse_address(true)?;
+    socket.bind(
+        &std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED), port)
+            .into(),
+    )?;
+    socket.set_nonblocking(true)?;
+    socket.listen(LISTEN_BACKLOG)?;
+    Ok(socket.into())
 }
+
+/// What `TcpListener::bind` uses, and enough for the burst a page load makes.
+const LISTEN_BACKLOG: i32 = 128;
 
 /// The accept loop: one thread per connection; the slot each thread carries
 /// is what bounds how many may live at once.
@@ -773,6 +785,44 @@ fn arm_local_session(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The listener has to answer whichever family the client picked.
+    ///
+    /// A redirect keeps the destination address and moves only the port, so a
+    /// browser that dialled `127.0.0.1:3129` arrives on a `127.0.0.1` socket —
+    /// and a v6-only listener refuses it. That is what Windows does by default:
+    /// `IPV6_V6ONLY` is 1 unless it is cleared *before* `bind`, and setting it
+    /// afterwards is refused while Linux is dual-stack anyway, so the mistake
+    /// is invisible here and fatal there.
+    #[test]
+    fn the_listener_answers_both_families() {
+        let Ok(listener) = bind_listener(0) else {
+            // No IPv6 on this machine: nothing to prove about a dual stack.
+            return;
+        };
+        let port = listener
+            .local_addr()
+            .expect("a bound listener has an address")
+            .port();
+        for peer in ["127.0.0.1", "::1"] {
+            // A v6 literal needs its brackets, or the colons read as port
+            // separators and the address is a parse error, not a connection.
+            let literal = if peer.contains(':') {
+                format!("[{}]:{}", peer, port)
+            } else {
+                format!("{}:{}", peer, port)
+            };
+            let target: SocketAddr = literal
+                .parse()
+                .expect("a loopback literal with a port parses");
+            match std::net::TcpStream::connect_timeout(&target, std::time::Duration::from_secs(2)) {
+                Ok(_) => {}
+                // A kernel without IPv6 configured is not a failed dual stack.
+                Err(e) if peer == "::1" && e.kind() == std::io::ErrorKind::AddrNotAvailable => {}
+                Err(e) => panic!("the listener refused {target}: {e}"),
+            }
+        }
+    }
 
     #[test]
     fn a_head_ends_at_the_blank_line() {

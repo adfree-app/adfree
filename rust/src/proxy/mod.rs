@@ -519,7 +519,7 @@ fn dial_fd(addr: std::net::SocketAddr) -> Result<RawFd, egress::Failure> {
     let rc = unsafe { libc::connect(fd, &sa as *const libc::sockaddr_storage as *const libc::sockaddr, len) };
     if rc != 0 {
         let err = std::io::Error::last_os_error();
-        if err.raw_os_error() != Some(libc::EINPROGRESS) {
+        if !connect_in_progress(err.raw_os_error().unwrap_or(0)) {
             unsafe { libc::close(fd) };
             return Err(egress::Failure::from_errno(err.raw_os_error().unwrap_or(0)));
         }
@@ -552,6 +552,20 @@ fn dial_fd(addr: std::net::SocketAddr) -> Result<RawFd, egress::Failure> {
     Ok(fd)
 }
 
+/// Whether a failed `connect` means "still going", not "failed".
+///
+/// Unix reports `EINPROGRESS` (115) and the fd is polled for writability.
+/// Windows reports `WSAEWOULDBLOCK` (10035) for an in-progress nonblocking
+/// connect and, in practice, never `WSAEINPROGRESS` (10036). Accepting only the
+/// Unix number made every Windows dial fail on the spot: the proxy accepted a
+/// client, reported `proxy: dial <ip>:443 failed`, and opened nothing at all.
+///
+/// The numbers cannot be confused for one another: 10035 and 10036 are above
+/// every errno this code sees on Unix, and 115 is not a Windows socket error.
+fn connect_in_progress(errno: i32) -> bool {
+    matches!(errno, 115 | 10035 | 10036)
+}
+
 /// `errno` as a number, for the failures that arrive without an `io::Error`.
 fn last_errno() -> i32 {
     std::io::Error::last_os_error().raw_os_error().unwrap_or(0)
@@ -563,20 +577,6 @@ pub(crate) fn set_nonblocking(fd: RawFd) {
     let flags = unsafe { libc::fcntl(fd, libc::F_GETFL, 0) };
     if flags >= 0 {
         unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) };
-    }
-}
-
-/// Stops the kernel from holding an abandoned listener port for the next restart.
-pub(crate) fn set_reuse(fd: RawFd) {
-    let one: libc::c_int = 1;
-    unsafe {
-        libc::setsockopt(
-            fd,
-            libc::SOL_SOCKET,
-            libc::SO_REUSEADDR,
-            &one as *const libc::c_int as *const libc::c_void,
-            std::mem::size_of::<libc::c_int>() as libc::socklen_t,
-        );
     }
 }
 
@@ -952,5 +952,32 @@ mod lifecycle_tests {
         for ip in own_addresses() {
             assert!(is_local_peer(SocketAddr::new(ip, 44321)), "{ip} is this host");
         }
+    }
+}
+
+#[cfg(test)]
+mod connect_tests {
+    use super::connect_in_progress;
+
+    /// A nonblocking connect that has not finished is not a failure.
+    ///
+    /// The two platforms word this differently and the code has to accept both
+    /// spellings: Unix `EINPROGRESS`, Windows `WSAEWOULDBLOCK`. Reading only
+    /// the Unix one turned every dial on Windows into an immediate failure —
+    /// measured as `proxy: dial <ip>:443 failed` with no connection opened and
+    /// a proxy that accepted clients and hung up on them.
+    #[test]
+    fn an_unfinished_connect_is_not_a_failure() {
+        assert!(connect_in_progress(115), "EINPROGRESS (Unix)");
+        assert!(connect_in_progress(10035), "WSAEWOULDBLOCK (Windows)");
+        assert!(connect_in_progress(10036), "WSAEINPROGRESS (Windows)");
+    }
+
+    /// Everything else is a failure and must not be polled for.
+    #[test]
+    fn a_real_refusal_is_a_failure() {
+        assert!(!connect_in_progress(111), "ECONNREFUSED (Unix)");
+        assert!(!connect_in_progress(10061), "WSAECONNREFUSED (Windows)");
+        assert!(!connect_in_progress(0), "no error at all");
     }
 }
