@@ -42,3 +42,17 @@ This project is indexed by GitNexus as **adfree** (18,114 nodes, 46,625 relation
 | Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->
+
+## The commit hook
+
+`core.hooksPath` points at `.githooks/`, and `pre-commit` runs the two checks CI
+holds the line on — `cargo clippy --all-targets -- -D warnings` and
+`cargo test --lib` — whenever a Rust file is staged. A clone that has not run
+
+```sh
+git config core.hooksPath .githooks
+```
+
+gets nothing, which is the state that let six clippy warnings reach the default
+branch as six red builds. `git commit --no-verify`, or `ADFREE_SKIP_HOOKS=1`,
+skips it when that is the deliberate choice.
