@@ -23,6 +23,9 @@ path = "src/bin/adfree_native_host.rs"
 cc = "1"
 
 [target.'cfg(windows)'.dependencies]
+# The certificates a Windows machine trusts live in its own store, not in a PEM
+# bundle: this is the reader for it.
+rustls-native-certs = "0.8"
 # The proxy speaks BSD sockets; Winsock is the same vocabulary with different
 # names, and these are the names. Feature list kept to what `sys::winlibc`
 # calls: sockets, errors, and the process primitives the QUIC workers touch.
@@ -36,6 +39,11 @@ windows-sys = { version = "0.59", features = [
 ] }
 
 [dependencies]
+# Socket options that must be set *before* bind, on every platform: Windows
+# pins IPV6_V6ONLY to 1, and a v6-only listener is a proxy nothing can reach
+# over 127.0.0.1. `socket2` also carries the raw handle in the width each OS
+# actually uses, which the `libc` shim cannot.
+socket2 = "0.6"
 # The real AdGuard / Brave filtering engine: every AdGuard, EasyList, uBO and
 # hosts-list rule is parsed and matched by the code these projects use.
 # `single-thread` is disabled on purpose: it makes the engine !Send/!Sync.
