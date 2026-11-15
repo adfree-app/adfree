@@ -1,3 +1,15 @@
+# [1.11.0](https://github.com/yuuki-kagura/adfree/compare/v1.10.2...v1.11.0) (2026-11-15)
+
+
+### Bug Fixes
+
+* **desktop:** say a state in the tray tooltip, not half a command ([f8c9158](https://github.com/yuuki-kagura/adfree/commit/f8c91580870bc13450a2c910fccbcbb2b758e5ca))
+
+
+### Features
+
+* **desktop:** ask Windows for the authority the certificate install needs ([5593de3](https://github.com/yuuki-kagura/adfree/commit/5593de37e9997e5d32b5d7fbfc5dd7ef653ad7ea))
+
 ## [1.10.2](https://github.com/yuuki-kagura/adfree/compare/v1.10.1...v1.10.2) (2026-11-15)
 
 
