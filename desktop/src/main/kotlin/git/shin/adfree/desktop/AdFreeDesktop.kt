@@ -365,6 +365,10 @@ fun main() {
             // for the shell to match, so the mark has to travel with the window.
             icon = rememberAppIconPainter(),
             state = windowState,
+            // The frame goes away on purpose: see [AppTitleBar]. What it used to
+            // provide is drawn by the app, in the app's own surface, because a
+            // system caption is a light band over a dark window on Windows.
+            undecorated = true,
             onPreviewKeyEvent = { event: KeyEvent ->
                 if (event.key == Key.Escape && event.type == KeyEventType.KeyDown) {
                     when {
@@ -403,14 +407,40 @@ fun main() {
                     window.requestFocus()
                 }
             }
-            // The probe is a modifier, not an overlay: it must stamp the frame
-            // the app already draws, and a sibling box would only add a layer.
-            Box(Modifier.fillMaxSize().then(frameProbe)) {
-                if (!container.engineAvailable) {
-                    MissingCoreScreen(container.dataRoot.absolutePath)
-                } else {
-                    DesktopHosts(container, resumeTick, backRegistry)
+            // An undecorated window has no system border to stop a drag, so the
+            // floor the frame used to enforce is set here, once.
+            LaunchedEffect(Unit) {
+                window.minimumSize = java.awt.Dimension(760, 520)
+            }
+            // The theme is applied at the window, not inside the screen: the
+            // title bar is chrome of this window and would otherwise take
+            // Material's default light palette and be a white bar over a dark
+            // app — the same mistake the OS frame made.
+            val chromeSettings by container.repository.settings.collectAsState()
+            MyApplicationTheme(
+                darkTheme = when (chromeSettings.themeMode) {
+                    ThemeMode.SYSTEM, ThemeMode.DARK -> true
+                    ThemeMode.LIGHT -> false
+                },
+            ) {
+                Column(Modifier.fillMaxSize()) {
+                    AppTitleBar(
+                        title = "AdFree",
+                        onClose = { if (hasTray) hideWindow() else quit() },
+                    )
+                    // The probe is a modifier, not an overlay: it must stamp the frame
+                    // the app already draws, and a sibling box would only add a layer.
+                    Box(Modifier.weight(1f).fillMaxWidth().then(frameProbe)) {
+                        if (!container.engineAvailable) {
+                            MissingCoreScreen(container.dataRoot.absolutePath)
+                        } else {
+                            DesktopHosts(container, resumeTick, backRegistry)
+                        }
+                    }
                 }
+                // Outside the column and above the content: a grip that the content
+                // swallowed would be a border that only worked over empty space.
+                ResizeHandles()
             }
         }
 
@@ -420,7 +450,11 @@ fun main() {
                 title = "Filtering log",
                 icon = rememberAppIconPainter(),
                 state = filteringLogWindowState,
+                undecorated = true,
             ) {
+                LaunchedEffect(Unit) {
+                    window.minimumSize = java.awt.Dimension(720, 480)
+                }
                 val settings by container.repository.settings.collectAsState()
                 MyApplicationTheme(
                     darkTheme = when (settings.themeMode) {
@@ -435,13 +469,23 @@ fun main() {
                         LocalResumeTick provides resumeTick,
                         LocalBackRegistry provides backRegistry,
                     ) {
-                        FilteringLogScreen(
-                            viewModel = container.viewModel,
-                            // This window is the AdGuard-for-Windows log: the
-                            // request-type tabs and the column table. The
-                            // Activity tab keeps the app's own card list.
-                            adGuardLayout = true,
-                        )
+                        Column(Modifier.fillMaxSize()) {
+                            AppTitleBar(
+                                title = "AdFree",
+                                subtitle = L10n.get(Strings.log_title),
+                                onClose = { showFilteringLog = false },
+                            )
+                            Box(Modifier.weight(1f).fillMaxWidth()) {
+                                FilteringLogScreen(
+                                    viewModel = container.viewModel,
+                                    // This window is the AdGuard-for-Windows log: the
+                                    // request-type tabs and the column table. The
+                                    // Activity tab keeps the app's own card list.
+                                    adGuardLayout = true,
+                                )
+                            }
+                        }
+                        ResizeHandles()
                     }
                 }
             }
