@@ -1,3 +1,11 @@
+## [1.12.1](https://github.com/yuuki-kagura/adfree/compare/v1.12.0...v1.12.1) (2026-11-15)
+
+
+### Bug Fixes
+
+* **desktop:** a title bar that follows the palette and a drag that keeps up ([a076d71](https://github.com/yuuki-kagura/adfree/commit/a076d71c7b31f0648a414ba0f31e5b0541ca76ff))
+* **filter:** keep the endpoint Google's AI answer cannot start without ([78986be](https://github.com/yuuki-kagura/adfree/commit/78986be141e49a14414383bbb23cd6ebd17d6a62))
+
 # [1.12.0](https://github.com/yuuki-kagura/adfree/compare/v1.11.0...v1.12.0) (2026-11-15)
 
 
