@@ -119,8 +119,8 @@ jobs:
           echo "releasing into $tag"
           msi=$(find desktop/build/compose/binaries/main/msi -name '*.msi' | head -1)
           test -n "$msi" || { echo "no MSI built"; exit 1; }
-          # One asset name per architecture: jpackage writes the same file name
+          # One asset name per architecture: jpackage writes `adfree-<version>.msi`
           # for both, and a second upload would replace the first.
-          cp "$msi" "adfree-$(basename "$msi" .msi)-$ARCH.msi"
-          ls -l adfree-*-"$ARCH".msi
-          gh release upload "$tag" adfree-*-"$ARCH".msi --clobber
+          cp "$msi" "$(basename "$msi" .msi)-$ARCH.msi"
+          ls -l *-"$ARCH".msi
+          gh release upload "$tag" *-"$ARCH".msi --clobber
