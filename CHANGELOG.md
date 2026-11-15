@@ -1,3 +1,15 @@
+## [1.10.2](https://github.com/yuuki-kagura/adfree/compare/v1.10.1...v1.10.2) (2026-11-15)
+
+
+### Bug Fixes
+
+* **desktop:** stop the NSS step lying about certutil ([5ef9111](https://github.com/yuuki-kagura/adfree/commit/5ef91119a5911f656d1f5bb63125e17285f9187a))
+* **proxy:** a listener both families can reach, and a dial Windows calls pending ([9df6a89](https://github.com/yuuki-kagura/adfree/commit/9df6a8943186fb085febd87d8b0fcedf57fa2fd4))
+* **win:** let the proxy's own dialling leave the redirect ([781ef6e](https://github.com/yuuki-kagura/adfree/commit/781ef6e9c47b6ffec97d92aa18aa418f5992779e))
+* **win:** name certutil where a packaged app can find it ([0a13788](https://github.com/yuuki-kagura/adfree/commit/0a13788e45d829117a018d6254035cabf6cab44f))
+* **win:** read the Windows certificate store as the trust anchors ([74435fb](https://github.com/yuuki-kagura/adfree/commit/74435fb8c050cc60191fb652d0c9ea19c1a045b0))
+* **win:** write the WinDivert filter in a grammar the driver accepts ([8a79b2a](https://github.com/yuuki-kagura/adfree/commit/8a79b2a669dd0a9b3209a1d4e17ecbde9d6f1c0b))
+
 ## [1.10.1](https://github.com/yuuki-kagura/adfree/compare/v1.10.0...v1.10.1) (2026-11-15)
 
 
