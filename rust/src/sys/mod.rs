@@ -20,6 +20,8 @@ mod windows;
 /// The Windows redirect: WinDivert loaded at run time, driven by `winnat`.
 #[cfg(windows)]
 pub mod windivert;
+/// The WinDivert filter strings: Windows-only consumers, cross-platform tests.
+pub mod windivert_filter;
 
 /// Who owns a socket on Windows: the IP helper owner tables, and the process
 /// API for the name.

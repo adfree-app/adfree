@@ -32,41 +32,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::packet::Packet;
 use crate::winnat::{self, Decision, Endpoint, Nat, Shape};
 
-/// The proxy's local port range, excluded from the filter: these are the
-/// proxy's own connections to origins, and redirecting them would be a loop.
-pub const OWN_PORTS: (u16, u16) = (40000, 40999);
+use crate::sys::windivert_filter::{inbound_filter, outbound_filter};
+pub use crate::sys::windivert_filter::OWN_PORTS;
 
 /// `WINDIVERT_LAYER_NETWORK`.
 const LAYER_NETWORK: i32 = 0;
 /// `WINDIVERT_FLAG_SNIFF` is deliberately not used: sniffed packets are visible
 /// but not delivered, so a redirect through it would double every packet.
 const FLAGS_NONE: u64 = 0;
-
-/// The filter for traffic leaving the machine: the four protocols the redirect
-/// has an opinion about, minus the proxy's own dialling and anything already
-/// pointed inside.
-fn outbound_filter() -> String {
-    format!(
-        "outbound and not impostor \
-         and (tcp.DstPort == 80 or tcp.DstPort == 443 \
-              or udp.DstPort == 53 or udp.DstPort == 443) \
-         and not (tcp.SrcPort >= {lo} and tcp.SrcPort <= {hi}) \
-         and not (udp.SrcPort >= {lo} and udp.SrcPort <= {hi}) \
-         and not (ip.DstAddr == 127.0.0.1) \
-         and not (ipv6.DstAddr == ::1)",
-        lo = OWN_PORTS.0,
-        hi = OWN_PORTS.1
-    )
-}
-
-/// The filter for the answers: only the two local listeners can produce them.
-fn inbound_filter(proxy: Endpoint, dns: Endpoint) -> String {
-    format!(
-        "inbound and not impostor and ((tcp.SrcPort == {pp}) or (udp.SrcPort == {dp}))",
-        pp = proxy.port,
-        dp = dns.port
-    )
-}
 
 /// `WINDIVERT_ADDRESS`, 64 bytes on every Windows target.
 ///
@@ -264,9 +237,14 @@ impl Filter {
             )
         };
         if handle.is_null() || handle as isize == -1 {
+            // The Win32 code is the whole diagnosis: 5 is a token without the
+            // administrators group, 1275 is a driver this machine refuses to
+            // load, 2 is a `.sys` that is not where the DLL looked, and 87 is a
+            // filter the parser rejected — the one this build once shipped.
+            let code = std::io::Error::last_os_error();
             return Err(format!(
-                "WinDivertOpen failed for `{filter}`: the driver is not installed, or the \
-                 application is not elevated"
+                "WinDivertOpen failed for `{filter}`: {code} (the driver is not installed, \
+                 the application is not elevated, or the filter is unreadable)"
             ));
         }
         Ok(Filter {
@@ -350,7 +328,7 @@ impl Redirector {
     pub fn start(proxy: Endpoint, dns: Endpoint) -> Result<Arc<Redirector>, String> {
         let api = Arc::new(Api::load()?);
         let out = Filter::open(&api, &outbound_filter())?;
-        let inc = Filter::open(&api, &inbound_filter(proxy, dns))?;
+        let inc = Filter::open(&api, &inbound_filter(proxy.port, dns.port))?;
         let redirector = Arc::new(Redirector {
             out,
             inc,
