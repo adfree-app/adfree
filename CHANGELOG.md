@@ -1,3 +1,10 @@
+## [1.10.1](https://github.com/yuuki-kagura/adfree/compare/v1.10.0...v1.10.1) (2026-11-15)
+
+
+### Bug Fixes
+
+* **ci:** stop doubling the package name on the published MSI ([f5c75b7](https://github.com/yuuki-kagura/adfree/commit/f5c75b7dc98fef6ef5d05bb26508bc53ca415c6e))
+
 # [1.10.0](https://github.com/yuuki-kagura/adfree/compare/v1.9.0...v1.10.0) (2026-11-15)
 
 
