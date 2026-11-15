@@ -1,3 +1,50 @@
+# [1.9.0](https://github.com/yuuki-kagura/adfree/compare/v1.8.0...v1.9.0) (2026-11-15)
+
+
+### Bug Fixes
+
+* **core:** read a dnsmasq list that was installed as a hosts list ([37e5ece](https://github.com/yuuki-kagura/adfree/commit/37e5ecec7566239aeb35377b724ffafd4daff35f))
+* **desktop:** run the dev build from a classpath snapshot ([a0d04bb](https://github.com/yuuki-kagura/adfree/commit/a0d04bb16dc801433ee1eec316113d06c2964030))
+* **dns:** leave a host with a stub to the URL layer ([a2fa690](https://github.com/yuuki-kagura/adfree/commit/a2fa6901bb468000e1a1a6e565f318b3db6f0f8d))
+* **dns:** say when the lookup cap is reached, and switch the resolver to Quad9 ([cd33ce5](https://github.com/yuuki-kagura/adfree/commit/cd33ce5bfd17bcd48351206f64e7b7ad57c9c2e7))
+* **examples:** keep the memory probe off the Windows target ([fa4d007](https://github.com/yuuki-kagura/adfree/commit/fa4d0076832c85ebbe182e03796dbb92e6a111a1))
+* **filters:** cut freestar's ad-block detector out of the page ([c7c1b16](https://github.com/yuuki-kagura/adfree/commit/c7c1b1688a297dcc9884b4f256d403b54321e709))
+* **filters:** serve the redirect stubs the crate cannot bind ([59111b9](https://github.com/yuuki-kagura/adfree/commit/59111b90cc66050a0022c8a146d3e78977b97777))
+* **log:** open the log window from the assistant, and stop the list reloading ([88bfde9](https://github.com/yuuki-kagura/adfree/commit/88bfde9a698afe28a036035f983e8eed179ccf8b))
+* **mitm:** answer a block without a length or a trailer field ([98a1caf](https://github.com/yuuki-kagura/adfree/commit/98a1cafff59090e753f20e7f049ec9d1ef1b8845))
+* **mitm:** answer a blocked request with the caller's origin, not a wildcard ([6a84bff](https://github.com/yuuki-kagura/adfree/commit/6a84bffd8dafbe06a2a2595dae73b1d9e55747c3))
+* **mitm:** answer a blocked request's origin, not just its status ([f3f40f5](https://github.com/yuuki-kagura/adfree/commit/f3f40f55b2b98a015e00d7ff9f1b494d378d9d55))
+* **mitm:** confine weak certificate-refusal evidence to one client pair ([1960e9d](https://github.com/yuuki-kagura/adfree/commit/1960e9d0bf277254d38810ec6c2fae5a69143075))
+* **mitm:** filter youtube.com again — big documents and preconnect closes ([05a3fab](https://github.com/yuuki-kagura/adfree/commit/05a3fabbfbea1cbd884599aec501f067b812b4b3))
+* **mitm:** give every e2e test a list file of its own ([731b3f1](https://github.com/yuuki-kagura/adfree/commit/731b3f1192ae5024e1d493b81073f5a05f41f47d))
+* **mitm:** keep one CORS answer, not two ([50ba00b](https://github.com/yuuki-kagura/adfree/commit/50ba00bdae9b41bb555ea398b6084addb88c1285))
+* **mitm:** leave a gateway's error page alone ([28de26a](https://github.com/yuuki-kagura/adfree/commit/28de26ab317722056e5dc772a29c45bf566b5a27))
+* **mitm:** let the page runtime through Trusted Types ([c18555d](https://github.com/yuuki-kagura/adfree/commit/c18555d345d0f9c60b2d3521fa3c3229881632a4))
+* **mitm:** refuse a blocked request instead of answering it empty ([cceeb5d](https://github.com/yuuki-kagura/adfree/commit/cceeb5d47d64c5144052ffad840c3f71270ffd34))
+* **mitm:** stop three headers from saying more than the origin did ([32a41f4](https://github.com/yuuki-kagura/adfree/commit/32a41f4f68bb4893d3bb2d36df899347c196bb1f))
+* **net:** stop losing DNS answers and bound every request that had no bound ([2e245cd](https://github.com/yuuki-kagura/adfree/commit/2e245cd22cd11a0f7c57d60224470b91815262be))
+* **runtime:** collapse a slot that only its class names ([59e9d54](https://github.com/yuuki-kagura/adfree/commit/59e9d54941f5db74d779300c838b6a6c3674c8db))
+* **scriptlets:** keep non-string arguments through trusted-replace-argument ([aadfe95](https://github.com/yuuki-kagura/adfree/commit/aadfe959a94eb81138f0de572662f7abc1960adf))
+* **scripts:** only mark a refreshed body that differs from the shipped one ([66ceaf1](https://github.com/yuuki-kagura/adfree/commit/66ceaf11d9ad8c3d3a53cb2106e9188f110e6ce4))
+* **stealth:** weigh a host by its public suffix, not its last two labels ([95946c0](https://github.com/yuuki-kagura/adfree/commit/95946c04686bbdc13655d68ec8498cb0f9e9eb16))
+* **store:** wait for the install area instead of giving up on it ([b286cd3](https://github.com/yuuki-kagura/adfree/commit/b286cd33f640f710140fdb91c366f1b8f354bd5c))
+* **ui:** give the search boxes their own caret ([5b16302](https://github.com/yuuki-kagura/adfree/commit/5b163023ca9072baa9bc63ccae4a491087e103dd))
+* **youtube:** hide the "experiencing interruptions" notice ([6e0fe32](https://github.com/yuuki-kagura/adfree/commit/6e0fe32339499779b9e4b6d1526b98574d6f79e3))
+
+
+### Features
+
+* **core:** hand the tunnel packets when there is no descriptor to hand ([57fb986](https://github.com/yuuki-kagura/adfree/commit/57fb98694c5c9902381a475265941d292c2a4a40))
+* **filters:** read :matches-property() and :matches-media(), and name the scriptlets nobody can run ([ae231d8](https://github.com/yuuki-kagura/adfree/commit/ae231d8701b853de092ceea148578a005a73a336))
+* **filters:** read the cosmetic rules the engine could not hold ([a7cf474](https://github.com/yuuki-kagura/adfree/commit/a7cf4741be5ed40245ff2ff15dfed0b392ff3b37))
+* **filters:** run :watch-attr() and answer replace-node-text ([76b24c0](https://github.com/yuuki-kagura/adfree/commit/76b24c0b85c9e1b079a895c270aa13687a60dd39))
+* **filters:** ship uBlock Origin's Unbreak list, on by default ([e2890d0](https://github.com/yuuki-kagura/adfree/commit/e2890d03beab2f1eb1612417d9636dddea1f6441))
+* **home:** say how many userscripts are installed and how many run ([bb9d49d](https://github.com/yuuki-kagura/adfree/commit/bb9d49d1e4fff09684b925fc6ded25d938d75ea7))
+* **runtime:** collapse the boxes blocked ads leave behind ([ea6424c](https://github.com/yuuki-kagura/adfree/commit/ea6424c6deec2f777e3ddae8ef8cfa792c86ccdc))
+* **stealth:** read the real Public Suffix List instead of a hand-made table ([f4069dd](https://github.com/yuuki-kagura/adfree/commit/f4069ddca028705a923e32879d1a055c49c7f673))
+* **store:** find the install control on any store page ([89917d4](https://github.com/yuuki-kagura/adfree/commit/89917d4bfb376bd392474cc0b1d4dc1572b9e814))
+* **store:** install a userscript from the store page itself ([10eb492](https://github.com/yuuki-kagura/adfree/commit/10eb49214f3787c7fd85863b2f9832197e9444e4))
+
 # [1.8.0](https://github.com/yuuki-kagura/adfree/compare/v1.7.2...v1.8.0) (2026-11-12)
 
 
