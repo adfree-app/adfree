@@ -504,7 +504,7 @@ fn add_nonce_to_policy(value: &str, nonce: Option<&str>, host_source: &str) -> S
         // assignment" as the only trace).
         if name == "trusted-types" {
             let listed: Vec<&str> = directive.split_whitespace().skip(1).collect();
-            let open = listed.iter().any(|s| *s == "*");
+            let open = listed.contains(&"*");
             if !open && !listed.contains(&TRUSTED_TYPES_POLICY) {
                 out.push(' ');
                 out.push_str(TRUSTED_TYPES_POLICY);

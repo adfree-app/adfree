@@ -512,7 +512,7 @@ fn rule_host(line: &str) -> Option<&str> {
             .or_else(|| line.strip_prefix("|http://"))
     })?;
     let end = rest
-        .find(|c: char| c == '/' || c == '^' || c == '$' || c == '|')
+        .find(['/', '^', '$', '|'])
         .unwrap_or(rest.len());
     let host = &rest[..end];
     if host.is_empty() || host.contains('*') {
@@ -10717,7 +10717,7 @@ mod tests {
     /// uBO ships `replace-node-text` / `rpnt` as the untrusted spellings of its
     /// trusted scriptlet; a list asking for either has to get the body.
     #[test]
-    fn replace_node_text_is_reachable_by_its_uBO_names() {
+    fn replace_node_text_is_reachable_by_its_ubo_names() {
         for name in ["replace-node-text", "rpnt", "trusted-rpnt", "trusted-replace-node-text"] {
             let fe = cosmetic_engine(&format!(
                 "! Title: rpnt\nshop.test##+js({name}, #text, ads, \"\")\n"

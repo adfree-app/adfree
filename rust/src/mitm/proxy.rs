@@ -3199,7 +3199,7 @@ fn take_store_request(first_line: &str, head_bytes: &[u8], buffer: &mut Vec<u8>)
     let allowed = origin.as_deref().and_then(crate::store_api::allowed_origin);
     if method == "OPTIONS" {
         buffer.drain(..head);
-        return Some(preflight_response(allowed.as_deref()));
+        return Some(preflight_response(allowed));
     }
     let Some(allowed) = allowed else {
         buffer.drain(..head);
@@ -3214,7 +3214,7 @@ fn take_store_request(first_line: &str, head_bytes: &[u8], buffer: &mut Vec<u8>)
         .unwrap_or(0);
     if want > crate::store_api::MAX_REQUEST {
         buffer.drain(..head);
-        return Some(store_response(400, "{\"ok\":false,\"error\":\"size\"}", Some(&allowed)));
+        return Some(store_response(400, "{\"ok\":false,\"error\":\"size\"}", Some(allowed)));
     }
     if buffer.len() < head + want {
         return None;
@@ -3222,7 +3222,7 @@ fn take_store_request(first_line: &str, head_bytes: &[u8], buffer: &mut Vec<u8>)
     let body = String::from_utf8_lossy(&buffer[head..head + want]).into_owned();
     let (code, payload) = crate::store_api::answer(method, path, &body);
     buffer.drain(..head + want);
-    Some(store_response(code, &payload, Some(&allowed)))
+    Some(store_response(code, &payload, Some(allowed)))
 }
 
 /// The value of one header, matched case-insensitively.
