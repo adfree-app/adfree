@@ -52,7 +52,7 @@ if (Test-Path $DataDir) {
         "newest log    : none"
     }
 } else {
-    "no data directory at $DataDir — the app has never run for this user"
+    "no data directory at $DataDir - the app has never run for this user"
 }
 
 Write-Output (Section "ports")

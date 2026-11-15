@@ -55,3 +55,6 @@ pi-session-*.html
 bench/dport
 bench/flows
 bench/probe
+
+# Scratch for driving a Windows test machine from here (probes, patched jars, screenshots)
+.tmp-win/
