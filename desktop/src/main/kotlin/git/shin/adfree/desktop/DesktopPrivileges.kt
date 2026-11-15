@@ -603,22 +603,12 @@ class DesktopPrivileges(
      * database and leave rows the signed-in app cannot write.
      */
     fun requestRootCaInstall(pemPath: String, coreLibPath: String): PrivilegeOutcome {
+        // Windows has no `pkexec` and no root to borrow: authority is a token
+        // the person grants through the consent dialog, so the helper is asked
+        // for by name and the dialog is what elevates it.
+        if (isWindows) return runWindowsHelper(CA_INSTALL_MAIN, pemPath, coreLibPath)
         val command = selfArgv()?.first()
             ?: return PrivilegeOutcome.Failed("cannot read this process's own command line")
-        // Already Administrator, so the helper runs as a child of this process
-        // instead of through `pkexec`: the same helper, the same exit code, one
-        // fewer dialog — and on Windows there is no dialog to gain.
-        if (isWindows) {
-            return run(
-                command,
-                "--enable-native-access=ALL-UNNAMED",
-                "-cp",
-                System.getProperty("java.class.path"),
-                CA_INSTALL_MAIN,
-                pemPath,
-                coreLibPath,
-            )
-        }
         val argv = caInstallArgv(command, System.getProperty("java.class.path"), pemPath, coreLibPath)
         return run(*argv.toTypedArray(), deniedExit = PKEXEC_DENIED)
     }
@@ -632,21 +622,50 @@ class DesktopPrivileges(
      * not.
      */
     fun requestRootCaRemove(coreLibPath: String): PrivilegeOutcome {
+        if (isWindows) return runWindowsHelper(CA_INSTALL_MAIN, CA_REMOVE_MODE, coreLibPath)
         val command = selfArgv()?.first()
             ?: return PrivilegeOutcome.Failed("cannot read this process's own command line")
-        if (isWindows) {
-            return run(
-                command,
-                "--enable-native-access=ALL-UNNAMED",
-                "-cp",
-                System.getProperty("java.class.path"),
-                CA_INSTALL_MAIN,
-                CA_REMOVE_MODE,
-                coreLibPath,
-            )
-        }
         val argv = caRemoveArgv(command, System.getProperty("java.class.path"), coreLibPath)
         return run(*argv.toTypedArray(), deniedExit = PKEXEC_DENIED)
+    }
+
+    /**
+     * Runs a helper that needs Administrator on Windows, asking for it if this
+     * process does not have it.
+     *
+     * Two things this cannot do the Linux way. `/proc/self/cmdline` — how the
+     * helper's own launcher is found — does not exist on Windows, so the
+     * launcher has to be named from `java.home`; and the packaged `adfree.exe`
+     * is not a JVM: it hands its arguments to the app's `main`, so asking it to
+     * run a helper class would start a second app instead. An un-elevated
+     * process then gets its helper through the consent dialog, which is the
+     * whole point: a store write the user's token cannot make is a CA that is
+     * never installed, and "Lọc HTTPS" then stays dark with no explanation.
+     */
+    private fun runWindowsHelper(vararg helperArgs: String): PrivilegeOutcome {
+        val java = windowsJavaExe()
+            ?: return PrivilegeOutcome.Failed("no java.exe beside this runtime; cannot start the certificate helper")
+        val classpath = System.getProperty("java.class.path").orEmpty()
+        val argv = windowsHelperArgv(java, classpath, helperArgs.toList())
+        // Already elevated: the dialog would be granted without asking, so it is
+        // skipped rather than shown as decoration.
+        if (isElevated()) return run(*argv.toTypedArray())
+        val script = File.createTempFile("adfree-elevate", ".ps1").apply { deleteOnExit() }
+        return runCatching {
+            script.writeText(windowsElevationScript(argv), Charsets.US_ASCII)
+            run(
+                windowsPowerShell(),
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                script.absolutePath,
+                deniedExit = PKEXEC_DENIED,
+            )
+        }.getOrElse { failure ->
+            PrivilegeOutcome.Failed(failure.message ?: failure.javaClass.simpleName)
+        }.also { script.delete() }
     }
 
     /**
@@ -690,6 +709,72 @@ class DesktopPrivileges(
         pemPath,
         coreLibPath,
     )
+
+    /**
+     * The JVM the packaged app runs on, named by file rather than by `PATH`.
+     *
+     * jpackage ships its own runtime inside the install directory, and the app
+     * is started by Explorer, whose `PATH` is not a login shell's — so `java`
+     * on its own is a command a packaged app cannot count on. `java.home` is
+     * where this very process is running from, which is exactly the runtime that
+     * can load the core it is being asked to hand over.
+     */
+    internal fun windowsJavaExe(home: String? = System.getProperty("java.home")): String? {
+        if (home.isNullOrBlank()) return null
+        val exe = File(File(home), "bin/java.exe")
+        return if (exe.isFile) exe.absolutePath else null
+    }
+
+    /** `powershell.exe` as the shell has it — always present on Windows 11. */
+    internal fun windowsPowerShell(): String =
+        File(System.getenv("SystemRoot") ?: "C:\\Windows", "System32/WindowsPowerShell/v1.0/powershell.exe").absolutePath
+
+    /**
+     * The helper's own command line, unchanged from the Linux one: the same
+     * `-cp`, the same main class, the same arguments. Only the launcher differs.
+     */
+    internal fun windowsHelperArgv(
+        javaExe: String,
+        classpath: String,
+        helperArgs: List<String>,
+    ): List<String> = listOf(
+        javaExe,
+        "--enable-native-access=ALL-UNNAMED",
+        "-cp",
+        classpath,
+        CA_INSTALL_MAIN,
+    ) + helperArgs
+
+    /**
+     * A PowerShell script that asks the consent dialog and reports the helper's
+     * own exit status.
+     *
+     * Written to a file rather than passed as `-Command` because the arguments
+     * are paths under `C:\Program Files`: quoting them into a one-line command
+     * is a second, invisible round of escaping, and a failure there looks like a
+     * broken certificate instead of a broken quote. `-ArgumentList` takes them
+     * as separate strings, so spaces stay spaces.
+     *
+     * A refused dialog makes `Start-Process` throw; 126 is `pkexec`'s "the
+     * person said no", so both platforms report a refusal the same way.
+     */
+    internal fun windowsElevationScript(argv: List<String>): String {
+        val file = psQuote(argv.first())
+        val args = argv.drop(1).joinToString(", ") { psQuote(it) }
+        return buildString {
+            appendLine("\$ErrorActionPreference = 'Stop'")
+            appendLine("try {")
+            appendLine("  \$p = Start-Process -FilePath $file -ArgumentList @($args) -Verb RunAs -PassThru -Wait")
+            appendLine("  exit \$p.ExitCode")
+            appendLine("} catch {")
+            appendLine("  Write-Output \"elevation refused: \$(\$_.Exception.Message)\"")
+            appendLine("  exit $PKEXEC_DENIED")
+            appendLine("}")
+        }
+    }
+
+    /** A PowerShell single-quoted literal: nothing interpolates, `'` doubles. */
+    internal fun psQuote(text: String): String = "'" + text.replace("'", "''") + "'"
 
     /**
      * `deniedExit` is the code that means "the person said no" rather than

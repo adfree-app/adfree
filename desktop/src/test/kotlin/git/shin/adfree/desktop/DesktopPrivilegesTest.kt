@@ -4,6 +4,7 @@ import git.shin.adfree.core.CoreEngine
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -133,6 +134,60 @@ class DesktopPrivilegesTest {
             "a bare nft must be resolved on PATH, got $resolved",
             resolved.startsWith("/") && File(resolved).isFile,
         )
+    }
+
+    /**
+     * The packaged Windows app is not a JVM: `adfree.exe` hands its arguments to
+     * the app's own `main`, so asking it to run a helper class opens a second
+     * copy of the app instead of installing anything. The helper therefore has
+     * to be started by the runtime this process is itself running on.
+     */
+    @Test
+    fun theWindowsHelperRunsOnItsOwnJvmNotOnThePackagedExe() {
+        val argv = DesktopPrivileges().windowsHelperArgv(
+            "C:\\Program Files\\adfree\\runtime\\bin\\java.exe",
+            "C:\\Program Files\\adfree\\app\\desktop.jar",
+            listOf("C:\\Users\\Admin\\.local\\share\\adfree\\core\\ca.pem", "C:\\Program Files\\adfree\\app\\adfree_core.dll"),
+        )
+        assertTrue("the launcher is a JVM", argv.first().endsWith("bin\\java.exe") || argv.first().endsWith("bin/java.exe"))
+        assertFalse("and it is not the app's own exe", argv.any { it.endsWith("adfree.exe") })
+        assertEquals("-cp", argv[2])
+        assertEquals("git.shin.adfree.desktop.CaInstallKt", argv[4])
+        assertEquals(2, argv.size - 5)
+        assertEquals("a path with spaces stays one argument", "C:\\Program Files\\adfree\\app\\adfree_core.dll", argv.last())
+    }
+
+    /**
+     * The consent dialog is the elevation. A refused one has to read as "you
+     * said no" so the switch can say that, and the helper's own exit status has
+     * to survive the shell that carried it.
+     */
+    @Test
+    fun aRefusedConsentDialogIsADenialRatherThanABrokenSetup() {
+        val script = DesktopPrivileges().windowsElevationScript(
+            listOf("C:\\Program Files\\adfree\\runtime\\bin\\java.exe", "-cp", "x.jar", "Main"),
+        )
+        assertTrue("it asks for elevation", script.contains("-Verb RunAs"))
+        assertTrue("it waits and reads the status", script.contains("-Wait") && script.contains("ExitCode"))
+        assertTrue("a refusal is pkexec's 126", script.contains("exit ${DesktopPrivileges.PKEXEC_DENIED}"))
+        assertTrue("and the dialog's own words are kept", script.contains("elevation refused"))
+    }
+
+    /** PowerShell single quotes: an apostrophe in a path doubles, nothing else changes. */
+    @Test
+    fun anApostropheInAPathDoesNotEndThePowerShellString() {
+        assertEquals("'C:\\Users\\o''brien'", DesktopPrivileges().psQuote("C:\\Users\\o'brien"))
+        assertEquals("'plain'", DesktopPrivileges().psQuote("plain"))
+    }
+
+    /** A runtime without `java.exe` is named, not silently started by `PATH`. */
+    @Test
+    fun aRuntimeWithoutJavaExeIsMissingRatherThanGuessed() {
+        val empty = java.io.File(System.getProperty("java.io.tmpdir"), "adfree-no-java-${System.nanoTime()}").apply { mkdirs() }
+        assertNull(DesktopPrivileges().windowsJavaExe(empty.absolutePath))
+        java.io.File(empty, "bin").mkdirs()
+        val exe = java.io.File(empty, "bin/java.exe").apply { createNewFile() }
+        assertEquals(exe.absolutePath, DesktopPrivileges().windowsJavaExe(empty.absolutePath))
     }
 
     private fun home(vararg relative: String): java.io.File {
