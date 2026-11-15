@@ -494,13 +494,21 @@ private fun rememberTrayIcon(paused: Boolean): Painter {
 }
 
 /**
- * The tray tooltip: the app's name, and what it is doing.
+ * The tray tooltip: the app's name, and what it is doing *now*.
  *
  * Windows shows this on hover and nowhere else, so it is the only place the
- * state is readable without opening the menu.
+ * state is readable without opening the menu — and it has to read as a state,
+ * not as a menu item cut short. It used to borrow the pause *command* and keep
+ * its first word, so hovering a working tray said "AdFree — Tạm": a bare verb
+ * fragment that reads like the app is in some temporary state and says nothing
+ * about whether anything is being filtered.
  */
 internal fun trayTooltip(paused: Boolean): String =
-    if (paused) "AdFree — ${L10n.get(Strings.tray_resume)}" else "AdFree — ${L10n.get(Strings.tray_pause_30s).substringBefore(" ")}"
+    if (paused) {
+        "AdFree — ${L10n.get(Strings.tile_state_paused)}"
+    } else {
+        "AdFree — ${L10n.get(Strings.home_shield_protected)}"
+    }
 
 /**
  * The icon with the pause mark painted on it: the app's own mark when the
