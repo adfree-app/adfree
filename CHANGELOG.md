@@ -1,3 +1,16 @@
+# [1.12.0](https://github.com/yuuki-kagura/adfree/compare/v1.11.0...v1.12.0) (2026-11-15)
+
+
+### Bug Fixes
+
+* **desktop:** put the logon task in the person's own session ([17a2582](https://github.com/yuuki-kagura/adfree/commit/17a2582d0b33960812b49141d5bce238ae2a0d28))
+
+
+### Features
+
+* **desktop:** draw the window's own title bar ([4363fdf](https://github.com/yuuki-kagura/adfree/commit/4363fdfecfede3593d4ea08e0f4a65d7ee331125))
+* **desktop:** start an elevated instance instead of filtering nothing ([6a4ef0d](https://github.com/yuuki-kagura/adfree/commit/6a4ef0d04335847a6f4e673b3f365fa93259d46b))
+
 # [1.11.0](https://github.com/yuuki-kagura/adfree/compare/v1.10.2...v1.11.0) (2026-11-15)
 
 
