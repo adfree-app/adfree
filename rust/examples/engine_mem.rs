@@ -8,10 +8,18 @@
 //! ```sh
 //! cargo run --release --example engine_mem
 //! ```
+//!
+//! Linux only: the resident size comes from `/proc/self/status` and the pages
+//! are handed back with `malloc_trim`, which is glibc's. The Windows port check
+//! compiles every example for its target and neither exists there, so the
+//! example stands down to a note rather than breaking that check.
 
+#[cfg(target_os = "linux")]
 use adfree_core::filter::{FilterEngine, FilterListInfo, ListFormat};
+#[cfg(target_os = "linux")]
 use std::path::PathBuf;
 
+#[cfg(target_os = "linux")]
 fn rss_kb() -> u64 {
     std::fs::read_to_string("/proc/self/status")
         .ok()
@@ -24,6 +32,7 @@ fn rss_kb() -> u64 {
         .unwrap_or(0)
 }
 
+#[cfg(target_os = "linux")]
 fn main() {
     let dir = std::env::var("ADFREE_FILTER_DIR")
         .map(PathBuf::from)
@@ -100,4 +109,9 @@ fn main() {
         after as f64 / 1024.0,
         (after.saturating_sub(before)) as f64 / 1024.0
     );
+}
+
+#[cfg(not(target_os = "linux"))]
+fn main() {
+    eprintln!("engine_mem: the resident size of a list build is a Linux question");
 }
