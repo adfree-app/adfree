@@ -37,11 +37,55 @@ pub(crate) fn outbound_filter() -> String {
     )
 }
 
+/// What the redirect has done, as one line, so a machine that is "protecting"
+/// without moving a packet can be told apart from one that is.
+///
+/// Lives here, beside the filter grammar, because it is the same kind of thing:
+/// the part of the Windows redirect that can be read and tested where there is
+/// no Windows kernel.
+pub fn report(seen: u64, redirected: u64, dropped: u64, flows: usize) -> String {
+    if seen == 0 {
+        // The diagnosis this line exists for: the handles opened — the log says
+        // so — and the driver is handing nothing over. A least-privilege token,
+        // another product's WinDivert handle, or a filter the driver accepted and
+        // then never matched all end up here.
+        return "[net] redirect: not intercepting — 0 packets seen; the driver is open but \
+                nothing is reaching it"
+            .to_string();
+    }
+    format!(
+        "[net] redirect: {seen} packets, {redirected} redirected, {dropped} dropped, {flows} live flows"
+    )
+}
+
 /// The filter for the answers: only the two local listeners can produce them.
 pub(crate) fn inbound_filter(proxy_port: u16, dns_port: u16) -> String {
     format!(
         "inbound and not impostor and ((tcp.SrcPort == {proxy_port}) or (udp.SrcPort == {dns_port}))"
     )
+}
+
+#[cfg(test)]
+mod report_tests {
+    use super::report;
+
+    /// A machine that is protected and a machine that is not look the same from
+    /// the window; this line is the difference.
+    #[test]
+    fn a_redirect_that_saw_nothing_says_it_is_not_intercepting() {
+        let line = report(0, 0, 0, 0);
+        assert!(line.contains("not intercepting"), "{line}");
+        assert!(!line.contains("0 redirected"), "{line}");
+    }
+
+    #[test]
+    fn a_working_redirect_counts_what_it_did() {
+        let line = report(1200, 800, 3, 7);
+        assert!(line.contains("1200 packets"), "{line}");
+        assert!(line.contains("800 redirected"), "{line}");
+        assert!(line.contains("3 dropped"), "{line}");
+        assert!(line.contains("7 live flows"), "{line}");
+    }
 }
 
 #[cfg(test)]

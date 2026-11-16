@@ -19,7 +19,8 @@ pub struct RedirectStatus {
 struct Running {
     stop: Box<dyn Fn() + Send + Sync>,
     status: Box<dyn Fn() -> (u64, usize) + Send + Sync>,
-    thread: std::thread::JoinHandle<()>,
+    /// One thread per direction, plus the one that says what they are doing.
+    threads: Vec<std::thread::JoinHandle<()>>,
 }
 
 static RUNNING: Mutex<Option<Running>> = Mutex::new(None);
@@ -43,11 +44,26 @@ pub fn start(proxy_port: u16, dns_port: u16) -> Result<(), String> {
         let proxy = Endpoint::new(IpAddr::V4(Ipv4Addr::LOCALHOST), proxy_port);
         let dns = Endpoint::new(IpAddr::V4(Ipv4Addr::LOCALHOST), dns_port);
         let redirector = windivert::Redirector::start(proxy, dns)?;
-        let inner = Arc::clone(&redirector);
-        let thread = std::thread::Builder::new()
-            .name("adfree-redirect".to_string())
-            .spawn(move || windivert::run(&inner))
-            .map_err(|e| format!("cannot start the redirect thread: {e}"))?;
+        let mut threads = Vec::new();
+        for (name, pass) in [
+            ("adfree-redirect-out", windivert::run_outbound as fn(&Arc<_>)),
+            ("adfree-redirect-in", windivert::run_inbound),
+        ] {
+            let inner = Arc::clone(&redirector);
+            threads.push(
+                std::thread::Builder::new()
+                    .name(name.to_string())
+                    .spawn(move || pass(&inner))
+                    .map_err(|e| format!("cannot start the {name} thread: {e}"))?,
+            );
+        }
+        let watcher = Arc::clone(&redirector);
+        threads.push(
+            std::thread::Builder::new()
+                .name("adfree-redirect-watch".to_string())
+                .spawn(move || watch(&watcher))
+                .map_err(|e| format!("cannot start the redirect watchdog: {e}"))?,
+        );
         let stop_target = Arc::clone(&redirector);
         let status_target = Arc::clone(&redirector);
         *slot = Some(Running {
@@ -55,7 +71,7 @@ pub fn start(proxy_port: u16, dns_port: u16) -> Result<(), String> {
             status: Box::new(move || {
                 (status_target.packets_seen(), status_target.live_mappings())
             }),
-            thread,
+            threads,
         });
         Ok(())
     }
@@ -66,7 +82,32 @@ pub fn start(proxy_port: u16, dns_port: u16) -> Result<(), String> {
     }
 }
 
-/// Ends the redirect and waits for its thread. Safe to call when it is not
+/// Says, in the log, what the redirect is doing — once when it has had time to
+/// see its first packet, and then every few seconds after that.
+///
+/// An app that intercepts nothing looks exactly like an app that intercepts
+/// everything: the window says "protected", the driver is loaded, and the only
+/// difference is whether packets move. This line is that difference, and the
+/// first one is the important one.
+#[cfg(windows)]
+fn watch(redirector: &std::sync::Arc<crate::sys::windivert::Redirector>) {
+    let mut first_report = true;
+    while !redirector.stopped() {
+        std::thread::sleep(std::time::Duration::from_secs(if first_report { 10 } else { 60 }));
+        if redirector.stopped() {
+            break;
+        }
+        crate::logbuf::push_error(&crate::sys::windivert_filter::report(
+            redirector.packets_seen(),
+            redirector.redirected_count(),
+            redirector.dropped_count(),
+            redirector.live_mappings(),
+        ));
+        first_report = false;
+    }
+}
+
+/// Ends the redirect and waits for its threads. Safe to call when it is not
 /// running, which is what "protection off" turns into.
 pub fn stop() {
     let running = {
@@ -78,9 +119,11 @@ pub fn stop() {
     };
     if let Some(running) = running {
         (running.stop)();
-        // The loop may still be inside the driver's `recv`; closing the handles
-        // is what releases it.
-        let _ = running.thread.join();
+        // The loops may still be inside the driver's `recv`; closing the handles
+        // is what releases them.
+        for thread in running.threads {
+            let _ = thread.join();
+        }
     }
 }
 

@@ -358,6 +358,14 @@ impl Redirector {
         self.seen.load(Ordering::Relaxed)
     }
 
+    pub fn redirected_count(&self) -> u64 {
+        self.nat.lock().map(|n| n.redirected()).unwrap_or(0)
+    }
+
+    pub fn dropped_count(&self) -> u64 {
+        self.nat.lock().map(|n| n.dropped()).unwrap_or(0)
+    }
+
     pub fn live_mappings(&self) -> usize {
         self.nat.lock().map(|n| n.live_mappings()).unwrap_or(0)
     }
@@ -458,19 +466,32 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
-/// Runs both passes on this thread until `stop` is set. Each pass blocks inside
-/// the driver, so the stop flag is only noticed after a packet or an idle
-/// timeout: that is why the handles live in [`Redirector`] rather than on the
-/// stack of the loop.
-pub fn run(redirector: &Arc<Redirector>) {
+/// Runs the outbound pass until `stop` is set.
+///
+/// One thread per direction, deliberately. `WinDivertRecv` blocks until a packet
+/// arrives, so alternating two of them on one thread is a deadlock waiting for
+/// an unlucky start: the inbound handle matches nothing until something is
+/// redirected, so a first outbound packet that the table passes leaves the loop
+/// waiting on a handle nothing will ever feed, and from then on the machine is
+/// unfiltered while the app says it is protecting it.
+pub fn run_outbound(redirector: &Arc<Redirector>) {
     let mut buf = vec![0u8; 65575];
     let mut ticks = 0u32;
     while !redirector.stopped() {
         redirector.pump_outbound(&mut buf);
-        redirector.pump_inbound(&mut buf);
         ticks += 1;
         if ticks.is_multiple_of(64) {
             redirector.sweep();
         }
     }
 }
+
+/// Runs the inbound pass until `stop` is set: the answers the local listeners
+/// send, rewritten back to the endpoint the client thinks it is talking to.
+pub fn run_inbound(redirector: &Arc<Redirector>) {
+    let mut buf = vec![0u8; 65575];
+    while !redirector.stopped() {
+        redirector.pump_inbound(&mut buf);
+    }
+}
+
