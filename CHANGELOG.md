@@ -1,3 +1,9 @@
+## [1.12.8](https://github.com/yuuki-kagura/adfree/compare/v1.12.7...v1.12.8) (2026-11-16)
+
+### Bug Fixes
+
+* **pkg:** the Arch package builds the browser's host as well ([610674b](https://github.com/yuuki-kagura/adfree/commit/610674baf6a61b3d24352c0ac346c405254a51b9))
+
 ## [1.12.7](https://github.com/yuuki-kagura/adfree/compare/v1.12.6...v1.12.7) (2026-11-16)
 
 ### Bug Fixes
