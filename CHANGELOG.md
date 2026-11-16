@@ -1,3 +1,9 @@
+## [1.12.4](https://github.com/yuuki-kagura/adfree/compare/v1.12.3...v1.12.4) (2026-11-16)
+
+### Bug Fixes
+
+* **desktop:** spend the HTTPS default on success, not on the attempt ([e6b8709](https://github.com/yuuki-kagura/adfree/commit/e6b870998fb0d20903eb10af62ab1daa84c38f5f))
+
 ## [1.12.3](https://github.com/yuuki-kagura/adfree/compare/v1.12.2...v1.12.3) (2026-11-16)
 
 ### Bug Fixes
