@@ -1,3 +1,9 @@
+## [1.13.1](https://github.com/yuuki-kagura/adfree/compare/v1.13.0...v1.13.1) (2026-11-16)
+
+### Bug Fixes
+
+* **desktop:** the manifest is JSON, so a Windows path cannot be written raw ([04b21f8](https://github.com/yuuki-kagura/adfree/commit/04b21f87842e46be75b4982f4ef2153a30cc873c))
+
 # [1.13.0](https://github.com/yuuki-kagura/adfree/compare/v1.12.9...v1.13.0) (2026-11-16)
 
 ### Features
