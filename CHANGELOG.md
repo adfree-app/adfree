@@ -1,3 +1,9 @@
+## [1.13.3](https://github.com/yuuki-kagura/adfree/compare/v1.13.2...v1.13.3) (2026-11-16)
+
+### Bug Fixes
+
+* **net:** make the Windows redirect deliver the answer, not just the question ([c304101](https://github.com/yuuki-kagura/adfree/commit/c304101f00f4b0010b1d0166a3edf003475bbba2))
+
 ## [1.13.2](https://github.com/yuuki-kagura/adfree/compare/v1.13.1...v1.13.2) (2026-11-16)
 
 ### Bug Fixes
