@@ -547,8 +547,12 @@ private val TrayBg = Color(0xFF0A0E13)
 private fun rememberTrayIcon(paused: Boolean): Painter {
     // The glyph carries the state, because the platform tray shows a picture and
     // a tooltip and nothing else: an icon that stayed green while filtering was
-    // off would be the tray lying about the one thing it exists to say.
-    val bitmap = remember(paused) { pausedTrayGlyph(paused) }
+    // off would be the tray lying about the one thing it exists to say. Windows
+    // draws that picture at 16 pixels over its own taskbar colour, so it gets a
+    // transparent mark rather than the app's rounded tile; see [windowsTrayGlyph].
+    val bitmap = remember(paused) {
+        if (isWindowsHost()) windowsTrayGlyph(paused) else pausedTrayGlyph(paused)
+    }
     return BitmapPainter(bitmap)
 }
 
