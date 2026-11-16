@@ -252,7 +252,13 @@ class DesktopContainer(
                 // Read on every change rather than once: the setting can be
                 // turned on before or after the protection unit exists, and
                 // what the entry starts depends on that answer.
-                val argv = privileges.selfArgv() ?: return@collect
+                val argv = privileges.selfArgv()
+                if (argv.isNullOrEmpty()) {
+                    // A switch that turns green and writes nothing is the worst
+                    // of the answers: say why instead of returning quietly.
+                    System.err.println("[desktop] autostart: cannot read this process's own command line")
+                    return@collect
+                }
                 autostart.sync(
                     enabled = enabled,
                     unitInstalled = privileges.privilegedServiceInstalled(),

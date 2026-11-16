@@ -82,6 +82,13 @@ class DesktopPrivileges(
      * rules in" and "start the protection".
      */
     private val isWindows: Boolean = isWindowsHost(),
+    /**
+     * This process's own argv as `/proc` spells it on Linux. Replaced in the
+     * tests to say which branch asked: on Windows this file is read by nothing,
+     * and a branch that reads it answers null instead of throwing, which is how
+     * the autostart switch came to do nothing at all.
+     */
+    private val procCmdline: () -> List<String>? = ::readProcCmdline,
 ) {
 
     /** True when this process may mark its own sockets, i.e. holds `CAP_NET_ADMIN`. */
@@ -511,15 +518,15 @@ class DesktopPrivileges(
      * argument list here is not a cosmetic loss: the elevated unit would start
      * `java` with no main class, print the usage text and exit, which reads
      * exactly like a machine that refused the privilege. `/proc/self/cmdline`
-     * carries the same bytes with no such ceiling.
+     * carries the same bytes with no such ceiling — and does not exist on
+     * Windows, where there is no page-sized cmdline to lose in the first place.
+     *
+     * The Windows branch is not a refinement: reading `/proc` there throws, the
+     * null was swallowed by the caller, and "start with the system" turned the
+     * switch green while writing no task at all.
      */
-    internal fun selfArgv(): List<String>? = runCatching {
-        val raw = Files.readAllBytes(Paths.get("/proc/self/cmdline"))
-        String(raw, Charsets.UTF_8)
-            .split('\u0000')
-            .dropLastWhile { it.isEmpty() }
-            .takeIf { it.isNotEmpty() }
-    }.getOrNull()
+    internal fun selfArgv(): List<String>? =
+        if (isWindows) currentArgv().takeIf { it.isNotEmpty() } else procCmdline()
 
     /**
      * Whether the unit this app just asked for is actually up. Polled rather
@@ -840,6 +847,21 @@ class DesktopPrivileges(
 }
 
 /** Whether this JVM is running on Windows, asked once per process. */
+/**
+ * `/proc/self/cmdline`, split into argv.
+ *
+ * `/proc` is Linux's: on any other system this throws, and the caller's null is
+ * a real answer — "this platform does not have its command line here" — rather
+ * than a failure to be papered over.
+ */
+internal fun readProcCmdline(): List<String>? = runCatching {
+    val raw = Files.readAllBytes(Paths.get("/proc/self/cmdline"))
+    String(raw, Charsets.UTF_8)
+        .split('\u0000')
+        .dropLastWhile { it.isEmpty() }
+        .takeIf { it.isNotEmpty() }
+}.getOrNull()
+
 internal fun isWindowsHost(): Boolean =
     System.getProperty("os.name").orEmpty().lowercase().startsWith("windows")
 

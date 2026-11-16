@@ -443,6 +443,39 @@ class DesktopPrivilegesTest {
     }
 
     /**
+     * On Windows there is no `/proc`, and reading it threw inside a `runCatching`
+     * whose null the autostart collector swallowed: the switch for "start with
+     * the system" turned green, showed no error, and wrote no task, so the app
+     * never started at logon and nobody could tell why.
+     *
+     * The two branches are told apart by which reader answers, not by what they
+     * answer: on this machine both can produce a value, and a test that only
+     * looked at the result would pass on the Windows branch and on the broken
+     * one alike.
+     */
+    @Test
+    fun theOwnCommandLineIsNotAskedOfProcOnWindows() {
+        var procAsked = false
+        val privileges = DesktopPrivileges(
+            isWindows = true,
+            procCmdline = {
+                procAsked = true
+                listOf("should-not-be-read")
+            },
+        )
+        val argv = privileges.selfArgv()
+        assertFalse("/proc must not be consulted on Windows", procAsked)
+        assertTrue("Windows must still answer with its own argv", !argv.isNullOrEmpty())
+    }
+
+    /** And on a machine that has `/proc`, that is the reader that answers. */
+    @Test
+    fun theOwnCommandLineComesFromProcOnLinux() {
+        val privileges = DesktopPrivileges(isWindows = false, procCmdline = { listOf("java", "-jar", "app.jar") })
+        assertEquals(listOf("java", "-jar", "app.jar"), privileges.selfArgv())
+    }
+
+    /**
      * The argv the elevated unit is built from must not come from
      * `ProcessHandle.Info.arguments()`: that returns an empty Optional once the
      * kernel cmdline passes about one page, and a Gradle-run classpath is
