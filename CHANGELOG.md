@@ -1,3 +1,9 @@
+## [1.12.6](https://github.com/yuuki-kagura/adfree/compare/v1.12.5...v1.12.6) (2026-11-16)
+
+### Bug Fixes
+
+* **desktop:** a tray glyph for Windows, drawn for sixteen pixels ([ffba983](https://github.com/yuuki-kagura/adfree/commit/ffba9837d21f71e67c5f0482793a906ec46ab798))
+
 ## [1.12.5](https://github.com/yuuki-kagura/adfree/compare/v1.12.4...v1.12.5) (2026-11-16)
 
 ### Bug Fixes
