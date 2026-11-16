@@ -1,6 +1,9 @@
 package git.shin.adfree.desktop
 
 import java.io.File
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -92,6 +95,25 @@ class NativeMessagingHostsTest {
     }
 
     @Test
+    fun `a manifest chrome cannot parse is not installed`() {
+        browser()
+        NativeMessagingHosts.install(host, configHome)
+        val manifest = File(configHome, "google-chrome/NativeMessagingHosts/${NativeMessagingHosts.HOST_NAME}.json")
+        // What the previous release wrote on Windows: the path's backslashes
+        // went in as they were, and `\U` is not an escape.
+        manifest.writeText(
+            manifest.readText().replace(
+                Regex("\"path\": \"[^\"]*\""),
+                "\"path\": \"C:\\Users\\Admin\\adfree-native-host.exe\"",
+            ),
+        )
+        assertFalse(
+            "a manifest the browser cannot read has to be written again",
+            NativeMessagingHosts.installedAndUsable(configHome),
+        )
+    }
+
+    @Test
     fun `an upgrade repairs what the last version wrote`() {
         browser()
         NativeMessagingHosts.install(host, configHome)
@@ -105,6 +127,23 @@ class NativeMessagingHostsTest {
 
         assertTrue(NativeMessagingHosts.installedAndUsable(configHome))
         assertEquals("and nothing but the origins changed", repaired, manifest.readText())
+    }
+
+    @Test
+    fun `the manifest is json even when the path is a windows path`() {
+        // The failure this test exists for: `"path": "C:\Users\Admin\..."`
+        // written straight from a path string is not JSON, Chrome refuses the
+        // manifest, and the extension reports the app as not installed.
+        val windowsShaped = File("C:\\Users\\Admin\\.cache\\adfree\\lib\\adfree-native-host.exe")
+        val body = NativeMessagingHosts.manifestBody(windowsShaped)
+
+        val parsed = Json.parseToJsonElement(body).jsonObject
+        assertEquals(
+            "the browser has to read back the path we meant",
+            windowsShaped.absolutePath,
+            parsed["path"]!!.jsonPrimitive.content,
+        )
+        assertTrue("and every id survives the round trip", body.contains("calilkfbhgibagenlbchfbiafnacldki"))
     }
 
     @Test

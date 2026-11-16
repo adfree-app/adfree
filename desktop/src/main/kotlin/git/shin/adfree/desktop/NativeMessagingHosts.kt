@@ -56,6 +56,43 @@ internal object NativeMessagingHosts {
         "lcelghcpbepaoamjahfegdgocagfgpdi",
     )
 
+    /**
+     * The manifest both platforms write.
+     *
+     * The path is a JSON string, and on Windows a path is mostly backslashes —
+     * `"C:\Users\Admin\.cache\..."` is not JSON, because `\U` and `\.` are
+     * not escapes. Chrome refuses a manifest it cannot parse and reports the host
+     * as missing, so the extension's popup said "AdGuard is not installed or
+     * configured incorrectly" over a file that was there and pointing at a host
+     * that ran. On Unix the bug was invisible: no path there has a backslash.
+     */
+    fun manifestBody(host: File): String = """
+        {
+          "name": "$HOST_NAME",
+          "description": "AdFree filtering engine for AdGuard's browser extension",
+          "path": ${jsonString(host.canonicalFile.absolutePath)},
+          "type": "stdio",
+          "allowed_origins": [${allowedOrigins()}]
+        }
+    """.trimIndent() + "\n"
+
+    /** A JSON string literal: the two characters JSON cannot carry as they are. */
+    internal fun jsonString(value: String): String {
+        val escaped = buildString {
+            for (c in value) {
+                when (c) {
+                    '\\' -> append("\\\\")
+                    '"' -> append("\\\"")
+                    '\n' -> append("\\n")
+                    '\r' -> append("\\r")
+                    '\t' -> append("\\t")
+                    else -> append(c)
+                }
+            }
+        }
+        return "\"$escaped\""
+    }
+
     /** The `allowed_origins` line, spelled once for both manifests. */
     private fun allowedOrigins(): String =
         EXTENSION_IDS.joinToString(", ") { "\"chrome-extension://$it/\"" }
@@ -223,16 +260,7 @@ internal object NativeMessagingHosts {
         for (root in installedBrowsers(configHome)) {
             val target = manifestFor(root)
             target.parentFile?.mkdirs()
-            val manifest = """
-                {
-                  "name": "$HOST_NAME",
-                  "description": "AdFree filtering engine for AdGuard's browser extension",
-                  "path": "${host.canonicalFile.absolutePath}",
-                  "type": "stdio",
-                  "allowed_origins": [${allowedOrigins()}]
-                }
-            """.trimIndent() + "\n"
-            runCatching { target.writeText(manifest) }.onSuccess { written.add(target) }
+            runCatching { target.writeText(manifestBody(host)) }.onSuccess { written.add(target) }
         }
         return written
     }
@@ -248,16 +276,7 @@ internal object NativeMessagingHosts {
     private fun installWindows(host: File, dataDir: File): List<File> {
         val manifest = windowsManifest(dataDir)
         manifest.parentFile?.mkdirs()
-        val body = """
-            {
-              "name": "$HOST_NAME",
-              "description": "AdFree filtering engine for AdGuard's browser extension",
-              "path": "${host.canonicalFile.absolutePath}",
-              "type": "stdio",
-              "allowed_origins": [${allowedOrigins()}]
-            }
-        """.trimIndent() + "\n"
-        if (runCatching { manifest.writeText(body) }.isFailure) return emptyList()
+        if (runCatching { manifest.writeText(manifestBody(host)) }.isFailure) return emptyList()
         // Every vendor key is written, not only the ones that exist: a browser
         // that is installed later picks the host up without the app being told,
         // and a key for an absent browser costs one registry value.
@@ -291,6 +310,12 @@ internal object NativeMessagingHosts {
     private fun usableManifest(manifest: File): Boolean {
         if (!manifest.isFile) return false
         val text = runCatching { manifest.readText() }.getOrNull() ?: return false
+        // A manifest the browser cannot parse is a manifest that does not exist,
+        // however sound it looks to a regular expression. This is the check that
+        // caught the unescaped Windows path: the file was there, the host ran,
+        // and Chrome never read either.
+        runCatching { kotlinx.serialization.json.Json.parseToJsonElement(text) }
+            .onFailure { return false }
         val path = Regex("\"path\"\\s*:\\s*\"([^\"]+)\"").find(text)
             ?.groupValues?.getOrNull(1)
             ?: return false
