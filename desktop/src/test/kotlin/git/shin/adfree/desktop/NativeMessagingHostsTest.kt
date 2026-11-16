@@ -92,6 +92,22 @@ class NativeMessagingHostsTest {
     }
 
     @Test
+    fun `an upgrade repairs what the last version wrote`() {
+        browser()
+        NativeMessagingHosts.install(host, configHome)
+        val manifest = File(configHome, "google-chrome/NativeMessagingHosts/${NativeMessagingHosts.HOST_NAME}.json")
+        val repaired = manifest.readText()
+        manifest.writeText(repaired.replace(Regex("\\[\\s*\"chrome-extension[^\\]]*\\]"), "[\"chrome-extension://x/\"]"))
+        assertFalse(NativeMessagingHosts.installedAndUsable(configHome))
+
+        // What the app does on every start when the manifest is not usable.
+        NativeMessagingHosts.install(host, configHome)
+
+        assertTrue(NativeMessagingHosts.installedAndUsable(configHome))
+        assertEquals("and nothing but the origins changed", repaired, manifest.readText())
+    }
+
+    @Test
     fun `installed means the manifest names a host that can run`() {
         browser()
         assertFalse(NativeMessagingHosts.installedAndUsable(configHome))

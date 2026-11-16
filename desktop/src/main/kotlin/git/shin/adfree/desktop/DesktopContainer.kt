@@ -316,6 +316,32 @@ class DesktopContainer(
     }
 
     /**
+     * Connects the browser extension without being asked.
+     *
+     * The bridge is not a choice a user makes, it is a fact about the install:
+     * AdGuard's Assistant is an extension with no engine, and the only way it can
+     * know this machine is filtered is the manifest that points it at our host.
+     * Leaving that for a "Kết nối" button meant the toolbar icon said "AdGuard is
+     * not installed or configured incorrectly" on a machine that was filtering
+     * perfectly, with the fix one click away and no reason to suspect it.
+     *
+     * Runs on every start rather than once: `installedAndUsable` reads the
+     * manifest back, so an upgrade that widens `allowed_origins` — or a browser
+     * installed after us — is repaired without a flag to reset. Writing a
+     * manifest that is already right is a no-op the browser never notices.
+     */
+    fun applyBridgeDefault() {
+        val host = NativeMessagingHosts.findHostBinary() ?: return
+        if (NativeMessagingHosts.installedAndUsable()) return
+        val written = NativeMessagingHosts.install(host)
+        if (written.isNotEmpty()) {
+            System.err.println(
+                "[desktop] browser bridge: manifest written for ${written.size} browser(s)",
+            )
+        }
+    }
+
+    /**
      * Log allowed requests by default, once.
      *
      * The phone default is off — a mobile log that records everything it lets

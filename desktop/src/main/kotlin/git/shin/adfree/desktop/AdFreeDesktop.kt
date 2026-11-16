@@ -126,6 +126,7 @@ fun main() {
     // The window is not up yet and does not need to be: the ask runs on its own
     // thread, so the certificate dialog the system raises never blocks it.
     container.applyHttpsDefault(appScope)
+    container.applyBridgeDefault()
     // Desktop logs the requests it allows as well as the ones it refuses; see
     // the method for why this is a desktop-only default.
     container.applyLogAllowedDefault()
