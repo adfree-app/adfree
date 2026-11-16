@@ -1,3 +1,9 @@
+## [1.12.3](https://github.com/yuuki-kagura/adfree/compare/v1.12.2...v1.12.3) (2026-11-16)
+
+### Bug Fixes
+
+* **desktop:** install the certificate in this process, not in a JVM that is not there ([8325c03](https://github.com/yuuki-kagura/adfree/commit/8325c030e7288c931704899dd2fb121bde3e571f))
+
 ## [1.12.2](https://github.com/yuuki-kagura/adfree/compare/v1.12.1...v1.12.2) (2026-11-16)
 
 ### Bug Fixes
