@@ -5,6 +5,7 @@ import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -466,6 +467,51 @@ class DesktopPrivilegesTest {
         val argv = privileges.selfArgv()
         assertFalse("/proc must not be consulted on Windows", procAsked)
         assertTrue("Windows must still answer with its own argv", !argv.isNullOrEmpty())
+    }
+
+    /**
+     * A packaged Windows install has no `java.exe`: jpackage's runtime is
+     * `jvm.dll` and the app's launcher. Asking for a second JVM to write the
+     * trust store therefore failed on every real install — "no java.exe beside
+     * this runtime" — and "Lọc HTTPS" could not be turned on at all.
+     *
+     * Where the process already holds the token, the write is a call. This test
+     * says which of the two roads is taken: the helper must be reached with no
+     * launcher named.
+     */
+    @Test
+    fun anElevatedWindowsAppWritesTheTrustStoreWithoutASecondJvm() {
+        var asked: List<String>? = null
+        val privileges = DesktopPrivileges(
+            isWindows = true,
+            elevated = { true },
+            caHelper = { args ->
+                asked = args
+                PrivilegeOutcome.Ok
+            },
+        )
+        val outcome = privileges.requestRootCaInstall("C:\\share\\ca.pem", "C:\\share\\adfree_core.dll")
+        assertSame("the store write must be reported as it happened", PrivilegeOutcome.Ok, outcome)
+        assertEquals(listOf("C:\\share\\ca.pem", "C:\\share\\adfree_core.dll"), asked)
+    }
+
+    /**
+     * And without the token, the honest answer stays honest: this runtime cannot
+     * start a helper, so the install says so instead of half-doing it.
+     */
+    @Test
+    fun anUnelevatedWindowsAppWithNoJavaExeSaySo() {
+        val privileges = DesktopPrivileges(
+            isWindows = true,
+            elevated = { false },
+            caHelper = { error("the helper must not be called without the token") },
+        )
+        val outcome = privileges.requestRootCaInstall("C:\\share\\ca.pem", "C:\\share\\adfree_core.dll")
+        assertTrue("must report a failure", outcome is PrivilegeOutcome.Failed)
+        assertTrue(
+            "the reason must name the launcher it could not find",
+            (outcome as PrivilegeOutcome.Failed).reason.contains("java.exe"),
+        )
     }
 
     /** And on a machine that has `/proc`, that is the reader that answers. */

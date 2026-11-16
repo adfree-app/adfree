@@ -89,6 +89,13 @@ class DesktopPrivileges(
      * the autostart switch came to do nothing at all.
      */
     private val procCmdline: () -> List<String>? = ::readProcCmdline,
+    /**
+     * The certificate helper, as a call. Replaced in the tests so the decision
+     * — a second process or this one — can be read without a trust store.
+     */
+    private val caHelper: (List<String>) -> PrivilegeOutcome = ::caHelperInProcess,
+    /** Whether this process holds the token; replaced in the tests. */
+    private val elevated: (() -> Boolean)? = null,
 ) {
 
     /** True when this process may mark its own sockets, i.e. holds `CAP_NET_ADMIN`. */
@@ -116,6 +123,7 @@ class DesktopPrivileges(
      * failure this question exists to name before the user meets it as silence.
      */
     fun isElevated(): Boolean {
+        elevated?.let { return it() }
         if (!isWindows) return canSetFirewallMark()
         return runCatching { Shell32.INSTANCE.IsUserAnAdmin() != 0 }.getOrDefault(false)
     }
@@ -650,13 +658,18 @@ class DesktopPrivileges(
      * never installed, and "Lọc HTTPS" then stays dark with no explanation.
      */
     private fun runWindowsHelper(vararg helperArgs: String): PrivilegeOutcome {
+        // Already elevated: the dialog would be granted without asking, so it is
+        // skipped rather than shown as decoration — and the helper is not
+        // started at all. That matters beyond speed: a packaged install has no
+        // `java.exe` (jpackage ships `jvm.dll` and the app's launcher), so a
+        // helper that insisted on a second JVM could never run there, and the
+        // CA was never installed.
+        // The first word is the helper's main class, which a call does not need.
+        if (isElevated()) return caHelper(helperArgs.toList().drop(1))
         val java = windowsJavaExe()
             ?: return PrivilegeOutcome.Failed("no java.exe beside this runtime; cannot start the certificate helper")
         val classpath = System.getProperty("java.class.path").orEmpty()
         val argv = windowsHelperArgv(java, classpath, helperArgs.toList())
-        // Already elevated: the dialog would be granted without asking, so it is
-        // skipped rather than shown as decoration.
-        if (isElevated()) return run(*argv.toTypedArray())
         val script = File.createTempFile("adfree-elevate", ".ps1").apply { deleteOnExit() }
         return runCatching {
             script.writeText(windowsElevationScript(argv), Charsets.US_ASCII)

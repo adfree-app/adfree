@@ -27,6 +27,47 @@ import kotlin.system.exitProcess
  * Exit status is the whole report: zero means the certificate reads back from
  * the store (or no longer does), anything else says what the system said.
  */
+/**
+ * The helper's work, as a call in the caller's own process.
+ *
+ * A packaged Windows install has no `java.exe` to start: jpackage's runtime is
+ * `jvm.dll` plus the app's own launcher, so "start the helper with a JVM" is a
+ * request that cannot be honoured there — it failed with "no java.exe beside
+ * this runtime", the CA was never installed, and "Lọc HTTPS" stayed dark with
+ * one toast nobody was looking at as the whole explanation. Where the process
+ * already holds the token the write needs, the write is two calls, and the
+ * class that makes them is right here.
+ *
+ * Nothing is gained by a second process here: the helper exists so that an
+ * *unprivileged* app can borrow root, not because the work needs a process of
+ * its own.
+ */
+internal fun caHelperInProcess(helperArgs: List<String>): PrivilegeOutcome {
+    val removing = helperArgs.firstOrNull() == CA_REMOVE_MODE
+    val pem = if (removing) null else File(helperArgs.firstOrNull().orEmpty())
+    if (pem != null && !pem.isFile) return PrivilegeOutcome.Failed("no certificate at ${pem.path}")
+    val result = runCatching {
+        if (removing) coreRemoveRootCa() else coreInstallCaPem(pem!!.readText())
+    }.getOrElse { failure ->
+        return PrivilegeOutcome.Failed(failure.message ?: failure.javaClass.simpleName)
+    }
+    val done = if (removing) !result.installed else result.installed
+    if (!done) return PrivilegeOutcome.Failed("${result.detailCode} ${result.detail}".trim())
+    if (!removing) {
+        // Each JDK keeps its own `cacerts`, and this is the process with the
+        // rights to write them. A keystore that refuses is a warning: the
+        // system store is the one the answer is about.
+        for (jdk in DesktopJdkTrust.install(pem!!)) {
+            if (jdk.detail == null) {
+                System.err.println("[desktop] JDK keystore updated: ${jdk.keystore.path}")
+            } else {
+                System.err.println("[desktop] JDK keystore skipped (${jdk.keystore.path}): ${jdk.detail}")
+            }
+        }
+    }
+    return PrivilegeOutcome.Ok
+}
+
 fun main(args: Array<String>) {
     val first = args.firstOrNull().orEmpty()
     val removing = first == CA_REMOVE_MODE
