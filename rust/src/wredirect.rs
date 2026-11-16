@@ -97,11 +97,20 @@ fn watch(redirector: &std::sync::Arc<crate::sys::windivert::Redirector>) {
         if redirector.stopped() {
             break;
         }
-        crate::logbuf::push_error(&crate::sys::windivert_filter::report(
-            redirector.packets_seen(),
-            redirector.redirected_count(),
-            redirector.dropped_count(),
-            redirector.live_mappings(),
+        let (injected, refused) = redirector.injected_counts();
+        crate::logbuf::push_error(&format!(
+            "{} [inbound {} seen, {} rewritten, {} answers, {} injected, {} refused]",
+            crate::sys::windivert_filter::report(
+                redirector.packets_seen(),
+                redirector.redirected_count(),
+                redirector.dropped_count(),
+                redirector.live_mappings(),
+            ),
+            redirector.inbound_count(),
+            redirector.rewritten_count(),
+            redirector.answer_count(),
+            injected,
+            refused
         ));
         first_report = false;
     }

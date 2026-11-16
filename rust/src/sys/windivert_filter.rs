@@ -10,31 +10,55 @@
 // the grammar is checked where it can be checked.
 #![allow(dead_code)]
 
-/// The proxy's local port range, excluded from the filter: these are the
-/// proxy's own connections to origins, and redirecting them would be a loop.
+/// The proxy's local port range, excluded from the redirect's opinion: these
+/// are the proxy's own connections to origins, and redirecting them would be a
+/// loop. The driver filter no longer names it — see [`outbound_filter`] — but
+/// the packet code still uses it, and so do the tests that prove the loop
+/// cannot happen.
 pub const OWN_PORTS: (u16, u16) = (40000, 40999);
 
-/// The filter for traffic leaving the machine: the four protocols the redirect
-/// has an opinion about, minus the proxy's own dialling and anything already
-/// pointed inside.
-pub(crate) fn outbound_filter() -> String {
-    // No parentheses directly after `not`: WinDivert's parser answers
-    // `not (tcp.DstPort == 80)` with ERROR_INVALID_PARAMETER, and an open that
-    // fails with 87 is a redirect that silently never starts — the whole
-    // Windows build filtered nothing for exactly this reason. `not x == y`
-    // parses (negation binds tighter than `and`), and a range is written as its
-    // complement instead of a group.
+/// The filter for traffic leaving the machine: the four cases the redirect has
+/// an opinion about, and nothing else.
+///
+/// It is deliberately the shortest filter that works, because on this grammar
+/// the longest one that *parses* is not the longest one that *matches*. Measured
+/// on a Windows 11 machine against the shipped 2.2.2 pair, with `netdump` and
+/// these very strings as the probe, on a browsing machine:
+///
+/// ```text
+/// outbound and tcp.DstPort == 443                                   654 packets
+/// outbound and tcp.DstPort == 443 and not impostor                    0
+/// outbound and tcp.DstPort == 443 and !impostor                     243
+/// outbound and tcp.DstPort == 443 and ip.DstAddr != 127.0.0.1         0
+/// outbound and tcp.DstPort == 443 and not (tcp.DstPort == 3129)     parse error
+/// outbound and tcp.DstPort == 443 and (udp.SrcPort < 40000 or …)      0
+/// ```
+///
+/// Every `not`, and every `!=`, silently emptied the filter while
+/// `WinDivertOpen` kept returning success — so the app sat in the tray saying it
+/// protected the machine and moved no packet at all, which is exactly what the
+/// extension saw when it reported an install that blocked nothing. The
+/// exclusions the old filter spelled out are therefore made in code, where they
+/// can be expressed exactly and tested without a kernel: [`crate::winnat`]
+/// passes the proxy's own dialling, traffic already pointed inside, and
+/// loopback.
+pub(crate) fn outbound_filter(proxy_port: u16, dns_port: u16) -> String {
+    // Measured on the same machine, with `netdump` as the probe: loopback
+    // traffic is reported **outbound only** — `loopback and inbound` matched
+    // nothing while `loopback and outbound` matched hundreds — so the answers
+    // the local listeners write, which are loopback packets by definition, are
+    // only ever visible here. They are the second branch; everything else is
+    // the client traffic the redirect exists for.
     format!(
-        "outbound and not impostor \
-         and (tcp.DstPort == 80 or tcp.DstPort == 443 \
-              or udp.DstPort == 53 or udp.DstPort == 443) \
-         and (tcp.SrcPort < {lo} or tcp.SrcPort > {hi}) \
-         and (udp.SrcPort < {lo} or udp.SrcPort > {hi}) \
-         and not ip.DstAddr == 127.0.0.1 \
-         and not ipv6.DstAddr == ::1",
-        lo = OWN_PORTS.0,
-        hi = OWN_PORTS.1
+        "outbound and ((tcp.DstPort == 80 or tcp.DstPort == 443 \
+         or udp.DstPort == 53 or udp.DstPort == 443) \
+         or (loopback and (tcp.SrcPort == {proxy_port} or udp.SrcPort == {dns_port})))"
     )
+}
+
+/// The filter for the answers: only the two local listeners can produce them.
+pub(crate) fn inbound_filter(proxy_port: u16, dns_port: u16) -> String {
+    format!("inbound and ((tcp.SrcPort == {proxy_port}) or (udp.SrcPort == {dns_port}))")
 }
 
 /// What the redirect has done, as one line, so a machine that is "protecting"
@@ -55,13 +79,6 @@ pub fn report(seen: u64, redirected: u64, dropped: u64, flows: usize) -> String 
     }
     format!(
         "[net] redirect: {seen} packets, {redirected} redirected, {dropped} dropped, {flows} live flows"
-    )
-}
-
-/// The filter for the answers: only the two local listeners can produce them.
-pub(crate) fn inbound_filter(proxy_port: u16, dns_port: u16) -> String {
-    format!(
-        "inbound and not impostor and ((tcp.SrcPort == {proxy_port}) or (udp.SrcPort == {dns_port}))"
     )
 }
 
@@ -92,43 +109,36 @@ mod report_tests {
 mod tests {
     use super::*;
 
-    /// WinDivert's parser refuses a parenthesised expression after `not`.
+    /// The grammar this build once shipped matched nothing while it parsed.
     ///
-    /// Measured on a Windows 11 machine against the shipped pair:
-    /// `not (tcp.DstPort == 80)` returns `ERROR_INVALID_PARAMETER` (87) while
-    /// `not tcp.DstPort == 80` opens a handle. The redirect treats an open
-    /// failure as "no redirect" rather than as a fault, so one pair of
-    /// parentheses is the whole difference between a filtering proxy and an app
-    /// that sits in the tray claiming to protect a machine and moves no packet.
-    ///
-    /// Only the shape can be held here: the parser that rejected it is
-    /// Windows-only code, so this test cannot discover a new corner of that
-    /// grammar by itself.
+    /// `WinDivertOpen` answers 87 for a filter it will not parse, and success
+    /// for one it will parse and never match — the second is the dangerous
+    /// answer, because it looks like protection. The probe table above is the
+    /// measurement; this test keeps the filter inside the shapes that were
+    /// measured to match.
     #[test]
-    fn no_filter_puts_a_group_after_not() {
-        let outbound = outbound_filter();
-        assert!(
-            !outbound.contains("not ("),
-            "WinDivert rejects `not (…)` with error 87: {outbound}"
-        );
-        assert!(
-            outbound.contains("not ip.DstAddr == 127.0.0.1"),
-            "{outbound}"
-        );
-        assert!(outbound.contains("not ipv6.DstAddr == ::1"), "{outbound}");
-        // The own-port range is still excluded, written as its complement: a
-        // redirect that catches the proxy's own dialling is an endless loop.
-        assert!(
-            outbound.contains("tcp.SrcPort < 40000 or tcp.SrcPort > 40999"),
-            "{outbound}"
-        );
-        assert!(
-            outbound.contains("udp.SrcPort < 40000 or udp.SrcPort > 40999"),
-            "{outbound}"
-        );
+    fn the_filter_names_no_negation() {
+        let outbound = outbound_filter(3129, 5300);
+        assert!(!outbound.contains("not"), "{outbound}");
+        assert!(!outbound.contains('!'), "{outbound}");
+        assert!(outbound.starts_with("outbound and ("), "{outbound}");
+        // The answers the local listeners write are loopback packets, and the
+        // driver reports those as outbound: without this branch the client never
+        // receives an answer at all.
+        assert!(outbound.contains("loopback and (tcp.SrcPort == 3129"), "{outbound}");
+        assert!(outbound.contains("udp.SrcPort == 5300"), "{outbound}");
+        // The four cases the redirect has an opinion about.
+        for want in [
+            "tcp.DstPort == 80",
+            "tcp.DstPort == 443",
+            "udp.DstPort == 53",
+            "udp.DstPort == 443",
+        ] {
+            assert!(outbound.contains(want), "{want} missing: {outbound}");
+        }
 
         let inbound = inbound_filter(3129, 5300);
-        assert!(!inbound.contains("not ("), "{inbound}");
+        assert!(!inbound.contains("not"), "{inbound}");
         assert!(inbound.contains("tcp.SrcPort == 3129"), "{inbound}");
         assert!(inbound.contains("udp.SrcPort == 5300"), "{inbound}");
     }

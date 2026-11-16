@@ -25,7 +25,7 @@
 #![cfg(windows)]
 
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -322,12 +322,26 @@ pub struct Redirector {
     nat: std::sync::Mutex<Nat>,
     stop: Arc<AtomicBool>,
     seen: AtomicU64,
+    /// Answers taken off the wire and given back the address the client expects.
+    rewritten: AtomicU64,
+    /// Answers that arrived on the inbound handle at all.
+    inbound: AtomicU64,
+    /// The interface real client traffic leaves by. An injected answer has to
+    /// claim the same one: a packet from a real address that says it arrived on
+    /// the loopback interface is a martian as well, and is dropped just as
+    /// silently as the one the redirect started with.
+    if_idx: AtomicU32,
+    /// Loopback packets recognised as a listener answering.
+    answers: AtomicU64,
+    /// Answers handed to the stack, and answers the driver refused.
+    injected: AtomicU64,
+    inject_failed: AtomicU64,
 }
 
 impl Redirector {
     pub fn start(proxy: Endpoint, dns: Endpoint) -> Result<Arc<Redirector>, String> {
         let api = Arc::new(Api::load()?);
-        let out = Filter::open(&api, &outbound_filter())?;
+        let out = Filter::open(&api, &outbound_filter(proxy.port, dns.port))?;
         let inc = Filter::open(&api, &inbound_filter(proxy.port, dns.port))?;
         let redirector = Arc::new(Redirector {
             out,
@@ -335,6 +349,12 @@ impl Redirector {
             nat: std::sync::Mutex::new(Nat::new(proxy, dns, OWN_PORTS)),
             stop: Arc::new(AtomicBool::new(false)),
             seen: AtomicU64::new(0),
+            rewritten: AtomicU64::new(0),
+            inbound: AtomicU64::new(0),
+            if_idx: AtomicU32::new(0),
+            answers: AtomicU64::new(0),
+            injected: AtomicU64::new(0),
+            inject_failed: AtomicU64::new(0),
         });
         crate::logbuf::push_error(&format!(
             "[net] redirecting to {proxy} (dns {dns}) with WinDivert"
@@ -356,6 +376,26 @@ impl Redirector {
 
     pub fn packets_seen(&self) -> u64 {
         self.seen.load(Ordering::Relaxed)
+    }
+
+    pub fn rewritten_count(&self) -> u64 {
+        self.rewritten.load(Ordering::Relaxed)
+    }
+
+    pub fn inbound_count(&self) -> u64 {
+        self.inbound.load(Ordering::Relaxed)
+    }
+
+    pub fn answer_count(&self) -> u64 {
+        self.answers.load(Ordering::Relaxed)
+    }
+
+    /// Answers injected, and answers the driver refused out of hand.
+    pub fn injected_counts(&self) -> (u64, u64) {
+        (
+            self.injected.load(Ordering::Relaxed),
+            self.inject_failed.load(Ordering::Relaxed),
+        )
     }
 
     pub fn redirected_count(&self) -> u64 {
@@ -394,10 +434,57 @@ impl Redirector {
             return 1;
         };
         let shape = Shape::of(&pkt);
+        // An answer from the local listeners is a loopback packet, and the
+        // driver only ever reports those as outbound (`loopback and inbound`
+        // matched nothing on the box while `loopback and outbound` matched
+        // hundreds), so the second half of the illusion happens here, not on
+        // the inbound handle: the server's address goes back on, and the packet
+        // is handed to the stack as an arrival rather than a departure.
+        if is_listener_answer(&pkt) {
+            self.answers.fetch_add(1, Ordering::Relaxed);
+            let decision = match self.nat.lock() {
+                Ok(mut nat) => nat.inbound(&pkt, now),
+                Err(_) => Decision::Pass,
+            };
+            if let Decision::Restore { server, client } = decision {
+                let source = winnat::set_source(&mut buf[..len], shape, server);
+                let destination = winnat::set_destination(&mut buf[..len], shape, client);
+                if source && destination {
+                    let mut deliver = inbound_address(shape.is_ipv6());
+                    // The interface real traffic leaves by, not the loopback one
+                    // the answer was written on: the stack accepts an arrival on
+                    // the interface it would have arrived on, and drops a real
+                    // address claiming to come in over loopback.
+                    let if_idx = self.if_idx.load(Ordering::Relaxed);
+                    deliver.data[0..4].copy_from_slice(&if_idx.to_ne_bytes());
+                    self.inc.fix_checksums(&mut buf[..len], &mut deliver);
+                    self.rewritten.fetch_add(1, Ordering::Relaxed);
+                    // The driver will not say why it refused, but a refusal is
+                    // worth counting: an answer nobody delivered is the exact
+                    // failure this whole second half exists to prevent.
+                    if self.inc.send(&mut buf[..len], &deliver) {
+                        self.injected.fetch_add(1, Ordering::Relaxed);
+                    } else {
+                        self.inject_failed.fetch_add(1, Ordering::Relaxed);
+                    }
+                    return 1;
+                }
+            }
+            // No mapping: the answer belongs to nobody. Re-injecting it hands
+            // the driver back a packet it would recognise again, which is how a
+            // redirect turns into a loop; dropping it loses nothing.
+            return 0;
+        }
         let decision = match self.nat.lock() {
             Ok(mut nat) => nat.outbound(&pkt, now),
             Err(_) => Decision::Pass,
         };
+        // The interface this packet would really leave by, remembered for the
+        // answer that has to come back through it.
+        let if_idx = u32::from_ne_bytes([addr.data[0], addr.data[1], addr.data[2], addr.data[3]]);
+        if if_idx != 0 && !matches!(decision, Decision::Pass | Decision::Drop) {
+            self.if_idx.store(if_idx, Ordering::Relaxed);
+        }
         match decision {
             Decision::Drop => 0,
             Decision::Destination(to) => {
@@ -408,6 +495,12 @@ impl Redirector {
                     self.out.send(&mut buf[..len], &addr);
                     return 1;
                 }
+                // And the source goes to loopback with it: Windows drops a
+                // packet whose source is a real address and whose destination
+                // is 127.0.0.1 — which is what "re-point it at the proxy" means
+                // — so the packet has to look like the loopback hop it now is.
+                // The inbound pass puts both addresses back.
+                winnat::set_loopback_source(&mut buf[..len], shape);
                 self.out.fix_checksums(&mut buf[..len], &mut addr);
                 self.out.send(&mut buf[..len], &addr);
                 1
@@ -433,6 +526,7 @@ impl Redirector {
             self.inc.send(&mut buf[..len], &addr);
             return 1;
         }
+        self.inbound.fetch_add(1, Ordering::Relaxed);
         let now = now_secs();
         let mut rewritten = false;
         if let Some(pkt) = Packet::parse(&buf[..len]) {
@@ -441,8 +535,19 @@ impl Redirector {
                 Ok(mut nat) => nat.inbound(&pkt, now),
                 Err(_) => Decision::Pass,
             };
-            if let Decision::Source(from) = decision {
-                rewritten = winnat::set_source(&mut buf[..len], shape, from);
+            match decision {
+                Decision::Restore { server, client } => {
+                    let source = winnat::set_source(&mut buf[..len], shape, server);
+                    let destination = winnat::set_destination(&mut buf[..len], shape, client);
+                    rewritten = source && destination;
+                }
+                Decision::Source(from) => {
+                    rewritten = winnat::set_source(&mut buf[..len], shape, from);
+                }
+                _ => {}
+            }
+            if rewritten {
+                self.rewritten.fetch_add(1, Ordering::Relaxed);
             }
         }
         if rewritten {
@@ -457,6 +562,21 @@ impl Redirector {
         let now = now_secs();
         self.nat.lock().map(|mut n| n.sweep(now)).unwrap_or(0)
     }
+}
+
+/// Whether this packet is one of the local listeners answering, rather than a
+/// client asking. Only then is it the second half of a redirected flow.
+fn is_listener_answer(pkt: &Packet<'_>) -> bool {
+    pkt.src_ip().map(|a| a.as_ip().is_loopback()).unwrap_or(false)
+}
+
+/// The address a packet arrives with. `Outbound` is a bit, and clearing it is
+/// what makes the driver deliver a packet to the machine instead of sending it
+/// from it; the IPv6 bit has to match the packet or the driver rejects it.
+fn inbound_address(ipv6: bool) -> Address {
+    let mut addr = Address::default();
+    addr.bits = if ipv6 { 1 << 20 } else { 0 };
+    addr
 }
 
 fn now_secs() -> u64 {
@@ -478,7 +598,12 @@ pub fn run_outbound(redirector: &Arc<Redirector>) {
     let mut buf = vec![0u8; 65575];
     let mut ticks = 0u32;
     while !redirector.stopped() {
-        redirector.pump_outbound(&mut buf);
+        if redirector.pump_outbound(&mut buf) == 0 && !redirector.stopped() {
+            // Nothing came back: a closed or broken handle returns at once, and
+            // a loop that never blocks would burn a core the whole machine is
+            // sharing.
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
         ticks += 1;
         if ticks.is_multiple_of(64) {
             redirector.sweep();
@@ -491,7 +616,9 @@ pub fn run_outbound(redirector: &Arc<Redirector>) {
 pub fn run_inbound(redirector: &Arc<Redirector>) {
     let mut buf = vec![0u8; 65575];
     while !redirector.stopped() {
-        redirector.pump_inbound(&mut buf);
+        if redirector.pump_inbound(&mut buf) == 0 && !redirector.stopped() {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
     }
 }
 

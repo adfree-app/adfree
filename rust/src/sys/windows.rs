@@ -40,6 +40,7 @@ pub fn mark_own_traffic(socket: RawSock, _mark: u32) {
     /// Round-robin position, so two dials in the same millisecond do not fight
     /// over the same port.
     static NEXT: AtomicU32 = AtomicU32::new(0);
+    static LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
     let fd = socket as libc::RawFd;
     // An unbound socket still reports its family, which is what decides whether
@@ -61,11 +62,22 @@ pub fn mark_own_traffic(socket: RawSock, _mark: u32) {
 
     let (lo, hi) = OWN_PORTS;
     let span = u32::from(hi - lo) + 1;
+    let mut last = 0;
     for _ in 0..span {
         let port = lo + (NEXT.fetch_add(1, Ordering::Relaxed) % span) as u16;
         if bind_wildcard(fd, family, port) {
             return;
         }
+        last = std::io::Error::last_os_error().raw_os_error().unwrap_or(-1);
+    }
+    if !LOGGED.swap(true, Ordering::Relaxed) {
+        // Once per process: a dial that cannot be marked is a dial the redirect
+        // may catch and hand back, so the code matters even though nothing here
+        // can fix it.
+        crate::logbuf::push_error(&format!(
+            "proxy: no port in the own-traffic range could be bound \
+             (family {family}, last error {last}); a dial may be redirected"
+        ));
     }
     // Every port in the range is taken, which means the redirect will see this
     // dial as a client's. Failing here would fail the request; leaving it

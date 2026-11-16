@@ -16,6 +16,7 @@
 //! has to be sent *from* the address the question was aimed at, which is what
 //! the packet-info control message does.
 
+#[cfg_attr(windows, allow(unused_imports))]
 use super::{parse_sockaddr, poll_readable, sockaddr_for, try_mark, POLL_SLICE_MS};
 use crate::dns;
 use crate::engine::core;
@@ -42,6 +43,7 @@ const FORWARD_TIMEOUT_MS: i32 = 5000;
 const ATTEMPT_MS: i32 = 700;
 
 /// Room for the control messages of one datagram.
+#[cfg_attr(windows, allow(dead_code))]
 const CONTROL_BYTES: usize = 512;
 
 /// True when this process can put the firewall mark on a socket, decided once.
@@ -65,12 +67,14 @@ static FORWARD_PORTS: std::sync::Mutex<Option<HashSet<u16>>> = std::sync::Mutex:
 /// rather than one dual-stack socket because the packet-info option that carries
 /// the answer back to the address the client named is family-specific, and a
 /// v4-mapped peer on an IPv6 socket would have to guess which one to attach.
+#[cfg_attr(windows, allow(dead_code))]
 pub(crate) struct Listener {
     socket: UdpSocket,
     v6: bool,
 }
 
 /// Where a query came from and where it arrived: the reply needs both.
+#[cfg_attr(windows, allow(dead_code))]
 struct Inquiry {
     body: Vec<u8>,
     peer: SocketAddr,
@@ -152,6 +156,19 @@ fn bind_one(addr: IpAddr, port: u16, v6: bool) -> std::io::Result<Listener> {
     // `FromRawFd` takes ownership, so the fd must not be closed after this.
     use crate::sys::fd::FromRawFd;
     let socket = unsafe { UdpSocket::from_raw_fd(fd) };
+    #[cfg(windows)]
+    {
+        // Windows gets one blocking reader per socket instead of a shared
+        // readiness poll: `WSAPoll` does not report a readable datagram socket
+        // there — it waits out its full timeout on a socket that has a query
+        // sitting in it — so the loop that trusted it answered nothing at all,
+        // and a protected machine resolved no name. A read timeout is how that
+        // loop notices `stop` instead.
+        socket.set_read_timeout(Some(std::time::Duration::from_millis(
+            POLL_SLICE_MS.max(50) as u64,
+        )))?;
+    }
+    #[cfg(not(windows))]
     socket.set_nonblocking(true)?;
     Ok(Listener { socket, v6 })
 }
@@ -173,7 +190,12 @@ impl Listener {
         self.socket.as_raw_fd()
     }
 
-    /// One query with the address it arrived at.
+    /// One query with the address it arrived at, and the address it was sent
+    /// to when the kernel reports it.
+    ///
+    /// Linux only: the answer is sent back from the address the query named, and
+    /// that name arrives as ancillary data on `recvmsg`.
+    #[cfg(not(windows))]
     fn recv(&self, buf: &mut [u8]) -> Option<Inquiry> {
         let mut addr: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
         let mut ctl = [0u8; CONTROL_BYTES];
@@ -230,6 +252,7 @@ impl Listener {
 
     /// Sends an answer, from the address the question named when the socket
     /// knows it.
+    #[cfg(not(windows))]
     fn send(&self, msg: &[u8], query: &Inquiry) -> std::io::Result<usize> {
         let (addr, addrlen) = sockaddr_for(query.peer);
         let mut iov = libc::iovec {
@@ -308,6 +331,38 @@ impl Listener {
     }
 }
 
+impl Listener {
+    /// Sends an answer on a socket that was given no ancillary data.
+    ///
+    /// `sendmsg` is a `-1` stub on Windows, so the shared implementation
+    /// answered nothing there; this is the same answer without the packet-info
+    /// the platform does not have.
+    #[cfg(windows)]
+    fn send(&self, msg: &[u8], query: &Inquiry) -> std::io::Result<usize> {
+        write_datagram(self.fd(), msg, query.peer)
+    }
+}
+
+/// One datagram back to the peer it came from, with no ancillary data.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn write_datagram(fd: RawFd, msg: &[u8], peer: SocketAddr) -> std::io::Result<usize> {
+    let (addr, addrlen) = sockaddr_for(peer);
+    let n = unsafe {
+        libc::sendto(
+            fd,
+            msg.as_ptr() as *const libc::c_void,
+            msg.len(),
+            0,
+            &addr as *const libc::sockaddr_storage as *const libc::sockaddr,
+            addrlen,
+        )
+    };
+    if n < 0 {
+        return Err(last_error());
+    }
+    Ok(n as usize)
+}
+
 fn last_error() -> std::io::Error {
     std::io::Error::last_os_error()
 }
@@ -318,10 +373,12 @@ fn last_error() -> std::io::Error {
 /// would otherwise stall every lookup on the box.
 const IN_FLIGHT: usize = 64;
 
-pub(crate) fn serve_loop(listeners: Vec<Listener>, stop: Arc<AtomicBool>) {
-    // The redirect layout only loop-proofs itself through the fwmark; if the
-    // mark cannot be set (no `CAP_NET_ADMIN`) say so once, loudly, instead of
-    // burning a query storm in silence.
+/// Says whether a forwarded datagram can leave without coming back here.
+///
+/// The redirect layout only loop-proofs itself through the fwmark; if the mark
+/// cannot be set (no `CAP_NET_ADMIN`) that is said once, loudly, instead of
+/// burning a query storm in silence.
+fn announce_mark() {
     let mark_ok = probe_mark();
     MARK_OK.store(mark_ok, Ordering::Relaxed);
     if !mark_ok {
@@ -331,6 +388,107 @@ pub(crate) fn serve_loop(listeners: Vec<Listener>, stop: Arc<AtomicBool>) {
              explicit-proxy mode",
         );
     }
+}
+
+/// Answers queries with one blocking reader per socket.
+///
+/// Windows has no working readiness poll for a datagram socket: `WSAPoll`
+/// returns 0 for a socket that has a query waiting in it, so a loop built on it
+/// read nothing, ever — the machine resolved no name at all while the tray said
+/// it was protected. A socket with a read timeout needs no readiness poll, and a
+/// reader per socket means a query is answered the moment it lands.
+#[cfg(windows)]
+pub(crate) fn serve_loop(listeners: Vec<Listener>, stop: Arc<AtomicBool>) {
+    announce_mark();
+    let in_flight = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut readers = Vec::new();
+    for listener in listeners {
+        let stop = Arc::clone(&stop);
+        let in_flight = std::sync::Arc::clone(&in_flight);
+        let Ok(reader) = std::thread::Builder::new()
+            .name("adfree-dns-socket".into())
+            .stack_size(512 * 1024)
+            .spawn(move || serve_datagrams(listener, stop, in_flight))
+        else {
+            crate::logbuf::push("proxy: could not start a DNS reader");
+            continue;
+        };
+        readers.push(reader);
+    }
+    for reader in readers {
+        let _ = reader.join();
+    }
+}
+
+/// One socket's reader: read a datagram, hand it to a worker, repeat.
+#[cfg(windows)]
+fn serve_datagrams(
+    listener: Listener,
+    stop: Arc<AtomicBool>,
+    in_flight: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+) {
+    let listener = std::sync::Arc::new(listener);
+    let mut buf = vec![0u8; 4096];
+    let mut errors = 0u32;
+    let mut got = 0u32;
+    let started = std::time::Instant::now();
+    while !stop.load(Ordering::Relaxed) {
+        let query = match listener.socket.recv_from(&mut buf) {
+            Ok((n, peer)) => {
+                got += 1;
+                Inquiry {
+                body: buf[..n].to_vec(),
+                peer,
+                // No packet-info on Windows: the route picks the source address.
+                local: None,
+                ifindex: 0,
+                }
+            }
+            // A read timeout is the slice this loop wakes on, not a fault.
+            Err(e) => {
+                errors += 1;
+                if errors <= 3 || errors % 300 == 0 {
+                    crate::logbuf::push(&format!(
+                        "proxy: dns read error #{errors}: {e} (got {got} in {:?})",
+                        started.elapsed()
+                    ));
+                }
+                continue;
+            }
+        };
+        if in_flight.fetch_add(1, Ordering::Relaxed) >= IN_FLIGHT {
+            in_flight.fetch_sub(1, Ordering::Relaxed);
+            static ANNOUNCED: AtomicBool = AtomicBool::new(false);
+            if !ANNOUNCED.swap(true, Ordering::Relaxed) {
+                crate::logbuf::push(&format!(
+                    "proxy: {IN_FLIGHT} DNS queries are still waiting upstream; \
+                     dropping new ones until a worker retires"
+                ));
+            }
+            continue;
+        }
+        // The whole datagram is in `query`; the worker shares the socket only to
+        // write the answer back through it, so it gets the same handle as an
+        // `Arc` rather than a copied descriptor nobody would close.
+        let listener = std::sync::Arc::clone(&listener);
+        let in_flight_inner = std::sync::Arc::clone(&in_flight);
+        let stop_inner = Arc::clone(&stop);
+        let spawned = std::thread::Builder::new()
+            .name("adfree-dns-query".into())
+            .stack_size(512 * 1024)
+            .spawn(move || {
+                let _guard = InFlight(in_flight_inner);
+                serve_one(&listener, &query, &stop_inner);
+            });
+        if spawned.is_err() {
+            crate::logbuf::push("proxy: could not spawn a DNS answer thread");
+        }
+    }
+}
+
+#[cfg(not(windows))]
+pub(crate) fn serve_loop(listeners: Vec<Listener>, stop: Arc<AtomicBool>) {
+    announce_mark();
     // One listener socket is shared by every answering thread: `sendto` on a
     // UDP socket is atomic per datagram, and the fd stays open for as long as
     // the loop runs, so the threads need no ownership of it beyond the `Arc`.
@@ -422,6 +580,7 @@ fn serve_one(listener: &Listener, query: &Inquiry, stop: &AtomicBool) {
         return;
     }
     let Some(parsed) = dns::parse_query(&query.body) else {
+        crate::logbuf::push("proxy: a DNS query could not be parsed and was left alone");
         return; // Not a parseable query: silence, the client retries or gives up.
     };
     if !parsed.is_query() || !parsed.has_question {
@@ -431,6 +590,7 @@ fn serve_one(listener: &Listener, query: &Inquiry, stop: &AtomicBool) {
     stats.inc(&stats.dns_queries);
     let cfg = core.config();
     let host = parsed.qname.as_str().to_string();
+    crate::logbuf::push(&format!("proxy: dns query {host} type={}", parsed.qtype));
     let server_text = core.dns_server_text();
     // A page the user took out of filtering: a query names no page, so the
     // exemption is remembered rather than looked up (see
@@ -520,6 +680,17 @@ fn serve_one(listener: &Listener, query: &Inquiry, stop: &AtomicBool) {
         other => other,
     };
 
+    crate::logbuf::push(&format!(
+        "proxy: dns served {} kind={}",
+        host,
+        match &decision {
+            Served::Blocked { .. } => "blocked",
+            Served::Rewritten { .. } => "rewritten",
+            Served::Nodata(_) => "nodata",
+            Served::Forwarded(None) => "forwarded-none",
+            Served::Forwarded(Some(_)) => "forwarded-answer",
+        }
+    ));
     match decision {
         Served::Blocked { message, rule, list, category } => {
             if message.is_empty() {
@@ -527,7 +698,11 @@ fn serve_one(listener: &Listener, query: &Inquiry, stop: &AtomicBool) {
             }
             stats.inc(&stats.dns_blocked);
             stats.add(&stats.bytes_saved, BYTES_PER_BLOCKED_REQUEST);
-            if listener.send(&message, query).is_ok() {
+            // One send, and the log says so when it fails: a second call here
+            // would send the same answer twice and count it once.
+            if let Err(e) = listener.send(&message, query) {
+                crate::logbuf::push_error(&format!("proxy: dns answer not sent: {e}"));
+            } else {
                 stats.inc(&stats.dns_replies);
             }
             core.log_event(row(
@@ -578,7 +753,13 @@ fn serve_one(listener: &Listener, query: &Inquiry, stop: &AtomicBool) {
         Served::Forwarded(reply) => match reply {
             Some(message) => {
                 stats.inc(&stats.dns_allowed);
-                let answered = listener.send(&message, query).is_ok();
+                let answered = match listener.send(&message, query) {
+                    Ok(_) => true,
+                    Err(e) => {
+                        crate::logbuf::push_error(&format!("proxy: dns answer not sent: {e}"));
+                        false
+                    }
+                };
                 if answered {
                     stats.inc(&stats.dns_replies);
                 }
@@ -652,6 +833,25 @@ impl Drop for ForwardPort {
             }
         }
     }
+}
+
+/// Binds a forwarding socket inside the range the redirect skips.
+///
+/// The range is small on purpose (a process cannot ask for a thousand ports
+/// without taking them from someone), and a retry over it costs nothing a query
+/// has not already spent on the network.
+#[cfg(windows)]
+fn bind_own_port(family: SocketAddr) -> std::io::Result<UdpSocket> {
+    let (lo, hi) = crate::sys::windivert_filter::OWN_PORTS;
+    let mut last = std::io::Error::other("no port in the redirect's own range is free");
+    for port in lo..=hi {
+        let addr = SocketAddr::new(family.ip(), port);
+        match UdpSocket::bind(addr) {
+            Ok(socket) => return Ok(socket),
+            Err(e) => last = e,
+        }
+    }
+    Err(last)
 }
 
 /// Whether a query arrived from this process's own forwarding socket.
@@ -734,12 +934,19 @@ fn forward_over_udp(
     stop: &AtomicBool,
     budget_ms: i32,
 ) -> Option<Vec<u8>> {
-    let local: SocketAddr = if resolver.is_ipv4() {
+    let any: SocketAddr = if resolver.is_ipv4() {
         (Ipv4Addr::UNSPECIFIED, 0).into()
     } else {
         (Ipv6Addr::UNSPECIFIED, 0).into()
     };
-    let socket = UdpSocket::bind(local).ok()?;
+    // Windows has no firewall mark to say "this datagram is mine", so the
+    // redirect's own-port range is the only loop proof there: a socket bound
+    // outside it has its query sent straight back to this listener, which then
+    // asks again, forever.
+    #[cfg(windows)]
+    let socket = bind_own_port(any).ok()?;
+    #[cfg(not(windows))]
+    let socket = UdpSocket::bind(any).ok()?;
     // Registered before the first byte leaves: the redirect can turn the query
     // around faster than the next line runs.
     let _port = ForwardPort::new(socket.local_addr().ok()?.port());
@@ -848,6 +1055,7 @@ fn resolver_addr() -> Option<SocketAddr> {
 /// them. `/etc/resolv.conf` on a `systemd-resolved` or NetworkManager host
 /// names only the stub (127.0.0.53), and the stub answers from the real
 /// servers it lists in its own file — which is the one hop that cannot loop.
+#[cfg(not(windows))]
 pub(crate) fn system_resolver() -> Option<SocketAddr> {
     [
         "/etc/resolv.conf",
@@ -858,6 +1066,46 @@ pub(crate) fn system_resolver() -> Option<SocketAddr> {
     .find_map(first_real_nameserver)
 }
 
+/// Where a query can actually leave the machine, on Windows: the servers the
+/// adapters were given.
+///
+/// The Linux answer is a file listing; Windows has none, and a listener with no
+/// upstream answers nothing at all. That is what this machine did: the tray said
+/// protected, every lookup came back "no such host", and the browser drew a page
+/// that could not be reached — a DNS filter that had no way to ask anyone.
+#[cfg(windows)]
+pub(crate) fn system_resolver() -> Option<SocketAddr> {
+    use windows_sys::Win32::NetworkManagement::IpHelper::{GetNetworkParams, FIXED_INFO_W2KSP1};
+    let mut size: u32 = 0;
+    unsafe { GetNetworkParams(std::ptr::null_mut(), &mut size) };
+    if size == 0 {
+        return None;
+    }
+    let mut buf = vec![0u8; size as usize];
+    let rc = unsafe { GetNetworkParams(buf.as_mut_ptr() as *mut FIXED_INFO_W2KSP1, &mut size) };
+    if rc != 0 {
+        return None;
+    }
+    let info = unsafe { &*(buf.as_ptr() as *const FIXED_INFO_W2KSP1) };
+    let mut node: *const _ = &info.DnsServerList;
+    while !node.is_null() {
+        let entry = unsafe { &*node };
+        let text = unsafe { std::ffi::CStr::from_ptr(entry.IpAddress.String.as_ptr() as *const i8) };
+        if let Ok(text) = text.to_str() {
+            if let Ok(ip) = text.trim().parse::<IpAddr>() {
+                // A stub on loopback is the thing we are trying to get upstream
+                // of, and an empty entry means "no server on this adapter".
+                if !ip.is_loopback() && !ip.is_unspecified() {
+                    return Some(SocketAddr::new(ip, 53));
+                }
+            }
+        }
+        node = entry.Next;
+    }
+    None
+}
+
+#[cfg(not(windows))]
 fn first_real_nameserver(path: &str) -> Option<SocketAddr> {
     let text = std::fs::read_to_string(path).ok()?;
     for line in text.lines() {
@@ -881,21 +1129,25 @@ fn first_real_nameserver(path: &str) -> Option<SocketAddr> {
 /// `c_int` and every other libc `u32`, so the value crosses through here
 /// rather than at each use.
 #[cfg(target_os = "android")]
+#[cfg_attr(windows, allow(dead_code))]
 fn if_index(value: libc::c_int) -> u32 {
     value as u32
 }
 
 #[cfg(not(target_os = "android"))]
+#[cfg_attr(windows, allow(dead_code))]
 fn if_index(value: u32) -> u32 {
     value
 }
 
 #[cfg(target_os = "android")]
+#[cfg_attr(windows, allow(dead_code))]
 fn set_if_index(info: &mut libc::in6_pktinfo, value: u32) {
     info.ipi6_ifindex = value as libc::c_int;
 }
 
 #[cfg(not(target_os = "android"))]
+#[cfg_attr(windows, allow(dead_code))]
 fn set_if_index(info: &mut libc::in6_pktinfo, value: u32) {
     info.ipi6_ifindex = value;
 }
@@ -1048,6 +1300,51 @@ mod tests {
 
     /// The port registry is what tells a loop from a client: a forwarding
     /// socket's port is ours only while the socket lives.
+    /// The listener's Windows write path, exercised where it can be.
+    ///
+    /// On Windows a datagram is read with `recv_from` and written back with
+    /// `sendto`: there is no ancillary data, and the readiness poll the shared
+    /// loop used does not report a readable datagram socket at all — a machine
+    /// whose resolver answered nothing, which is what a protected Windows box
+    /// did while the tray said it was protected. This test binds two real
+    /// sockets and round-trips a query and its answer through the calls the
+    /// Windows listener makes, so a change that stops them working fails here
+    /// instead of only on a machine nobody is watching.
+    #[test]
+    fn a_query_goes_out_and_its_answer_comes_back_through_the_windows_calls() {
+        let server = UdpSocket::bind("127.0.0.1:0").expect("server socket");
+        let client = UdpSocket::bind("127.0.0.1:0").expect("client socket");
+        let server_addr = server.local_addr().expect("server addr");
+        let client_addr = client.local_addr().expect("client addr");
+        for socket in [&server, &client] {
+            socket
+                .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+                .expect("timeout");
+        }
+        let query = b"\x12\x34\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00";
+        assert_eq!(
+            write_datagram(client.as_raw_fd(), query, server_addr).expect("send"),
+            query.len()
+        );
+
+        let mut buf = [0u8; 512];
+        let (n, peer) = server.recv_from(&mut buf).expect("a datagram arrives");
+        assert_eq!(&buf[..n], query);
+        assert_eq!(peer, client_addr);
+
+        // The answer goes back the way the listener sends it: `sendto` to the
+        // peer the kernel reported, with no packet-info to name a source.
+        let answer = b"\x12\x34\x81\x80\x00\x01\x00\x01";
+        assert_eq!(
+            write_datagram(server.as_raw_fd(), answer, peer).expect("answer"),
+            answer.len()
+        );
+        let mut back = [0u8; 512];
+        let (n, from) = client.recv_from(&mut back).expect("the answer arrives");
+        assert_eq!(&back[..n], answer);
+        assert_eq!(from, server_addr);
+    }
+
     #[test]
     fn a_forwarding_port_is_ours_only_while_it_exists() {
         let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind");

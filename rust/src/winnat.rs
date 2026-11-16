@@ -26,7 +26,7 @@
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
 
-use crate::packet::{self, IpKey, Packet, PROTO_TCP, PROTO_UDP};
+use crate::packet::{self, Packet, PROTO_TCP, PROTO_UDP};
 
 /// The transparent proxy's listening port, matching Linux's redirect target.
 pub const PROXY_PORT: u16 = 3129;
@@ -80,10 +80,22 @@ pub enum Decision {
     Destination(Endpoint),
     /// Put this endpoint back as the source: the answer of a redirected flow.
     Source(Endpoint),
+    /// The answer of a redirected flow, put all the way back: the server as the
+    /// source, and the client's own address as the destination.
+    ///
+    /// This is what Windows needs and Linux does not. A packet re-pointed at
+    /// `127.0.0.1` with its original source address is one Windows will not
+    /// deliver — a non-loopback source addressed to a loopback destination is a
+    /// martian, and it is dropped — so the redirect makes the packet a genuine
+    /// loopback one, and both addresses have to be undone on the way back.
+    Restore { server: Endpoint, client: Endpoint },
 }
 
 struct Mapping {
     target: Endpoint,
+    /// Where the client really is: the address its socket is bound to, which is
+    /// where the answer has to end up once the loopback hop is undone.
+    client: IpAddr,
     seen: u64,
     proto: u8,
 }
@@ -96,8 +108,9 @@ pub struct Nat {
     /// from here is never redirected: it is the proxy talking to an origin, and
     /// re-pointing it at the proxy is an infinite loop.
     own_ports: (u16, u16),
-    /// Keyed by the *client's* endpoint, which is unique per connection.
-    maps: HashMap<(IpKey, u16), Mapping>,
+    /// Keyed by the *client's* port: after the redirect both ends of the flow
+    /// are on loopback, so the port is the only thing that still names it.
+    maps: HashMap<u16, Mapping>,
     /// Redirected endpoints, counted for the log line the desktop shows.
     redirected: u64,
     dropped: u64,
@@ -162,9 +175,10 @@ impl Nat {
                     return Decision::Pass;
                 }
                 self.maps.insert(
-                    (src, from.port),
+                    from.port,
                     Mapping {
                         target: to,
+                        client: src.as_ip(),
                         seen: now,
                         proto: PROTO_UDP,
                     },
@@ -176,12 +190,12 @@ impl Nat {
                 if to.port != 80 && to.port != 443 {
                     return Decision::Pass;
                 }
-                let key = (src, from.port);
                 // A mid-flow packet (the redirector started after the client
                 // did) still gets its connection, so the mapping is created by
                 // any packet, not just a `SYN`.
-                let entry = self.maps.entry(key).or_insert_with(|| Mapping {
+                let entry = self.maps.entry(from.port).or_insert_with(|| Mapping {
                     target: to,
+                    client: src.as_ip(),
                     seen: now,
                     proto: PROTO_TCP,
                 });
@@ -202,17 +216,19 @@ impl Nat {
         if from != self.proxy && from != self.dns {
             return Decision::Pass;
         }
-        let key = (dst, pkt.dst_port);
+        let _ = dst;
+        let key = pkt.dst_port;
         let Some(entry) = self.maps.get_mut(&key) else {
             return Decision::Pass;
         };
         entry.seen = now;
-        let target = entry.target;
+        let server = entry.target;
+        let client = Endpoint::new(entry.client, key);
         // The answer is the last thing a UDP mapping is needed for.
         if entry.proto == PROTO_UDP {
             self.maps.remove(&key);
         }
-        Decision::Source(target)
+        Decision::Restore { server, client }
     }
 
     /// Forgets connections that have been quiet for too long. Called from the
@@ -240,6 +256,12 @@ pub struct Shape {
 }
 
 impl Shape {
+    /// Whether the packet is IPv6, which the driver needs to know before it will
+    /// accept an injected packet.
+    pub fn is_ipv6(&self) -> bool {
+        self.version == 6
+    }
+
     pub fn of(pkt: &Packet<'_>) -> Self {
         Self {
             version: pkt.version,
@@ -268,6 +290,53 @@ pub fn set_destination(raw: &mut [u8], shape: Shape, to: Endpoint) -> bool {
     // case where the helper is unavailable.
     packet::fix_l4_checksum_raw(raw, shape.version, shape.ip_hdr_len, shape.l4_offset, proto_of(shape));
     true
+}
+
+/// Writes the source address of a packet, keeping the port it already has.
+///
+/// The redirect needs this and Linux's does not: a packet aimed at loopback has
+/// to leave from it as well, or Windows drops it as a martian.
+pub fn set_loopback_source(raw: &mut [u8], shape: Shape) -> bool {
+    let address = if shape.version == 4 {
+        IpAddr::V4(Ipv4Addr::LOCALHOST)
+    } else {
+        IpAddr::V6(std::net::Ipv6Addr::LOCALHOST)
+    };
+    let Some((offset, current)) = source_address(raw, shape) else {
+        return false;
+    };
+    // The current source is read only to know how many bytes to write.
+    let _ = current;
+    let bytes: Vec<u8> = match address {
+        IpAddr::V4(v4) => v4.octets().to_vec(),
+        IpAddr::V6(v6) => v6.octets().to_vec(),
+    };
+    if offset + bytes.len() > raw.len() {
+        return false;
+    }
+    raw[offset..offset + bytes.len()].copy_from_slice(&bytes);
+    if shape.version == 4 {
+        packet::fix_ipv4_checksum(raw);
+    }
+    packet::fix_l4_checksum_raw(raw, shape.version, shape.ip_hdr_len, shape.l4_offset, proto_of(shape));
+    true
+}
+
+/// Where the source address starts, and what it currently is.
+fn source_address(raw: &[u8], shape: Shape) -> Option<(usize, Vec<u8>)> {
+    match shape.version {
+        4 => {
+            let offset = 12;
+            let bytes = raw.get(offset..offset + 4)?.to_vec();
+            Some((offset, bytes))
+        }
+        6 => {
+            let offset = 8;
+            let bytes = raw.get(offset..offset + 16)?.to_vec();
+            Some((offset, bytes))
+        }
+        _ => None,
+    }
 }
 
 /// Writes the original destination back as the source of an answer.
@@ -322,6 +391,7 @@ fn write_endpoint(raw: &mut [u8], shape: Shape, ep: Endpoint, side: Side) -> boo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::packet::IpKey;
     use std::net::Ipv6Addr;
 
     /// A TCP segment as the client would send it: IPv4, one SYN.
@@ -385,22 +455,31 @@ mod tests {
         let mut nat = nat();
         nat.outbound(&Packet::parse(&raw).unwrap(), 0);
 
-        // The proxy answers from its own port.
-        let reply = tcp_v4([127, 0, 0, 1], PROXY_PORT, [192, 168, 1, 5], 50000, 0x12);
+        // The proxy answers from its own port, on the loopback hop the redirect
+        // created: 127.0.0.1 as both ends, distinguished by port alone.
+        let reply = tcp_v4([127, 0, 0, 1], PROXY_PORT, [127, 0, 0, 1], 50000, 0x12);
         let decision = nat.inbound(&Packet::parse(&reply).unwrap(), 1);
         assert_eq!(
             decision,
-            Decision::Source(Endpoint::v4([93, 184, 216, 34], 443))
+            Decision::Restore {
+                server: Endpoint::v4([93, 184, 216, 34], 443),
+                client: Endpoint::v4([192, 168, 1, 5], 50000),
+            }
         );
 
         let mut rewritten = reply.clone();
         let shape = Shape::of(&Packet::parse(&rewritten).unwrap());
-        let Decision::Source(server) = decision else {
+        let Decision::Restore { server, client } = decision else {
             unreachable!()
         };
         assert!(set_source(&mut rewritten, shape, server));
+        assert!(set_destination(&mut rewritten, shape, client));
+        // The client sees the server it asked for, at the address its own
+        // socket is bound to — both halves are the illusion.
         assert_eq!(&rewritten[12..16], &[93, 184, 216, 34]);
         assert_eq!(u16::from_be_bytes([rewritten[20], rewritten[21]]), 443);
+        assert_eq!(&rewritten[16..20], &[192, 168, 1, 5]);
+        assert_eq!(u16::from_be_bytes([rewritten[22], rewritten[23]]), 50000);
         assert_eq!(packet::ipv4_checksum(&rewritten), 0);
     }
 
@@ -444,6 +523,31 @@ mod tests {
         );
     }
 
+    /// The martian rule, which is the whole reason the Windows redirect had to
+    /// become a loopback hop. A packet whose source is a real address and whose
+    /// destination is `127.0.0.1` is dropped by the stack, so re-pointing the
+    /// destination alone left every redirected connection unanswered: the tray
+    /// said protected, the log said "redirected", and the machine had no
+    /// network. Both addresses have to move.
+    #[test]
+    fn a_redirected_packet_leaves_from_loopback_too() {
+        let mut raw = tcp_v4([192, 168, 1, 5], 50000, [93, 184, 216, 34], 443, 0x02);
+        let shape = Shape::of(&Packet::parse(&raw).unwrap());
+        assert!(set_destination(
+            &mut raw,
+            shape,
+            Endpoint::v4([127, 0, 0, 1], PROXY_PORT)
+        ));
+        assert!(set_loopback_source(&mut raw, shape));
+        assert_eq!(&raw[12..16], &[127, 0, 0, 1], "the source is loopback");
+        assert_eq!(&raw[16..20], &[127, 0, 0, 1], "the destination is too");
+        // The ports are what still name the flow: the client's socket, and the
+        // proxy that will answer it.
+        assert_eq!(u16::from_be_bytes([raw[20], raw[21]]), 50000);
+        assert_eq!(u16::from_be_bytes([raw[22], raw[23]]), PROXY_PORT);
+        assert_eq!(packet::ipv4_checksum(&raw), 0);
+    }
+
     #[test]
     fn quic_is_dropped_so_the_app_falls_back_to_tls() {
         let raw = udp_v4([192, 168, 1, 5], 51000, [142, 250, 80, 46], 443, &[0u8; 8]);
@@ -460,10 +564,13 @@ mod tests {
             nat.outbound(&Packet::parse(&query).unwrap(), 0),
             Decision::Destination(Endpoint::v4([127, 0, 0, 1], DNS_PORT))
         );
-        let answer = udp_v4([127, 0, 0, 1], DNS_PORT, [192, 168, 1, 5], 52000, &[5, 6, 7, 8]);
+        let answer = udp_v4([127, 0, 0, 1], DNS_PORT, [127, 0, 0, 1], 52000, &[5, 6, 7, 8]);
         assert_eq!(
             nat.inbound(&Packet::parse(&answer).unwrap(), 1),
-            Decision::Source(Endpoint::v4([8, 8, 8, 8], 53))
+            Decision::Restore {
+                server: Endpoint::v4([8, 8, 8, 8], 53),
+                client: Endpoint::v4([192, 168, 1, 5], 52000),
+            }
         );
         // The mapping is spent: a second answer cannot be attributed.
         assert_eq!(nat.live_mappings(), 0);
