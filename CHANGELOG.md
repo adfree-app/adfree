@@ -1,3 +1,11 @@
+## [1.12.7](https://github.com/yuuki-kagura/adfree/compare/v1.12.6...v1.12.7) (2026-11-16)
+
+### Bug Fixes
+
+* **ci:** the arm64 package needs the browser's host too ([8122f0b](https://github.com/yuuki-kagura/adfree/commit/8122f0b98ae9301650950bde9e9bf410fb466969))
+* **desktop:** a tray glyph that looks drawn and not pasted ([84e939b](https://github.com/yuuki-kagura/adfree/commit/84e939bea638c7d6c8cef4312c22ba44588ff4c3))
+* **desktop:** ship the browser's host, so the extension stops saying "not installed" ([e7df479](https://github.com/yuuki-kagura/adfree/commit/e7df4793bb90c62ac1b0f455cb93eec900830b39))
+
 ## [1.12.6](https://github.com/yuuki-kagura/adfree/compare/v1.12.5...v1.12.6) (2026-11-16)
 
 ### Bug Fixes
