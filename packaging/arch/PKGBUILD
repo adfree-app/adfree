@@ -42,7 +42,7 @@ build() {
   # only symptom is an app that cannot open it. The Rust build gets a clean
   # environment instead.
   unset CFLAGS CXXFLAGS LDFLAGS RUSTFLAGS
-  (cd rust && cargo build --release --lib)
+  (cd rust && cargo build --release --lib --bin adfree-native-host)
 
   local core=rust/target/release/libadfree_core.so
   nm "$core" | grep -q ' t sqlite3_open$' || {
