@@ -1,3 +1,9 @@
+## [1.13.2](https://github.com/yuuki-kagura/adfree/compare/v1.13.1...v1.13.2) (2026-11-16)
+
+### Bug Fixes
+
+* **net:** one thread per direction, and say when the redirect sees nothing ([924e432](https://github.com/yuuki-kagura/adfree/commit/924e4323453dbf19205fc7e283aba615cbb34786))
+
 ## [1.13.1](https://github.com/yuuki-kagura/adfree/compare/v1.13.0...v1.13.1) (2026-11-16)
 
 ### Bug Fixes
