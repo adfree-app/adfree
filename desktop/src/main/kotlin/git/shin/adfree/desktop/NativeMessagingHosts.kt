@@ -17,8 +17,9 @@ import java.io.File
  * wondering why their crashed-profile dialog appeared.
  *
  * The extension itself is not ours to install. It is AdGuard's, published on
- * the Chrome Web Store, and the manifest only says *who may call this host*:
- * `allowed_origins` names that extension's id and nothing else.
+ * the Chrome Web Store and the Edge Add-ons store, and the manifest only says
+ * *who may call this host*: `allowed_origins` names those extensions and
+ * nothing else.
  *
  * Linux and Windows disagree about the *third* thing, and it is the one that
  * decides whether a browser ever reads the manifest. On Linux the manifest
@@ -35,6 +36,29 @@ internal object NativeMessagingHosts {
 
     /** AdGuard Browser Assistant, as published on the Chrome Web Store. */
     const val EXTENSION_ID: String = "fbohpolgemkbfphodcfgnpjcmedcjhpn"
+
+    /**
+     * Every id the same assistant is published under.
+     *
+     * An extension id is derived from the store it was uploaded to, so AdGuard's
+     * own Assistant is `fboh…` in Chrome and `calilk…` in the Edge Add-ons store,
+     * and AdGuard's manifest lists both (and three more) in `allowed_origins`.
+     * Ours listed one: the registry key was written for Edge, Brave and Vivaldi
+     * too, and in each of them the browser refused the connection and the popup
+     * said AdFree was not installed. Being told "not installed" by an extension
+     * that is running is the one answer this file exists to prevent.
+     */
+    val EXTENSION_IDS: List<String> = listOf(
+        EXTENSION_ID,
+        "calilkfbhgibagenlbchfbiafnacldki",
+        "hhaeiccdiaojoofohjiennalnphobkaf",
+        "mkphddcgnalfkgjbklbepofehokofiek",
+        "lcelghcpbepaoamjahfegdgocagfgpdi",
+    )
+
+    /** The `allowed_origins` line, spelled once for both manifests. */
+    private fun allowedOrigins(): String =
+        EXTENSION_IDS.joinToString(", ") { "\"chrome-extension://$it/\"" }
 
     /**
      * Profile roots, relative to `$XDG_CONFIG_HOME`. Plain Chromium forks keep
@@ -205,7 +229,7 @@ internal object NativeMessagingHosts {
                   "description": "AdFree filtering engine for AdGuard's browser extension",
                   "path": "${host.canonicalFile.absolutePath}",
                   "type": "stdio",
-                  "allowed_origins": ["chrome-extension://$EXTENSION_ID/"]
+                  "allowed_origins": [${allowedOrigins()}]
                 }
             """.trimIndent() + "\n"
             runCatching { target.writeText(manifest) }.onSuccess { written.add(target) }
@@ -230,7 +254,7 @@ internal object NativeMessagingHosts {
               "description": "AdFree filtering engine for AdGuard's browser extension",
               "path": "${host.canonicalFile.absolutePath}",
               "type": "stdio",
-              "allowed_origins": ["chrome-extension://$EXTENSION_ID/"]
+              "allowed_origins": [${allowedOrigins()}]
             }
         """.trimIndent() + "\n"
         if (runCatching { manifest.writeText(body) }.isFailure) return emptyList()
@@ -243,21 +267,34 @@ internal object NativeMessagingHosts {
         return if (registered > 0) listOf(manifest) else emptyList()
     }
 
-    /** True when any browser already has a manifest that names an existing host. */
+    /** True when any browser already has a usable manifest. */
     fun installedAndUsable(configHome: File = configHome()): Boolean {
         if (isWindowsHost()) {
             return WINDOWS_BROWSERS.any { vendor ->
                 val path = regValue(windowsKey(vendor)) ?: return@any false
-                File(path).isFile
+                usableManifest(File(path))
             }
         }
-        return installedBrowsers(configHome).any { root ->
-        val manifest = manifestFor(root)
-        if (!manifest.isFile) return@any false
-        val path = Regex("\"path\"\\s*:\\s*\"([^\"]+)\"").find(manifest.readText())
+        return installedBrowsers(configHome).any { root -> usableManifest(manifestFor(root)) }
+    }
+
+    /**
+     * A manifest that names a host which exists *and* admits the extension.
+     *
+     * Both halves matter, and the second one is easy to forget: an older version
+     * of this file wrote `allowed_origins` with one id, so a manifest left over
+     * from an upgrade points at a perfectly good binary and still refuses the
+     * assistant in every browser but Chrome. Reading the ids back is what turns
+     * that into "connect again" instead of a row that says it is done and a popup
+     * that says it is not.
+     */
+    private fun usableManifest(manifest: File): Boolean {
+        if (!manifest.isFile) return false
+        val text = runCatching { manifest.readText() }.getOrNull() ?: return false
+        val path = Regex("\"path\"\\s*:\\s*\"([^\"]+)\"").find(text)
             ?.groupValues?.getOrNull(1)
-            ?: return@any false
-        File(path).canExecute()
-        }
+            ?: return false
+        if (!File(path).canExecute()) return false
+        return EXTENSION_IDS.all { text.contains("chrome-extension://$it/") }
     }
 }

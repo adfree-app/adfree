@@ -43,6 +43,23 @@ class NativeMessagingHostsTest {
     }
 
     @Test
+    fun `the manifest admits the assistant from every store it is published on`() {
+        browser()
+        NativeMessagingHosts.install(host, configHome)
+        val text = File(configHome, "google-chrome/NativeMessagingHosts/${NativeMessagingHosts.HOST_NAME}.json")
+            .readText()
+
+        // The same extension has a different id in each store, and this key is
+        // written into Edge, Brave and Vivaldi as well as Chrome. A manifest
+        // listing only the Chrome id refuses the connection in the others, and
+        // their popup then reports the app as not installed.
+        for (id in NativeMessagingHosts.EXTENSION_IDS) {
+            assertTrue("the manifest has to admit $id", text.contains("chrome-extension://$id/"))
+        }
+        assertTrue("and it is a list, not one string", text.contains("allowed_origins\": [\"chrome-extension://"))
+    }
+
+    @Test
     fun `installs into every browser present and none that is not`() {
         browser("google-chrome")
         browser("BraveSoftware/Brave-Browser")
@@ -53,6 +70,25 @@ class NativeMessagingHostsTest {
         // A browser that is not installed must not have a directory invented
         // for it: that is how a user ends up with a profile they never created.
         assertFalse(File(configHome, "vivaldi").exists())
+    }
+
+    @Test
+    fun `a manifest from an older version is not installed`() {
+        browser()
+        NativeMessagingHosts.install(host, configHome)
+        val manifest = File(configHome, "google-chrome/NativeMessagingHosts/${NativeMessagingHosts.HOST_NAME}.json")
+        // What the previous release wrote: one id, everything else the same.
+        manifest.writeText(
+            manifest.readText().replace(
+                Regex("\"allowed_origins\": \\[[^\\]]*\\]"),
+                "\"allowed_origins\": [\"chrome-extension://${NativeMessagingHosts.EXTENSION_ID}/\"]",
+            ),
+        )
+        assertTrue("the host is still there", host.canExecute())
+        assertFalse(
+            "a manifest that refuses every store but one has to be written again",
+            NativeMessagingHosts.installedAndUsable(configHome),
+        )
     }
 
     @Test
