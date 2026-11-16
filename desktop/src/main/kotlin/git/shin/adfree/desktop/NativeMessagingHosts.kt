@@ -73,7 +73,45 @@ internal object NativeMessagingHosts {
                 dir.parentFile?.let { File(it, "app/resources/$name") },
             )
         }
-        return candidates.firstOrNull(File::exists)
+        return candidates.firstOrNull(File::exists) ?: unpackedHostBinary()
+    }
+
+    /** The file name `cargo` writes: an `.exe` on Windows, a bare name elsewhere. */
+    internal fun hostBinaryName(): String =
+        if (isWindowsHost()) "adfree-native-host.exe" else "adfree-native-host"
+
+    /**
+     * The host that travels inside the application jar, written out where a
+     * browser can start it.
+     *
+     * An installed package has no repository beside it and no `app/resources`
+     * to look in — the MSI ships jars and a runtime — so without this the bridge
+     * had no host at all on Windows and AdGuard's own extension answered "AdFree
+     * is not installed" on a machine that was filtering. The core solved the
+     * same problem the same way (see [unpackedLibrary]); this is the second
+     * file with that shape, so it reads the resource, writes it to the same
+     * cache directory and hands back the path.
+     */
+    internal fun unpackedHostBinary(name: String = hostBinaryName()): File? {
+        val stream = object {}.javaClass.getResourceAsStream("/$name") ?: return null
+        val bytes = stream.use { it.readBytes() }
+        val cache = File(
+            System.getenv("XDG_CACHE_HOME") ?: File(System.getProperty("user.home"), ".cache").path,
+            "adfree/lib",
+        )
+        cache.mkdirs()
+        val target = File(cache, name)
+        if (target.length() != bytes.size.toLong()) {
+            val temp = File(cache, "$name.tmp")
+            temp.writeBytes(bytes)
+            temp.setExecutable(true)
+            // Renamed rather than written in place: a half-written host is a
+            // browser that starts a process which dies mid-frame, and the
+            // manifest keeps pointing at it.
+            temp.renameTo(target)
+            target.setExecutable(true)
+        }
+        return target.takeIf(File::isFile)
     }
 
     /**

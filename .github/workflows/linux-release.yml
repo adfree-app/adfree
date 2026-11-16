@@ -132,8 +132,8 @@ jobs:
       - name: Install packaging tools
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends fakeroot rpm
 
-      - name: Build the filtering core
-        run: cargo build --release --lib --locked
+      - name: Build the filtering core and the browser's host
+        run: cargo build --release --lib --bin adfree-native-host --locked
         working-directory: rust
 
       # The packaging step below never looks inside the library, and neither

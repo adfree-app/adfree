@@ -84,6 +84,22 @@ val coreLibrary: File = listOf(
 ).map { rootProject.layout.projectDirectory.file(it).asFile }.firstOrNull { it.isFile }
     ?: rootProject.layout.projectDirectory.file("rust/target/release/$coreLibraryName").asFile
 
+// The native-messaging host: `cargo` writes an `.exe` on Windows and a bare
+// name elsewhere, and `NativeMessagingHosts` looks for exactly that.
+val nativeHostName = if (isWindowsHost) "adfree-native-host.exe" else "adfree-native-host"
+/**
+ * The native-messaging host is the other half of the browser bridge: AdGuard's
+ * extension asks Chrome to start this binary, and without it the extension
+ * answers "AdFree is not installed" on a machine that is filtering. A package
+ * has no repository beside it, so the host travels in the jar the way the core
+ * does — `NativeMessagingHosts.unpackedHostBinary` writes it out to the cache.
+ */
+val nativeHostBinary: File = listOf(
+    "rust/target/release/$nativeHostName",
+    "rust/target/x86_64-pc-windows-gnu/release/$nativeHostName",
+).map { rootProject.layout.projectDirectory.file(it).asFile }.firstOrNull { it.isFile }
+    ?: rootProject.layout.projectDirectory.file("rust/target/release/$nativeHostName").asFile
+
 val stageCoreLibrary by tasks.registering(Copy::class) {
     description = "Puts the Rust core into the app jar, where every package carries it"
     from(coreLibrary)
@@ -91,8 +107,22 @@ val stageCoreLibrary by tasks.registering(Copy::class) {
     rename { coreLibraryName }
 }
 
+/**
+ * And the host beside it. Optional at build time, because `:desktop:runApp` is
+ * run after `cargo build --release --lib` and an app without the browser bridge
+ * is still a filtering app; the packaging check below is where a release states
+ * that it refuses to ship without it.
+ */
+val stageNativeHost by tasks.registering(Copy::class) {
+    description = "Puts the native-messaging host into the app jar"
+    onlyIf { nativeHostBinary.isFile }
+    from(nativeHostBinary)
+    into(layout.buildDirectory.dir("coreResources"))
+    rename { nativeHostName }
+}
+
 sourceSets["main"].resources.srcDir(layout.buildDirectory.dir("coreResources"))
-tasks.named("processResources") { dependsOn(stageCoreLibrary) }
+tasks.named("processResources") { dependsOn(stageCoreLibrary, stageNativeHost) }
 
 compose.desktop {
     application {
@@ -186,6 +216,14 @@ tasks.matching {
         if (!coreLibrary.isFile) {
             throw GradleException(
                 "no ${coreLibrary.path} to package; run `cargo build --release --lib` in rust/ first",
+            )
+        }
+        // AdGuard's browser extension answers "not installed" without it, and
+        // that answer is what a user reads as the app being broken.
+        if (!nativeHostBinary.isFile) {
+            throw GradleException(
+                "no ${nativeHostBinary.path} to package; run " +
+                    "`cargo build --release --bin adfree-native-host` in rust/ first",
             )
         }
     }
