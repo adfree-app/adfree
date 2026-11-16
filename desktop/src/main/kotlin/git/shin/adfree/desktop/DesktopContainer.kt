@@ -290,7 +290,6 @@ class DesktopContainer(
     fun applyHttpsDefault(scope: CoroutineScope) {
         if (!engineAvailable) return
         if (store.getBoolean(KEY_HTTPS_DEFAULT_APPLIED, false)) return
-        store.putBoolean(KEY_HTTPS_DEFAULT_APPLIED, true)
         scope.launch(Dispatchers.IO) {
             if (!coreEngine.isCaTrusted()) {
                 val reason = platformHost.installSystemCa()
@@ -302,9 +301,14 @@ class DesktopContainer(
                 // switch.
                 if (!coreEngine.isCaTrusted()) {
                     if (reason != null) platformHost.toast(reason)
+                    // The default is not spent on a failure. A flag written
+                    // before the attempt turned one bad start into the end of
+                    // the feature: on Windows the certificate could not be
+                    // installed at all, and the app never asked again.
                     return@launch
                 }
             }
+            store.putBoolean(KEY_HTTPS_DEFAULT_APPLIED, true)
             if (!repository.settings.value.isHttpsFilteringEnabled) {
                 repository.toggleHttpsFiltering(true)
             }
