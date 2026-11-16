@@ -1,3 +1,9 @@
+# [1.13.0](https://github.com/yuuki-kagura/adfree/compare/v1.12.9...v1.13.0) (2026-11-16)
+
+### Features
+
+* **desktop:** connect the browser extension without being asked ([1f14621](https://github.com/yuuki-kagura/adfree/commit/1f146214a4ed227dc6dd3c0fb88b2b97aec60aa4))
+
 ## [1.12.9](https://github.com/yuuki-kagura/adfree/compare/v1.12.8...v1.12.9) (2026-11-16)
 
 ### Bug Fixes
