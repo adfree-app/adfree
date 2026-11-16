@@ -616,7 +616,6 @@ private fun DesktopHosts(
     resumeTick: MutableStateFlow<Long>,
     backRegistry: BackRegistry,
 ) {
-    val settings by container.repository.settings.collectAsState()
     LaunchedEffect(container) {
         // The stats poller follows the window, like it follows the Activity.
         container.repository.setUiVisible(true)
@@ -627,26 +626,20 @@ private fun DesktopHosts(
     DisposableEffect(container) {
         onDispose { container.repository.setUiVisible(false) }
     }
-    MyApplicationTheme(
-        darkTheme = when (settings.themeMode) {
-            // No system dark mode on a desktop session: DARK is the default
-            // and LIGHT follows the light palette.
-            ThemeMode.SYSTEM, ThemeMode.DARK -> true
-            ThemeMode.LIGHT -> false
-        },
+    // The theme belongs to the window (see the title bar above): applying it
+    // here as well only nested one palette inside another, and the text scale
+    // is a multiplication — twice the theme was text a fifth too big.
+    CompositionLocalProvider(
+        LocalPlatformHost provides container.platformHost,
+        LocalFileHost provides container.fileHost,
+        LocalAppInventory provides container.inventory,
+        LocalResumeTick provides resumeTick,
+        LocalBackRegistry provides backRegistry,
     ) {
-        CompositionLocalProvider(
-            LocalPlatformHost provides container.platformHost,
-            LocalFileHost provides container.fileHost,
-            LocalAppInventory provides container.inventory,
-            LocalResumeTick provides resumeTick,
-            LocalBackRegistry provides backRegistry,
-        ) {
-            AdGuardApp(
-                viewModel = container.viewModel,
-                toastMessages = container.platformHost.toasts,
-            )
-        }
+        AdGuardApp(
+            viewModel = container.viewModel,
+            toastMessages = container.platformHost.toasts,
+        )
     }
 }
 

@@ -145,6 +145,11 @@ compose.desktop {
                     // grant. Installing for all users matches what the app
                     // itself must already be.
                     perUserInstall = false
+                    // Without this jpackage falls back to its own default and
+                    // the installed app wears the Kotlin mark on the exe, the
+                    // Start menu shortcut and the taskbar group: the icon the
+                    // window carries is only the window's.
+                    iconFile.set(project.file("src/main/resources/icon/adfree.ico"))
                 }
             } else {
                 targetFormats(TargetFormat.Deb, TargetFormat.Rpm)

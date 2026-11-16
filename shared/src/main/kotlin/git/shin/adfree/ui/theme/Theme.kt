@@ -6,6 +6,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
@@ -55,6 +56,18 @@ private val LightColorScheme = lightColorScheme(
 /** Labels were laid out at 9-13sp; scale text without resizing dp containers. */
 private const val FontScale = 1.2f
 
+/**
+ * Whether the theme has already scaled the text above this point.
+ *
+ * The scale is a multiplication, so a theme nested inside another multiplies
+ * twice: 1.2 becomes 1.44, and every label in the app grows a fifth while the dp
+ * boxes around them do not. That is not a hypothetical — the desktop applies the
+ * theme at the window so the title bar shares the palette, and the app screen
+ * applies it again for its own settings, which made the whole UI read "too big"
+ * on the day the custom title bar landed.
+ */
+private val LocalFontScaleApplied = staticCompositionLocalOf { false }
+
 @Composable
 fun MyApplicationTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
@@ -64,18 +77,32 @@ fun MyApplicationTheme(
     val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
     val palette = if (darkTheme) AdGuardDarkColors else AdGuardLightColors
     val density = LocalDensity.current
+    val scaled = LocalFontScaleApplied.current
 
     CompositionLocalProvider(
         LocalAdGuardColors provides palette,
-        LocalDensity provides Density(
-            density = density.density,
-            fontScale = density.fontScale * FontScale,
-        )
+        LocalFontScaleApplied provides true,
     ) {
-        MaterialTheme(
-            colorScheme = colorScheme,
-            typography = Typography,
-            content = content
-        )
+        if (scaled) {
+            // Already scaled further up the tree: only the palette is restored.
+            MaterialTheme(
+                colorScheme = colorScheme,
+                typography = Typography,
+                content = content
+            )
+        } else {
+            CompositionLocalProvider(
+                LocalDensity provides Density(
+                    density = density.density,
+                    fontScale = density.fontScale * FontScale,
+                )
+            ) {
+                MaterialTheme(
+                    colorScheme = colorScheme,
+                    typography = Typography,
+                    content = content
+                )
+            }
+        }
     }
 }

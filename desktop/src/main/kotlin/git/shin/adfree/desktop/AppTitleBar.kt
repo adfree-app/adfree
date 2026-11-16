@@ -35,15 +35,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.onPointerEvent
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.window.FrameWindowScope
+import androidx.compose.foundation.window.WindowDraggableArea
 import java.awt.Cursor
 import java.awt.Frame
-import java.awt.Point
 import java.awt.Rectangle
 import kotlin.math.roundToInt
 
@@ -66,6 +69,7 @@ import kotlin.math.roundToInt
  * click that maximises, and the three buttons. Resizing is [ResizeHandles],
  * because an undecorated window has no border to grab.
  */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 internal fun FrameWindowScope.AppTitleBar(
     title: String,
@@ -77,6 +81,10 @@ internal fun FrameWindowScope.AppTitleBar(
     // window manager, or restored by it, has to read the same here.
     var maximized by remember { mutableStateOf(window.extendedState and Frame.MAXIMIZED_BOTH != 0) }
 
+    // A double click on the caption is a maximise: the frame did it, so it has
+    // to be done here, and it has to be done without taking the press.
+    val doubleTap = remember { DoubleTapObserver() }
+
     fun toggleMaximize() {
         maximized = window.extendedState and Frame.MAXIMIZED_BOTH == 0
         window.extendedState = if (maximized) Frame.MAXIMIZED_BOTH else Frame.NORMAL
@@ -87,40 +95,27 @@ internal fun FrameWindowScope.AppTitleBar(
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface),
     ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .height(titleBarHeight)
-                .pointerInput(maximized) {
-                    // The drag is measured from where it started, not from the
-                    // step before: a window moved by the difference of two
-                    // rounded positions walks a pixel or two off the cursor on
-                    // every event and the pointer drifts out of the bar it is
-                    // dragging.
-                    var origin: Point? = null
-                    var travelled = Offset.Zero
-                    detectDragGestures(
-                        onDragStart = {
-                            origin = window.location
-                            travelled = Offset.Zero
-                        },
-                        onDragEnd = { origin = null },
-                        onDragCancel = { origin = null },
-                    ) { change, drag ->
-                        change.consume()
-                        // A maximised window dragged by its caption is a restore
-                        // first; imitating half of that is worse than not
-                        // offering it, so the drag does nothing while maximised.
-                        if (maximized) return@detectDragGestures
-                        travelled += drag
-                        window.location = movedTo(origin ?: window.location, travelled)
-                    }
-                }
-                .pointerInput(Unit) {
-                    detectTapGestures(onDoubleTap = { toggleMaximize() })
-                },
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        // The move is the window manager's, not ours. Reading the pointer in
+        // the window's own coordinates and moving the window by that amount is
+        // a loop: the window moves, the pointer's coordinates move with it, and
+        // the next event reports the movement back as a step in the other
+        // direction. The result is a bar that shakes under a steady hand, on
+        // every platform. `WindowDraggableArea` asks the window manager to drag
+        // the window instead, which is the same thing the system frame does.
+        WindowDraggableArea {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .height(titleBarHeight)
+                    // Observed, not intercepted: a tap detector here would
+                    // consume the press that the drag above needs to see, and
+                    // the window would stop moving altogether.
+                    .onPointerEvent(PointerEventType.Release) { event ->
+                        val change = event.changes.firstOrNull() ?: return@onPointerEvent
+                        if (doubleTap.onRelease(change.uptimeMillis, change.position)) toggleMaximize()
+                    },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
             Spacer(Modifier.width(14.dp))
             Text(
                 text = title,
@@ -160,6 +155,7 @@ internal fun FrameWindowScope.AppTitleBar(
                 hoverBackground = MaterialTheme.colorScheme.error,
                 hoverTint = MaterialTheme.colorScheme.onError,
             )
+            }
         }
         // A hairline instead of a shadow: the bar has to end somewhere, and a
         // surface against a surface with no edge between them is one flat area.
@@ -257,18 +253,6 @@ internal fun FrameWindowScope.ResizeHandles() {
     }
 }
 
-/**
- * Where a dragged window has got to: the position it started at plus the whole
- * distance travelled, as one step.
- *
- * Adding each event's delta to the window's *current* position looks equivalent
- * and is not: the position is an integer while a pointer is not, so every event
- * contributes its own rounding error and a slow drag walks the window away from
- * the cursor that is holding it.
- */
-internal fun movedTo(origin: Point, travelled: Offset): Point =
-    Point(origin.x + travelled.x.roundToInt(), origin.y + travelled.y.roundToInt())
-
 /** A window rectangle, as arithmetic instead of an AWT object. */
 internal data class Bounds(val x: Int, val y: Int, val width: Int, val height: Int)
 
@@ -351,3 +335,34 @@ private val captionButtonWidth = 46.dp
 private val iconSize = 15.dp
 private val gripThickness = 5.dp
 private val cornerGrip = 12.dp
+
+/**
+ * The second click of a double click, without consuming either one.
+ *
+ * Compose's tap detector takes the press for itself, and the window drag is
+ * watching that same press: a caption with both would answer the click and
+ * refuse the drag, which is exactly what happened when this bar first used
+ * `detectTapGestures`. This only looks at releases, so the drag above keeps the
+ * sequence it needs.
+ *
+ * Two releases close in time and close in place are a double click. The
+ * distance is what keeps a drag from counting as one: a drag ends by releasing
+ * the button somewhere else, and a person who drags and then quickly presses
+ * again has not asked for a maximise.
+ */
+internal class DoubleTapObserver(
+    private val maxGapMillis: Long = 450,
+    private val maxDrift: Float = 6f,
+) {
+    private var lastAt = 0L
+    private var lastWhere = Offset.Zero
+
+    fun onRelease(uptimeMillis: Long, where: Offset): Boolean {
+        val gap = uptimeMillis - lastAt
+        val near = (where - lastWhere).getDistance() <= maxDrift
+        val double = lastAt != 0L && gap in 1..maxGapMillis && near
+        lastAt = if (double) 0L else uptimeMillis
+        lastWhere = where
+        return double
+    }
+}

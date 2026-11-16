@@ -71,21 +71,6 @@ class AppTitleBarResizeTest {
         assertEquals(100, moved.y)
     }
 
-    /**
-     * A slow drag is many events of less than a pixel. Each one rounded on its
-     * own drifts, so the position is the start plus the whole distance, and the
-     * sum of a hundred small steps is the same place as one big step.
-     */
-    @Test
-    fun aDragIsMeasuredFromWhereItStartedAndNotStepByStep() {
-        val origin = java.awt.Point(300, 200)
-        var travelled = androidx.compose.ui.geometry.Offset.Zero
-        repeat(100) { travelled += androidx.compose.ui.geometry.Offset(0.6f, 0.4f) }
-        val oneStep = movedTo(origin, androidx.compose.ui.geometry.Offset(60f, 40f))
-        val manySteps = movedTo(origin, travelled)
-        assertEquals(oneStep, manySteps)
-    }
-
     /** The cursor is what tells a person the edge is grabbable, so it has to match. */
     @Test
     fun everyGripCarriesTheCursorOfItsEdge() {
