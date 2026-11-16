@@ -37,11 +37,11 @@ jobs:
       - name: Install packaging tools
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends fakeroot rpm
 
-      - name: Build the device's own core
+      - name: Build the device's own core and the browser's host
         working-directory: rust
         run: |
           uname -m
-          cargo build --release --lib --locked
+          cargo build --release --lib --bin adfree-native-host --locked
           # The same two questions the x64 release asks: does the library carry
           # sqlite, and does it reference anything this machine does not have.
           nm target/release/libadfree_core.so | grep -q ' t sqlite3_open$' ||
