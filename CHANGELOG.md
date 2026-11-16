@@ -1,3 +1,9 @@
+## [1.12.9](https://github.com/yuuki-kagura/adfree/compare/v1.12.8...v1.12.9) (2026-11-16)
+
+### Bug Fixes
+
+* **desktop:** admit the assistant from every store, and rewrite a stale manifest ([52c9810](https://github.com/yuuki-kagura/adfree/commit/52c98101af9253c582320f4412bbd5fe54794b63))
+
 ## [1.12.8](https://github.com/yuuki-kagura/adfree/compare/v1.12.7...v1.12.8) (2026-11-16)
 
 ### Bug Fixes
