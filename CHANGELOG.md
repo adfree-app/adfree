@@ -1,3 +1,9 @@
+## [1.12.2](https://github.com/yuuki-kagura/adfree/compare/v1.12.1...v1.12.2) (2026-11-16)
+
+### Bug Fixes
+
+* **desktop:** read the own command line on Windows too ([548a68c](https://github.com/yuuki-kagura/adfree/commit/548a68c170eb77e0f85a93c07e6994cbdec0830b))
+
 ## [1.12.1](https://github.com/yuuki-kagura/adfree/compare/v1.12.0...v1.12.1) (2026-11-15)
 
 
