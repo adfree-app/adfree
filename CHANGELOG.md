@@ -1,3 +1,9 @@
+## [1.12.5](https://github.com/yuuki-kagura/adfree/compare/v1.12.4...v1.12.5) (2026-11-16)
+
+### Bug Fixes
+
+* **desktop:** one text scale, a window manager drag, and an icon of our own ([5e05639](https://github.com/yuuki-kagura/adfree/commit/5e0563935fd39f0fbee7d3d32b019158e273c0d5))
+
 ## [1.12.4](https://github.com/yuuki-kagura/adfree/compare/v1.12.3...v1.12.4) (2026-11-16)
 
 ### Bug Fixes
