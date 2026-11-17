@@ -1,3 +1,9 @@
+## [1.13.5](https://github.com/yuuki-kagura/adfree/compare/v1.13.4...v1.13.5) (2026-11-17)
+
+### Bug Fixes
+
+* **dns:** act on the socket error bits, and stop rebinding a bound socket ([d47e170](https://github.com/yuuki-kagura/adfree/commit/d47e1700bb55db9c2644e93b32970f2c4e0b57b2))
+
 ## [1.13.4](https://github.com/yuuki-kagura/adfree/compare/v1.13.3...v1.13.4) (2026-11-17)
 
 ### Bug Fixes
