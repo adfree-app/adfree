@@ -27,10 +27,10 @@ pub mod peer;
 pub mod tcp;
 
 use crate::sys::fd::RawFd;
+use crate::sys::libc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use crate::sys::libc;
 
 /// Firewall mark on every socket the proxy itself dials out. The redirect
 /// rules (`tools/adfree-linux.nft`) skip marked traffic, which is what keeps
@@ -257,7 +257,9 @@ pub fn stop() {
 }
 
 pub fn is_running() -> bool {
-    RUN.lock().map(|run| run.as_ref().is_some_and(|run| run.running)).unwrap_or(false)
+    RUN.lock()
+        .map(|run| run.as_ref().is_some_and(|run| run.running))
+        .unwrap_or(false)
 }
 
 /// Whether a flow to this machine's own addresses is filtered or carried.
@@ -280,7 +282,11 @@ pub fn status() -> ProxyStatus {
             };
         }
     }
-    FAILED.lock().ok().and_then(|failed| failed.clone()).unwrap_or_default()
+    FAILED
+        .lock()
+        .ok()
+        .and_then(|failed| failed.clone())
+        .unwrap_or_default()
 }
 
 /// Keeps a failed attempt so the screen can still explain it after the call
@@ -542,15 +548,31 @@ pub(crate) fn dial_marked(addr: std::net::SocketAddr) -> Option<std::net::TcpStr
 /// The attempt itself: the connected fd, or why it failed in the terms the
 /// IPv6 verdict understands. The fd is closed here on every failure.
 fn dial_fd(addr: std::net::SocketAddr) -> Result<RawFd, egress::Failure> {
-    let domain = if addr.is_ipv4() { libc::AF_INET } else { libc::AF_INET6 };
-    let fd = unsafe { libc::socket(domain, libc::SOCK_STREAM | libc::SOCK_NONBLOCK | libc::SOCK_CLOEXEC, 0) };
+    let domain = if addr.is_ipv4() {
+        libc::AF_INET
+    } else {
+        libc::AF_INET6
+    };
+    let fd = unsafe {
+        libc::socket(
+            domain,
+            libc::SOCK_STREAM | libc::SOCK_NONBLOCK | libc::SOCK_CLOEXEC,
+            0,
+        )
+    };
     if !crate::sys::fd::fd_ok(fd) {
         // No such family on this machine at all.
         return Err(egress::Failure::from_errno(last_errno()));
     }
     try_mark(fd);
     let (sa, len) = sockaddr_for(addr);
-    let rc = unsafe { libc::connect(fd, &sa as *const libc::sockaddr_storage as *const libc::sockaddr, len) };
+    let rc = unsafe {
+        libc::connect(
+            fd,
+            &sa as *const libc::sockaddr_storage as *const libc::sockaddr,
+            len,
+        )
+    };
     if rc != 0 {
         let err = std::io::Error::last_os_error();
         if !connect_in_progress(err.raw_os_error().unwrap_or(0)) {
@@ -642,9 +664,13 @@ fn sockaddr_for(addr: std::net::SocketAddr) -> (libc::sockaddr_storage, libc::so
 pub(crate) fn parse_sockaddr(sa: &libc::sockaddr_storage) -> Option<std::net::SocketAddr> {
     match i32::from(sa.ss_family) {
         libc::AF_INET => {
-            let sin = unsafe { &*(sa as *const libc::sockaddr_storage as *const libc::sockaddr_in) };
+            let sin =
+                unsafe { &*(sa as *const libc::sockaddr_storage as *const libc::sockaddr_in) };
             let ip = std::net::Ipv4Addr::from(sin.sin_addr.s_addr.to_be());
-            Some(std::net::SocketAddr::new(ip.into(), u16::from_be(sin.sin_port)))
+            Some(std::net::SocketAddr::new(
+                ip.into(),
+                u16::from_be(sin.sin_port),
+            ))
         }
         libc::AF_INET6 => {
             let sin6 =
@@ -704,7 +730,9 @@ fn own_addresses() -> Vec<std::net::IpAddr> {
             };
             let family = i32::from(sockaddr.sa_family);
             if family == libc::AF_INET || family == libc::AF_INET6 {
-                let storage = unsafe { &*(sockaddr as *const libc::sockaddr as *const libc::sockaddr_storage) };
+                let storage = unsafe {
+                    &*(sockaddr as *const libc::sockaddr as *const libc::sockaddr_storage)
+                };
                 if let Some(addr) = parse_sockaddr(storage) {
                     addrs.push(flattened(addr.ip()));
                 }
@@ -769,21 +797,34 @@ mod lifecycle_tests {
                 text.starts_with("GET /probe HTTP/1.1\r\n"),
                 "the origin saw: {text}"
             );
-            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok").unwrap();
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+                .unwrap();
         });
-        assert!(start(31329, 35353, true).running, "listeners must come up on free ports");
+        assert!(
+            start(31329, 35353, true).running,
+            "listeners must come up on free ports"
+        );
         let mut client = TcpStream::connect("127.0.0.1:31329").unwrap();
         client
-            .write_all(format!("GET http://127.0.0.1:{origin_port}/probe HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes())
+            .write_all(
+                format!("GET http://127.0.0.1:{origin_port}/probe HTTP/1.1\r\nHost: x\r\n\r\n")
+                    .as_bytes(),
+            )
             .unwrap();
         let mut reply = Vec::new();
-        client.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
         let _ = client.read_to_end(&mut reply);
         let text = String::from_utf8_lossy(&reply).into_owned();
         if text.is_empty() {
             eprintln!("proxy diagnostics: {:?}", crate::logbuf::take());
         }
-        assert!(text.starts_with("HTTP/1.1 200 OK"), "the client saw: {text}");
+        assert!(
+            text.starts_with("HTTP/1.1 200 OK"),
+            "the client saw: {text}"
+        );
         stop();
         server.join().unwrap();
     }
@@ -800,7 +841,10 @@ mod lifecycle_tests {
             wildcard: false,
             address: pinned,
         }]);
-        assert!(start(31331, 35355, true).running, "listeners must come up on free ports");
+        assert!(
+            start(31331, 35355, true).running,
+            "listeners must come up on free ports"
+        );
         let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
         socket
             .send_to(
@@ -808,12 +852,18 @@ mod lifecycle_tests {
                 "127.0.0.1:35355",
             )
             .unwrap();
-        socket.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        socket
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
         let mut answer = vec![0u8; 4096];
         let n = socket.recv(&mut answer).unwrap();
         stop();
         crate::core().set_dns_rewrites(Vec::new());
-        assert_eq!(&answer[0..2], &0x1234u16.to_be_bytes(), "the client's id is echoed");
+        assert_eq!(
+            &answer[0..2],
+            &0x1234u16.to_be_bytes(),
+            "the client's id is echoed"
+        );
         assert_eq!(&answer[2..4], &[0x81, 0x80], "a no-error answer");
         assert_eq!(&answer[6..8], &1u16.to_be_bytes(), "exactly one record");
         assert!(
@@ -846,14 +896,19 @@ mod lifecycle_tests {
                 .write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n")
                 .unwrap();
         });
-        assert!(start(31332, 35356, true).running, "listeners must come up on free ports");
+        assert!(
+            start(31332, 35356, true).running,
+            "listeners must come up on free ports"
+        );
         let mut client = TcpStream::connect("[::1]:31332").unwrap();
         client
             .write_all(
                 format!("GET http://[::1]:{origin_port}/v6 HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes(),
             )
             .unwrap();
-        client.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
         let mut reply = Vec::new();
         let _ = client.read_to_end(&mut reply);
         stop();
@@ -871,12 +926,17 @@ mod lifecycle_tests {
     #[test]
     fn the_proxy_refuses_to_proxy_itself() {
         let _guard = PROXY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        assert!(start(31330, 35354, true).running, "listeners must come up on free ports");
+        assert!(
+            start(31330, 35354, true).running,
+            "listeners must come up on free ports"
+        );
         let mut client = TcpStream::connect("127.0.0.1:31330").unwrap();
         client
             .write_all(b"GET http://127.0.0.1:31330/probe HTTP/1.1\r\nHost: x\r\n\r\n")
             .unwrap();
-        client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
         let mut reply = Vec::new();
         let _ = client.read_to_end(&mut reply);
         let log = crate::logbuf::take();
@@ -885,7 +945,10 @@ mod lifecycle_tests {
             log.iter().any(|l| l.contains("the proxy itself")),
             "the self-request must be refused, not dialled; log was {log:?}"
         );
-        assert!(reply.is_empty(), "a refusal carries no answer, it just closes");
+        assert!(
+            reply.is_empty(),
+            "a refusal carries no answer, it just closes"
+        );
     }
 
     /// A port somebody else already listens on is refused, and the refusal
@@ -903,15 +966,31 @@ mod lifecycle_tests {
         drop(probe);
 
         let attempt = start(tcp_port, dns_port, true);
-        assert!(!attempt.running, "a listener on a taken port must not claim to run");
-        assert!(!attempt.tcp_error.is_empty(), "the TCP refusal owes a reason");
-        assert!(attempt.dns_error.is_empty(), "the DNS port was free: {}", attempt.dns_error);
+        assert!(
+            !attempt.running,
+            "a listener on a taken port must not claim to run"
+        );
+        assert!(
+            !attempt.tcp_error.is_empty(),
+            "the TCP refusal owes a reason"
+        );
+        assert!(
+            attempt.dns_error.is_empty(),
+            "the DNS port was free: {}",
+            attempt.dns_error
+        );
         assert!(!is_running(), "a half-bound stack is not a running proxy");
 
         let seen = status();
         assert!(!seen.running);
-        assert_eq!(seen.tcp_port, tcp_port, "the screen must name the port it tried");
-        assert!(!seen.tcp_error.is_empty(), "status() must still explain the refusal");
+        assert_eq!(
+            seen.tcp_port, tcp_port,
+            "the screen must name the port it tried"
+        );
+        assert!(
+            !seen.tcp_error.is_empty(),
+            "status() must still explain the refusal"
+        );
         assert!(
             std::net::UdpSocket::bind(("127.0.0.1", dns_port)).is_ok(),
             "the half that did bind must not stay held behind a failed start"
@@ -932,10 +1011,16 @@ mod lifecycle_tests {
         let other = TcpListener::bind("127.0.0.1:0").unwrap();
         let free_tcp = other.local_addr().unwrap().port();
         drop(other);
-        assert!(start(free_tcp, dns_port, true).running, "free ports must come up");
+        assert!(
+            start(free_tcp, dns_port, true).running,
+            "free ports must come up"
+        );
         let live = status();
         assert!(live.running && live.tcp_port == free_tcp && live.dns_port == dns_port);
-        assert!(live.tcp_error.is_empty() && live.dns_error.is_empty(), "{live:?}");
+        assert!(
+            live.tcp_error.is_empty() && live.dns_error.is_empty(),
+            "{live:?}"
+        );
         stop();
         let after = status();
         assert!(!after.running);
@@ -960,12 +1045,24 @@ mod lifecycle_tests {
         let dns_port = probe.local_addr().unwrap().port();
         drop(probe);
 
-        assert!(start(tcp_port, dns_port, false).running, "listeners must come up on free ports");
-        assert!(!filters_loopback(), "a start told to leave loopback alone must leave it alone");
+        assert!(
+            start(tcp_port, dns_port, false).running,
+            "listeners must come up on free ports"
+        );
+        assert!(
+            !filters_loopback(),
+            "a start told to leave loopback alone must leave it alone"
+        );
         stop();
 
-        assert!(start(tcp_port, dns_port, true).running, "the same free ports must come back");
-        assert!(filters_loopback(), "the next start takes the choice it was given");
+        assert!(
+            start(tcp_port, dns_port, true).running,
+            "the same free ports must come back"
+        );
+        assert!(
+            filters_loopback(),
+            "the next start takes the choice it was given"
+        );
         stop();
     }
 
@@ -984,7 +1081,10 @@ mod lifecycle_tests {
         // Whatever this machine itself is addressed as is local — that is the
         // shape a redirected flow can arrive in, and it must never be refused.
         for ip in own_addresses() {
-            assert!(is_local_peer(SocketAddr::new(ip, 44321)), "{ip} is this host");
+            assert!(
+                is_local_peer(SocketAddr::new(ip, 44321)),
+                "{ip} is this host"
+            );
         }
     }
 }

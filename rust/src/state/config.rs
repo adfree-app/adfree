@@ -702,7 +702,11 @@ mod tests {
         let plan = policy(&s);
         assert!(!plan.network.allow_wifi);
         assert!(!plan.network.allow_roaming);
-        let rule = plan.network.rules.get("com.example").expect("explicit allow");
+        let rule = plan
+            .network
+            .rules
+            .get("com.example")
+            .expect("explicit allow");
         assert_eq!(rule.wifi, FirewallAccess::Allow);
         assert_eq!(
             rule.cellular,

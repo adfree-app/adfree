@@ -118,7 +118,10 @@ impl StateStore {
         if !firewall.is_empty() && !write_row(&self.store, KEY_FIREWALL, &firewall) {
             return;
         }
-        if let Err(e) = self.store.meta_set(META_FIREWALL_SCHEMA, FIREWALL_SCHEMA_VERSION) {
+        if let Err(e) = self
+            .store
+            .meta_set(META_FIREWALL_SCHEMA, FIREWALL_SCHEMA_VERSION)
+        {
             crate::logbuf::push_error(&format!("state: firewall schema marker not written: {e}"));
         }
     }
@@ -415,8 +418,14 @@ mod tests {
             ..Default::default()
         }
         .sanitized();
-        assert_eq!(below_range.local_proxy.tcp_port, crate::proxy::DEFAULT_TCP_PORT);
-        assert_eq!(below_range.local_proxy.dns_port, crate::proxy::DEFAULT_DNS_PORT);
+        assert_eq!(
+            below_range.local_proxy.tcp_port,
+            crate::proxy::DEFAULT_TCP_PORT
+        );
+        assert_eq!(
+            below_range.local_proxy.dns_port,
+            crate::proxy::DEFAULT_DNS_PORT
+        );
 
         let tied = ProtectionState {
             local_proxy: LocalProxyState {
@@ -432,7 +441,10 @@ mod tests {
             tied.local_proxy.tcp_port, tied.local_proxy.dns_port,
             "the DNS port has to move off the port the TCP listener kept"
         );
-        assert_eq!(tied.local_proxy.dns_port, crate::proxy::DEFAULT_DNS_PORT + 1);
+        assert_eq!(
+            tied.local_proxy.dns_port,
+            crate::proxy::DEFAULT_DNS_PORT + 1
+        );
     }
 
     /// An older blob names no listener ports at all: it must load with the
@@ -453,15 +465,16 @@ mod tests {
     /// choice not to survives the save that carries it.
     #[test]
     fn the_loopback_switch_defaults_on_and_keeps_a_deliberate_off() {
-        let untouched: ProtectionState =
-            serde_json::from_str("{}").expect("empty blob loads");
+        let untouched: ProtectionState = serde_json::from_str("{}").expect("empty blob loads");
         assert!(untouched.local_proxy.filter_localhost);
 
-        let ports_only: ProtectionState = serde_json::from_str(
-            r#"{"local_proxy":{"tcp_port":3131,"dns_port":5353}}"#,
-        )
-        .expect("a blob with ports but no switch loads");
-        assert!(ports_only.local_proxy.filter_localhost, "a pre-switch install still filters localhost");
+        let ports_only: ProtectionState =
+            serde_json::from_str(r#"{"local_proxy":{"tcp_port":3131,"dns_port":5353}}"#)
+                .expect("a blob with ports but no switch loads");
+        assert!(
+            ports_only.local_proxy.filter_localhost,
+            "a pre-switch install still filters localhost"
+        );
         assert_eq!(ports_only.local_proxy.tcp_port, 3131);
 
         let off = ProtectionState {
@@ -472,7 +485,10 @@ mod tests {
             ..Default::default()
         }
         .sanitized();
-        assert!(!off.local_proxy.filter_localhost, "sanitizing ports must not touch the switch");
+        assert!(
+            !off.local_proxy.filter_localhost,
+            "sanitizing ports must not touch the switch"
+        );
     }
 
     #[test]
@@ -586,7 +602,10 @@ mod tests {
             Some(FIREWALL_SCHEMA_VERSION)
         );
         let raw = store.state_get(KEY_FIREWALL).expect("row kept");
-        assert!(raw.contains("\"wifi_screen_off\""), "new dimensions written");
+        assert!(
+            raw.contains("\"wifi_screen_off\""),
+            "new dimensions written"
+        );
         assert!(raw.contains("\"block\""));
         assert!(!raw.contains("\"screen_off\""), "legacy key retired");
 
@@ -646,7 +665,11 @@ mod tests {
         assert!(state.save_filters(filters));
 
         let saved = state.snapshot().filters;
-        assert_eq!(saved.custom.len(), 1, "a DNS filter is not a custom web list");
+        assert_eq!(
+            saved.custom.len(),
+            1,
+            "a DNS filter is not a custom web list"
+        );
         assert_eq!(saved.dns_filters.len(), 1, "a blank id never persists");
         assert_eq!(saved.dns_filters[0].name, "Hosts");
         assert_eq!(saved.dns_filters[0].format, "hosts");

@@ -204,7 +204,8 @@ fn close_listener(address: &str) {
     #[cfg(windows)]
     {
         if let Ok(addr) = address.parse::<std::net::SocketAddr>() {
-            let _ = std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(200));
+            let _ =
+                std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(200));
         }
     }
 }
@@ -218,11 +219,18 @@ fn serve<R: Read, W: Write + Send + 'static>(
     token: Option<&str>,
 ) {
     if let Some(expected) = token {
-        let Ok(Some(first)) = read_frame(&mut reader) else { return };
+        let Ok(Some(first)) = read_frame(&mut reader) else {
+            return;
+        };
         let presented = std::str::from_utf8(&first)
             .ok()
             .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
-            .and_then(|value| value.get("token").and_then(|t| t.as_str()).map(str::to_string))
+            .and_then(|value| {
+                value
+                    .get("token")
+                    .and_then(|t| t.as_str())
+                    .map(str::to_string)
+            })
             .unwrap_or_default();
         if presented != expected {
             return;
@@ -232,7 +240,9 @@ fn serve<R: Read, W: Write + Send + 'static>(
     // A popup that closes mid-answer is a clean end of input, not a fault: the
     // panel was dismissed, and the next frame would be written to nobody.
     while let Ok(Some(request)) = read_frame(&mut reader) {
-        let Some(answer) = host.respond(request) else { break };
+        let Some(answer) = host.respond(request) else {
+            break;
+        };
         let sent = match sink.lock() {
             Ok(mut writer) => write_frame(&mut *writer, &answer).is_ok(),
             Err(_) => false,
@@ -245,7 +255,11 @@ fn serve<R: Read, W: Write + Send + 'static>(
 }
 
 #[cfg(unix)]
-fn listen(dir: &std::path::Path, host: Arc<dyn AssistantHost>, stop: Arc<AtomicBool>) -> Result<Started, String> {
+fn listen(
+    dir: &std::path::Path,
+    host: Arc<dyn AssistantHost>,
+    stop: Arc<AtomicBool>,
+) -> Result<Started, String> {
     use std::os::unix::net::UnixListener;
 
     let path = dir.join(SOCKET_NAME);
@@ -261,7 +275,8 @@ fn listen(dir: &std::path::Path, host: Arc<dyn AssistantHost>, stop: Arc<AtomicB
         }
         let _ = std::fs::remove_file(&path);
     }
-    let listener = UnixListener::bind(&path).map_err(|e| format!("cannot listen on {}: {e}", path.display()))?;
+    let listener = UnixListener::bind(&path)
+        .map_err(|e| format!("cannot listen on {}: {e}", path.display()))?;
     // A socket file is created with the umask's permissions — usually world
     // readable — and whoever can connect can switch protection off. The
     // directory is the app's own; the mode makes that explicit rather than
@@ -283,7 +298,9 @@ fn listen(dir: &std::path::Path, host: Arc<dyn AssistantHost>, stop: Arc<AtomicB
                     let Ok(stream) = incoming else { continue };
                     // Two handles on one socket: reading must not hold the
                     // write side while a push is being delivered.
-                    let Ok(writer) = stream.try_clone() else { continue };
+                    let Ok(writer) = stream.try_clone() else {
+                        continue;
+                    };
                     let host = Arc::clone(&host);
                     std::thread::spawn(move || serve(stream, writer, host.as_ref(), None));
                 }
@@ -298,7 +315,11 @@ fn listen(dir: &std::path::Path, host: Arc<dyn AssistantHost>, stop: Arc<AtomicB
 }
 
 #[cfg(windows)]
-fn listen(dir: &std::path::Path, host: Arc<dyn AssistantHost>, stop: Arc<AtomicBool>) -> Result<Started, String> {
+fn listen(
+    dir: &std::path::Path,
+    host: Arc<dyn AssistantHost>,
+    stop: Arc<AtomicBool>,
+) -> Result<Started, String> {
     use std::net::TcpListener;
 
     // Loopback only, and a token the endpoint file carries: Windows has no
@@ -322,7 +343,9 @@ fn listen(dir: &std::path::Path, host: Arc<dyn AssistantHost>, stop: Arc<AtomicB
                         break;
                     }
                     let Ok(stream) = incoming else { continue };
-                    let Ok(writer) = stream.try_clone() else { continue };
+                    let Ok(writer) = stream.try_clone() else {
+                        continue;
+                    };
                     let host = Arc::clone(&host);
                     let token = token.clone();
                     std::thread::spawn(move || serve(stream, writer, host.as_ref(), Some(&token)));

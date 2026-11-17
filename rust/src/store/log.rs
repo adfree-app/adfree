@@ -331,7 +331,12 @@ fn write_batch(db: &Db, rows: &[LogRow], traffic: &[FlowTraffic]) -> rusqlite::R
         let mut stmt = tx.prepare_cached(INSERT_TRAFFIC_SQL)?;
         for t in traffic {
             stmt.execute(rusqlite::params![
-                t.ts_ms, t.app, t.transport, t.roaming, t.sent, t.recv
+                t.ts_ms,
+                t.app,
+                t.transport,
+                t.roaming,
+                t.sent,
+                t.recv
             ])?;
         }
     }
@@ -366,8 +371,7 @@ fn write_batch(db: &Db, rows: &[LogRow], traffic: &[FlowTraffic]) -> rusqlite::R
     tx.commit()
 }
 
-const UPSERT_TOTAL_SQL: &str =
-    "INSERT INTO totals(key, value) VALUES (?1, ?2) \
+const UPSERT_TOTAL_SQL: &str = "INSERT INTO totals(key, value) VALUES (?1, ?2) \
      ON CONFLICT(key) DO UPDATE SET value = value + excluded.value";
 
 /// The running totals: ads, trackers, requests, bytes saved. Missing keys read
@@ -379,9 +383,7 @@ pub(super) fn totals(db: &Db) -> rusqlite::Result<(u64, u64, u64, u64)> {
     let mut trackers = 0u64;
     let mut requests = 0u64;
     let mut bytes_saved = 0u64;
-    let rows = stmt.query_map([], |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
-    })?;
+    let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
     for row in rows {
         let (key, value) = row?;
         let value = value.max(0) as u64;
@@ -464,9 +466,7 @@ pub(super) fn count(db: &Db) -> rusqlite::Result<i64> {
 /// cursor instead of OFFSET: rows arriving at the top never shift a page.
 pub(super) fn page_before(db: &Db, before_id: i64, limit: u32) -> rusqlite::Result<Vec<LogRow>> {
     let conn = db.lock();
-    let sql = format!(
-        "SELECT {COLUMNS} FROM log_events WHERE id < ?1 ORDER BY id DESC LIMIT ?2"
-    );
+    let sql = format!("SELECT {COLUMNS} FROM log_events WHERE id < ?1 ORDER BY id DESC LIMIT ?2");
     let mut stmt = conn.prepare_cached(&sql)?;
     let rows = stmt.query_map([before_id, limit as i64], row_from)?;
     rows.collect()
@@ -477,7 +477,8 @@ pub(super) fn page_before(db: &Db, before_id: i64, limit: u32) -> rusqlite::Resu
 /// indexed `action` keeps this an index scan, not a table scan.
 pub(super) fn status_counts(db: &Db) -> rusqlite::Result<(i64, i64)> {
     let conn = db.lock();
-    let mut stmt = conn.prepare_cached("SELECT action, COUNT(*) FROM log_events GROUP BY action")?;
+    let mut stmt =
+        conn.prepare_cached("SELECT action, COUNT(*) FROM log_events GROUP BY action")?;
     let mut rows = stmt.query([])?;
     let (mut blocked, mut allowed) = (0i64, 0i64);
     while let Some(r) = rows.next()? {

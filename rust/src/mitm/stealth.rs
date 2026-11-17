@@ -428,7 +428,10 @@ fn registrable(host: &str) -> String {
             suffix_len = k;
             break;
         }
-        if k >= 2 && rules.wildcard.contains(labels[labels.len() - k + 1..].join(".").as_str())
+        if k >= 2
+            && rules
+                .wildcard
+                .contains(labels[labels.len() - k + 1..].join(".").as_str())
         {
             suffix_len = k;
             break;
@@ -563,8 +566,14 @@ mod tests {
             list.starts_with("// This Source Code Form is subject to the terms of the Mozilla"),
             "the list must be the file publicsuffix.org publishes"
         );
-        assert!(list.contains("// VERSION: "), "the list carries its version");
-        assert!(list.contains("\nco.uk\n"), "a country second level is there");
+        assert!(
+            list.contains("// VERSION: "),
+            "the list carries its version"
+        );
+        assert!(
+            list.contains("\nco.uk\n"),
+            "a country second level is there"
+        );
         assert!(suffix_rules().exact.len() > 8_000, "the whole list is read");
     }
 
@@ -597,7 +606,11 @@ mod tests {
         ));
         // An address is its own site, and `localhost` has no site around it.
         assert!(is_third_party("10.0.0.2", Some("http://10.0.0.1/"), None));
-        assert!(!is_third_party("localhost", Some("http://localhost/"), None));
+        assert!(!is_third_party(
+            "localhost",
+            Some("http://localhost/"),
+            None
+        ));
     }
 
     #[test]

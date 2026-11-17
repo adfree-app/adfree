@@ -180,7 +180,9 @@ mod tests {
         // Another type is another question.
         assert!(cache.get("example.com", 28, 1, 11_500).is_none());
         // Past the TTL the entry is gone for good.
-        assert!(cache.get("example.com", 1, 1, 10_000 + TTL as u64 * 1_000).is_none());
+        assert!(cache
+            .get("example.com", 1, 1, 10_000 + TTL as u64 * 1_000)
+            .is_none());
         assert_eq!(cache.len(), 0);
     }
 

@@ -11,12 +11,12 @@
 use crate::mitm::proxy::ProxySession;
 use crate::mitm::tcp::{Flow, FlowState};
 use crate::socks5::{ProxyEndpoint, Socks5Handshake};
+use crate::sys::fd::RawFd;
+use crate::sys::libc;
 use crate::util::now_ms;
 use std::collections::VecDeque;
-use crate::sys::fd::RawFd;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use crate::sys::libc;
 
 /// Port we intercept for TLS termination. Everything else keeps flowing.
 pub const MITM_PORT: u16 = 443;
@@ -788,7 +788,13 @@ mod tests {
 
     fn plain_relay_with_syn() -> Relay {
         let flow = crate::mitm::tcp::Flow::new(crate::packet::IpKey::V4(1), 40000, 80, 1000, 5000);
-        let mut r = Relay::new_plain(flow, crate::sys::fd::NO_FD, syn_packet(), DEFAULT_MSS, false);
+        let mut r = Relay::new_plain(
+            flow,
+            crate::sys::fd::NO_FD,
+            syn_packet(),
+            DEFAULT_MSS,
+            false,
+        );
         r.flow.up_bytes = 1;
         r
     }
@@ -804,7 +810,13 @@ mod tests {
     #[test]
     fn a_plain_relay_moves_bytes_untouched() {
         let flow = crate::mitm::tcp::Flow::new(crate::packet::IpKey::V4(1), 40000, 80, 1000, 5000);
-        let mut r = Relay::new_plain(flow, crate::sys::fd::NO_FD, syn_packet(), DEFAULT_MSS, false);
+        let mut r = Relay::new_plain(
+            flow,
+            crate::sys::fd::NO_FD,
+            syn_packet(),
+            DEFAULT_MSS,
+            false,
+        );
         // No handshake to complete: bytes can flow immediately.
         assert!(r.is_established());
         let (to_peer, to_client) = r
@@ -872,7 +884,11 @@ mod tests {
         // A relay with no peer socket is not in the snapshot at all, so this
         // test needs a real descriptor to talk about.
         let peer = unsafe { libc::socket(libc::AF_INET, libc::SOCK_STREAM, 0) };
-        assert!(crate::sys::fd::fd_ok(peer), "socket: {}", std::io::Error::last_os_error());
+        assert!(
+            crate::sys::fd::fd_ok(peer),
+            "socket: {}",
+            std::io::Error::last_os_error()
+        );
         r.attach_peer(peer);
         r.queue_to_client(&vec![0u8; MAX_PENDING_TO_CLIENT - 1]);
         assert!(!r.client_paused(), "the cap itself has not been reached");

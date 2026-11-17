@@ -936,7 +936,10 @@ mod tests {
     fn the_youtube_module_runs_on_youtube_only() {
         let body = crate::filter::YOUTUBE_JS;
         let parsed = meta(body);
-        assert!(parsed.restrict, "the module is not allowed to run everywhere");
+        assert!(
+            parsed.restrict,
+            "the module is not allowed to run everywhere"
+        );
         assert!(parsed.matches("https://www.youtube.com/watch?v=1"));
         assert!(parsed.matches("https://m.youtube.com/"));
         assert!(!parsed.matches("https://example.com/"));

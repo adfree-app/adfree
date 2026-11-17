@@ -302,8 +302,7 @@ impl Event {
     /// Which protocol the row belongs to, as a [`protocol`] code. `NONE` when
     /// the writer did not say, which is every row stored before this existed.
     pub fn set_protocol(&mut self, code: u8) {
-        self.flags =
-            (self.flags & !FLAG_PROTOCOL_MASK) | ((code & 0b111) << FLAG_PROTOCOL_SHIFT);
+        self.flags = (self.flags & !FLAG_PROTOCOL_MASK) | ((code & 0b111) << FLAG_PROTOCOL_SHIFT);
     }
 
     pub fn protocol(&self) -> u8 {
@@ -731,7 +730,8 @@ fn build(
     ev.ts_ms = crate::util::now_ms();
     ev.action = action;
     ev.category = category;
-    ev.flags = (if ipv6 { FLAG_IPV6 } else { 0 }) | (if rule.is_empty() { 0 } else { FLAG_HAS_RULE });
+    ev.flags =
+        (if ipv6 { FLAG_IPV6 } else { 0 }) | (if rule.is_empty() { 0 } else { FLAG_HAS_RULE });
     ev.latency_ns = latency_ns;
     ev.bytes_saved = bytes_saved;
     put_str(&mut ev.domain[..], &mut ev.domain_len, domain);
@@ -897,7 +897,17 @@ mod tests {
     fn the_type_and_the_referrer_travel_with_the_event() {
         let ev = with_source(
             with_type(
-                block_event(ACTION_BLOCK, "host.test", "", "||banner", "Ads", 1, 0, 10, false),
+                block_event(
+                    ACTION_BLOCK,
+                    "host.test",
+                    "",
+                    "||banner",
+                    "Ads",
+                    1,
+                    0,
+                    10,
+                    false,
+                ),
                 req_type::SCRIPT,
             ),
             "https://host.test/page",
@@ -976,7 +986,11 @@ mod tests {
         );
         assert_eq!(
             out.len(),
-            RECORD_HEADER + RECORD_TRAILER + dlen + ilen + ev.cipher_len as usize
+            RECORD_HEADER
+                + RECORD_TRAILER
+                + dlen
+                + ilen
+                + ev.cipher_len as usize
                 + ev.ctype_len as usize
                 + ev.cert_subj_len as usize
                 + ev.cert_iss_len as usize

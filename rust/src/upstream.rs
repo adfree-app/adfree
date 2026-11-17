@@ -13,10 +13,10 @@
 //! * transaction ids are rewritten to locally unique values, so a reply is
 //!   matched with one hash lookup and a stuck query just times out.
 
-use std::collections::HashMap;
-use std::net::SocketAddr;
 use crate::sys::fd::RawFd;
 use crate::sys::libc;
+use std::collections::HashMap;
+use std::net::SocketAddr;
 
 /// Number of parallel upstream sockets.
 pub const SOCKET_POOL_PUB: usize = 4;

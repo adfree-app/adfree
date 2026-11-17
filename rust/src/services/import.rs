@@ -256,7 +256,11 @@ fn ghostery(value: &Value, rows: &mut Rows) -> bool {
                 continue;
             };
             seen = true;
-            insert(rows, domain, ghostery_fields(pattern, organizations, categories));
+            insert(
+                rows,
+                domain,
+                ghostery_fields(pattern, organizations, categories),
+            );
         }
     }
     for pattern in patterns.values() {
@@ -267,7 +271,11 @@ fn ghostery(value: &Value, rows: &mut Rows) -> bool {
         // not reach, and the same key resolves either way.
         for domain in list.iter().filter_map(Value::as_str) {
             seen = true;
-            insert(rows, domain, ghostery_fields(pattern, organizations, categories));
+            insert(
+                rows,
+                domain,
+                ghostery_fields(pattern, organizations, categories),
+            );
         }
     }
     seen
@@ -305,23 +313,21 @@ fn duckduckgo(value: &Value, rows: &mut Rows) -> bool {
     let mut items: Vec<(Option<String>, &Value)> = Vec::new();
     match value {
         Value::Array(list) => items.extend(list.iter().map(|item| (None, item))),
-        Value::Object(map) => {
-            match map.get("domains") {
-                Some(Value::Object(inner)) => {
-                    items.extend(inner.iter().map(|(k, item)| (Some(k.clone()), item)));
-                }
-                Some(Value::Array(list)) => {
-                    items.extend(list.iter().map(|item| (None, item)));
-                }
-                _ => {
-                    if map.contains_key("owner") || map.contains_key("prevalence") {
-                        items.push((None, value));
-                    } else {
-                        items.extend(map.iter().map(|(k, item)| (Some(k.clone()), item)));
-                    }
+        Value::Object(map) => match map.get("domains") {
+            Some(Value::Object(inner)) => {
+                items.extend(inner.iter().map(|(k, item)| (Some(k.clone()), item)));
+            }
+            Some(Value::Array(list)) => {
+                items.extend(list.iter().map(|item| (None, item)));
+            }
+            _ => {
+                if map.contains_key("owner") || map.contains_key("prevalence") {
+                    items.push((None, value));
+                } else {
+                    items.extend(map.iter().map(|(k, item)| (Some(k.clone()), item)));
                 }
             }
-        }
+        },
         _ => return false,
     }
     let mut seen = false;
@@ -370,7 +376,13 @@ fn label(value: Option<&Value>) -> Option<String> {
     };
     let cleaned: String = text
         .chars()
-        .map(|c| if c == '\t' || c.is_ascii_control() { ' ' } else { c })
+        .map(|c| {
+            if c == '\t' || c.is_ascii_control() {
+                ' '
+            } else {
+                c
+            }
+        })
         .collect();
     let cleaned = cleaned.trim();
     (!cleaned.is_empty()).then(|| cleaned.to_owned())
@@ -543,17 +555,24 @@ mod tests {
         let table = to_table(body).unwrap();
         assert!(crate::services::is_sorted(&table));
         assert_eq!(crate::services::row_count(&table), 2);
-        let resolver_dir = std::env::temp_dir().join(format!("adfree-import-{}", std::process::id()));
+        let resolver_dir =
+            std::env::temp_dir().join(format!("adfree-import-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&resolver_dir);
         std::fs::create_dir_all(&resolver_dir).unwrap();
         crate::assets::save(&resolver_dir, super::super::OVERRIDE_ID, "tsv", &table).unwrap();
         let resolver = crate::services::Resolver::new(Some(&resolver_dir));
         assert_eq!(
-            resolver.entry("www.z.example").as_ref().map(|e| e.company.as_str()),
+            resolver
+                .entry("www.z.example")
+                .as_ref()
+                .map(|e| e.company.as_str()),
             Some("co")
         );
         assert_eq!(
-            resolver.entry("a.example").as_ref().map(|e| e.tracker.as_str()),
+            resolver
+                .entry("a.example")
+                .as_ref()
+                .map(|e| e.tracker.as_str()),
             Some("A")
         );
         let _ = std::fs::remove_dir_all(&resolver_dir);

@@ -527,9 +527,7 @@ fn rule_host(line: &str) -> Option<&str> {
         line.strip_prefix("|https://")
             .or_else(|| line.strip_prefix("|http://"))
     })?;
-    let end = rest
-        .find(['/', '^', '$', '|'])
-        .unwrap_or(rest.len());
+    let end = rest.find(['/', '^', '$', '|']).unwrap_or(rest.len());
     let host = &rest[..end];
     if host.is_empty() || host.contains('*') {
         return None;
@@ -586,9 +584,7 @@ pub fn unserved_redirect(rule: &str) -> Option<String> {
         // it and a block is the honest outcome.
         return None;
     }
-    let resource = redirect_resources()
-        .iter()
-        .find(|r| r.name == target)?;
+    let resource = redirect_resources().iter().find(|r| r.name == target)?;
     let mime = match &resource.kind {
         ResourceType::Mime(mime) => mime.to_string(),
         _ => "application/javascript".to_string(),
@@ -609,7 +605,11 @@ fn known_redirect_names() -> &'static HashSet<String> {
             })
             // A name `unserved_redirect` can answer is not missing, whatever
             // the engine itself can bind.
-            .chain(REDIRECT_ALIASES.iter().map(|(spelling, _)| spelling.to_string()))
+            .chain(
+                REDIRECT_ALIASES
+                    .iter()
+                    .map(|(spelling, _)| spelling.to_string()),
+            )
             .collect()
     })
 }
@@ -1609,8 +1609,7 @@ impl CacheKey {
         // the key. DNS protection is a runtime gate over the same engine, so
         // flipping it must not throw a 35 MB cache away.
         hash.write_u8(
-            build_flags
-                & (MODULE_ADS | MODULE_TRACKING | MODULE_ANNOYANCES | MODULE_SECURITY),
+            build_flags & (MODULE_ADS | MODULE_TRACKING | MODULE_ANNOYANCES | MODULE_SECURITY),
         );
         CacheKey { hash }
     }
@@ -2214,10 +2213,7 @@ impl FilterEngine {
                             dedupe_by(text, &mut seen_url, |rule| (dns_rule_key(rule), None))
                         } else {
                             dedupe_by(text, &mut seen_url, |rule| {
-                                (
-                                    crate::fxhash::hash_str(rule),
-                                    plain_domain_key(rule),
-                                )
+                                (crate::fxhash::hash_str(rule), plain_domain_key(rule))
                             })
                         };
                         deduped += repeats;
@@ -3872,9 +3868,9 @@ fn exception_page_host(rule: &str) -> Option<String> {
     if host.is_empty() || host.contains('/') || host.contains('*') {
         return None;
     }
-    let names_page = modifiers.split(',').any(|modifier| {
-        modifier == "document" || modifier == "urlblock"
-    });
+    let names_page = modifiers
+        .split(',')
+        .any(|modifier| modifier == "document" || modifier == "urlblock");
     if !names_page {
         return None;
     }
@@ -3898,7 +3894,10 @@ fn is_plain_domain(host: &str) -> bool {
 
 /// Is this address the "go away" answer of a hosts file?
 fn is_blocking_ip(ip: &str) -> bool {
-    matches!(ip, "0.0.0.0" | "127.0.0.1" | "::" | "::1" | "0.0.0.0:80" | "127.0.0.1:80")
+    matches!(
+        ip,
+        "0.0.0.0" | "127.0.0.1" | "::" | "::1" | "0.0.0.0:80" | "127.0.0.1:80"
+    )
 }
 
 /// Rewrites a host list written as dnsmasq (or hosts) into `||domain^` lines, or
@@ -4508,10 +4507,7 @@ fn scan_nested_cosmetics(text: &str, scan: &mut NestedCosmeticScan) {
         };
         // Other passes own these markers: `##^` is HTML filtering, `#%#` is
         // JavaScript, and a bracketed condition is read with its location.
-        if !matches!(
-            marker,
-            "##" | "#?#" | "#$?#" | "#@#" | "#@?#" | "#@$?#"
-        ) {
+        if !matches!(marker, "##" | "#?#" | "#$?#" | "#@#" | "#@?#" | "#@$?#") {
             continue;
         }
         let before = line[..index].trim();
@@ -7847,8 +7843,7 @@ fn evaluate_main(compiled: &Compiled, host: &str) -> HostVerdict {
         // stub rule carries the path, and a hostname cannot. The block stands
         // — the URL layer answers anything the stub rule does not cover — but
         // the decision belongs to the layer that can read the request.
-        redirect: result.redirect.is_some()
-            || compiled.stub_hosts.contains(normalise_host(host)),
+        redirect: result.redirect.is_some() || compiled.stub_hosts.contains(normalise_host(host)),
     }
 }
 
@@ -8215,7 +8210,9 @@ mod tests {
     use super::*;
 
     fn temp_list(name: &str, body: &str, format: ListFormat, id: u16) -> FilterListInfo {
-        let dir = std::env::temp_dir().join("adfree-filter-test").join(test_scope());
+        let dir = std::env::temp_dir()
+            .join("adfree-filter-test")
+            .join(test_scope());
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join(name);
         std::fs::write(&path, body).unwrap();
@@ -8311,10 +8308,8 @@ mod tests {
         // The pid belongs in the name: two `cargo test` runs sharing /tmp delete
         // each other's engine cache from under the rebuild that is about to read
         // it, and the reuse assertions then fail only when the suites overlap.
-        let dir = std::env::temp_dir().join(format!(
-            "adfree-engine-cache-{name}-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("adfree-engine-cache-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -8384,12 +8379,7 @@ mod tests {
         assert!(fe.last_build_cached());
 
         // A list body change must invalidate even though the path is the same.
-        lists[0] = cached_list(
-            &root,
-            1,
-            "base.txt",
-            "||ads.example.com^\n||later.test^\n",
-        );
+        lists[0] = cached_list(&root, 1, "base.txt", "||ads.example.com^\n||later.test^\n");
         fe.rebuild(&lists, &rules);
         assert!(!fe.last_build_cached());
         assert!(fe.check_host_detailed("later.test").blocked);
@@ -8565,7 +8555,11 @@ mod tests {
             ListFormat::Hosts,
             9,
         )]);
-        for host in ["dnsmasq-blocked.test", "address-blocked.test", "hosts-blocked.test"] {
+        for host in [
+            "dnsmasq-blocked.test",
+            "address-blocked.test",
+            "hosts-blocked.test",
+        ] {
             assert!(
                 fe.check_host_detailed(host).blocked,
                 "{host} should be blocked"
@@ -8633,7 +8627,10 @@ mod tests {
         );
         // A sub-resource exception is not a page: unblocking one path must not
         // stand the resolver down for whatever the page asks next.
-        assert_eq!(exception_page_host("@@||example.com/recaptcha/$document"), None);
+        assert_eq!(
+            exception_page_host("@@||example.com/recaptcha/$document"),
+            None
+        );
         assert_eq!(exception_page_host("@@||example.com^$third-party"), None);
         assert_eq!(exception_page_host("||example.com^"), None);
         assert_eq!(exception_page_host(""), None);
@@ -8674,12 +8671,7 @@ mod tests {
         dns.dns_only = true;
         dns.name = "Host-only list".to_string();
         let fe = engine(vec![
-            temp_list(
-                "base.txt",
-                "||main.dns.test^\n",
-                ListFormat::Standard,
-                1,
-            ),
+            temp_list("base.txt", "||main.dns.test^\n", ListFormat::Standard, 1),
             dns,
         ]);
 
@@ -10189,7 +10181,10 @@ mod tests {
         let (body, applied) = plan.apply(html.as_bytes()).expect("the detector goes");
         let body = String::from_utf8(body).expect("utf8");
         assert!(!body.contains("fs-adb-err"), "{body}");
-        assert!(body.contains("var page = 1"), "the page's own scripts stay: {body}");
+        assert!(
+            body.contains("var page = 1"),
+            "the page's own scripts stay: {body}"
+        );
         assert_eq!(applied.len(), 1, "{applied:?}");
         // Another site is not covered by it.
         let other = cuts(&fe, "https://example.test/", "", "document");
@@ -10456,7 +10451,10 @@ mod tests {
         use base64::engine::general_purpose::STANDARD;
         use base64::Engine as _;
         let body_of = |data_url: &str| {
-            let b64 = data_url.rsplit(',').next().expect("a data URL carries a body");
+            let b64 = data_url
+                .rsplit(',')
+                .next()
+                .expect("a data URL carries a body");
             String::from_utf8(STANDARD.decode(b64).expect("base64")).expect("utf8")
         };
         let rule = "||imasdk.googleapis.com/js/sdkloader/ima3.js$script,domain=espn.com,\
@@ -11112,9 +11110,8 @@ mod tests {
     /// runtime reads it as "run this rule again when the attribute changes".
     #[test]
     fn a_watch_attr_rule_becomes_a_payload_entry() {
-        let fe = cosmetic_engine(
-            "! Title: watch\nshop.test##.box:has-text(ads):watch-attr(data-ad)\n",
-        );
+        let fe =
+            cosmetic_engine("! Title: watch\nshop.test##.box:has-text(ads):watch-attr(data-ad)\n");
         let page = fe.cosmetic_resources_for_host("shop.test");
         let entry = page
             .procedural
@@ -11187,7 +11184,10 @@ mod tests {
         scan.scan("a.test##+js(set-constant, x, true)\n");
         scan.scan("b.test#%#//scriptlet('ubo-json-edit', 'x')\n");
         assert_eq!(scan.used.len(), 2);
-        assert_eq!(scan.missing.keys().collect::<Vec<_>>(), vec!["ubo-json-edit"]);
+        assert_eq!(
+            scan.missing.keys().collect::<Vec<_>>(),
+            vec!["ubo-json-edit"]
+        );
         // The alias the table carries is a name that *does* resolve.
         let mut known = ScriptletScan::default();
         known.scan("c.test##+js(rpnt, #text, ads)\n");
@@ -11208,14 +11208,22 @@ mod tests {
             .find(|entry| entry.contains("\"type\":\"matches-media\""))
             .unwrap_or_else(|| panic!("no media entry: {:?}", page.procedural));
         assert!(entry.contains("min-width: 800px"), "{entry}");
-        assert!(!page.hide_selectors.iter().any(|s| s.contains("matches-media")));
+        assert!(!page
+            .hide_selectors
+            .iter()
+            .any(|s| s.contains("matches-media")));
     }
 
     /// uBO ships `replace-node-text` / `rpnt` as the untrusted spellings of its
     /// trusted scriptlet; a list asking for either has to get the body.
     #[test]
     fn replace_node_text_is_reachable_by_its_ubo_names() {
-        for name in ["replace-node-text", "rpnt", "trusted-rpnt", "trusted-replace-node-text"] {
+        for name in [
+            "replace-node-text",
+            "rpnt",
+            "trusted-rpnt",
+            "trusted-replace-node-text",
+        ] {
             let fe = cosmetic_engine(&format!(
                 "! Title: rpnt\nshop.test##+js({name}, #text, ads, \"\")\n"
             ));
@@ -12946,4 +12954,3 @@ mod tests {
         assert!(other.hide_selectors.iter().any(|s| s == ".ad"));
     }
 }
-

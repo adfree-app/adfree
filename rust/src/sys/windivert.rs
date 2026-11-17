@@ -32,8 +32,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::packet::Packet;
 use crate::winnat::{self, Decision, Endpoint, Nat, Shape};
 
-use crate::sys::windivert_filter::{inbound_filter, outbound_filter};
 pub use crate::sys::windivert_filter::OWN_PORTS;
+use crate::sys::windivert_filter::{inbound_filter, outbound_filter};
 
 /// `WINDIVERT_LAYER_NETWORK`.
 const LAYER_NETWORK: i32 = 0;
@@ -153,7 +153,8 @@ fn missing_dll() -> String {
 fn exe_dirs() -> Vec<std::path::PathBuf> {
     use windows_sys::Win32::System::LibraryLoader::GetModuleFileNameW;
     let mut buf = vec![0u16; 1024];
-    let len = unsafe { GetModuleFileNameW(std::ptr::null_mut(), buf.as_mut_ptr(), buf.len() as u32) };
+    let len =
+        unsafe { GetModuleFileNameW(std::ptr::null_mut(), buf.as_mut_ptr(), buf.len() as u32) };
     if len == 0 {
         return Vec::new();
     }
@@ -166,7 +167,9 @@ fn exe_dirs() -> Vec<std::path::PathBuf> {
         dir.to_path_buf(),
         dir.join("windivert"),
         dir.join("lib/app/resources/windivert"),
-        dir.parent().map(|p| p.join("lib/app/resources/windivert")).unwrap_or_default(),
+        dir.parent()
+            .map(|p| p.join("lib/app/resources/windivert"))
+            .unwrap_or_default(),
     ]
 }
 
@@ -228,14 +231,7 @@ impl Filter {
 impl Filter {
     fn open(api: &Arc<Api>, filter: &str) -> Result<Filter, String> {
         let c: Vec<u8> = filter.bytes().chain(std::iter::once(0)).collect();
-        let handle = unsafe {
-            (api.open)(
-                c.as_ptr() as *const i8,
-                LAYER_NETWORK,
-                0,
-                FLAGS_NONE,
-            )
-        };
+        let handle = unsafe { (api.open)(c.as_ptr() as *const i8, LAYER_NETWORK, 0, FLAGS_NONE) };
         if handle.is_null() || handle as isize == -1 {
             // The Win32 code is the whole diagnosis: 5 is a token without the
             // administrators group, 1275 is a driver this machine refuses to
@@ -279,13 +275,7 @@ impl Filter {
     fn send(&self, buf: &mut [u8], addr: &Address) -> bool {
         let mut sent = 0u32;
         let ok = unsafe {
-            (self.api.send)(
-                self.handle,
-                buf.as_ptr(),
-                buf.len() as u32,
-                &mut sent,
-                addr,
-            )
+            (self.api.send)(self.handle, buf.as_ptr(), buf.len() as u32, &mut sent, addr)
         };
         ok != 0
     }
@@ -567,7 +557,9 @@ impl Redirector {
 /// Whether this packet is one of the local listeners answering, rather than a
 /// client asking. Only then is it the second half of a redirected flow.
 fn is_listener_answer(pkt: &Packet<'_>) -> bool {
-    pkt.src_ip().map(|a| a.as_ip().is_loopback()).unwrap_or(false)
+    pkt.src_ip()
+        .map(|a| a.as_ip().is_loopback())
+        .unwrap_or(false)
 }
 
 /// The address a packet arrives with. `Outbound` is a bit, and clearing it is
@@ -621,4 +613,3 @@ pub fn run_inbound(redirector: &Arc<Redirector>) {
         }
     }
 }
-

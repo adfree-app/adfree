@@ -133,7 +133,8 @@ fn a_session_still_handshaking_has_no_certificate_to_report() {
 }
 
 #[test]
-fn spliced_body_survives_the_tls_round_trip() {    let ca = Arc::new(crate::mitm::ca::CertificateAuthority::generate().expect("ca"));
+fn spliced_body_survives_the_tls_round_trip() {
+    let ca = Arc::new(crate::mitm::ca::CertificateAuthority::generate().expect("ca"));
     let mut server = server_using(Arc::clone(&ca));
 
     let cconfig = client_trusting(&ca);
@@ -347,10 +348,16 @@ fn a_certificate_alert_is_read_off_the_wire() {
     assert_eq!(None, client_certificate_alert(&other));
 
     // A handshake record is not an alert.
-    assert_eq!(None, client_certificate_alert(&[0x16, 0x03, 0x03, 0x00, 0x02, 0x02, 0x30]));
+    assert_eq!(
+        None,
+        client_certificate_alert(&[0x16, 0x03, 0x03, 0x00, 0x02, 0x02, 0x30])
+    );
 
     // A record whose body is truncated says nothing.
-    assert_eq!(None, client_certificate_alert(&[0x15, 0x03, 0x03, 0x00, 0x04, 0x02]));
+    assert_eq!(
+        None,
+        client_certificate_alert(&[0x15, 0x03, 0x03, 0x00, 0x04, 0x02])
+    );
 }
 
 /// Two TLS stacks get different fingerprints; the same stack gets the same one
@@ -374,7 +381,9 @@ fn a_client_fingerprint_identifies_the_stack_not_the_connection() {
     assert!(!a.is_empty(), "and the fingerprint is there at all");
 
     // Garbage still yields a usable, empty fingerprint rather than a panic.
-    let junk = [0x16, 0x03, 0x01, 0x00, 0x08, 0x01, 0x00, 0x00, 0x04, 0, 0, 0, 0];
+    let junk = [
+        0x16, 0x03, 0x01, 0x00, 0x08, 0x01, 0x00, 0x00, 0x04, 0, 0, 0, 0,
+    ];
     let Flight::Hello { fingerprint, .. } = first_flight(&junk) else {
         panic!("a junk hello is still read as a hello")
     };
@@ -388,10 +397,7 @@ fn a_client_hello_can_be_told_from_garbage() {
     let mut junk = vec![
         0x16, 0x03, 0x01, 0x00, 0x08, 0x01, 0x00, 0x00, 0x04, 0, 0, 0, 0,
     ];
-    assert_eq!(
-        (None, None, None),
-        hello_parts(first_flight(&junk))
-    );
+    assert_eq!((None, None, None), hello_parts(first_flight(&junk)));
     junk[5] = 0x02; // a ServerHello, not a ClientHello
     assert_eq!(first_flight(&junk), Flight::NotHello);
 }

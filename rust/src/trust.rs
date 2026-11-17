@@ -61,7 +61,10 @@ struct LinuxStore {
 const LINUX_STORES: [LinuxStore; 3] = [
     LinuxStore {
         anchors: "/usr/local/share/ca-certificates",
-        refresh: &["/usr/sbin/update-ca-certificates", "/usr/bin/update-ca-certificates"],
+        refresh: &[
+            "/usr/sbin/update-ca-certificates",
+            "/usr/bin/update-ca-certificates",
+        ],
         refresh_args: &[],
     },
     LinuxStore {
@@ -701,7 +704,10 @@ fn under(root: &Path, path: &str) -> std::path::PathBuf {
 fn linux_store_under(root: &Path) -> Option<&'static LinuxStore> {
     LINUX_STORES.iter().find(|store| {
         under(root, store.anchors).is_dir()
-            && store.refresh.iter().any(|program| under(root, program).is_file())
+            && store
+                .refresh
+                .iter()
+                .any(|program| under(root, program).is_file())
     })
 }
 
@@ -744,13 +750,11 @@ fn linux_installed(der: Option<&[u8]>) -> bool {
     let Some(der) = der else {
         return false;
     };
-    anchor_targets(Path::new("/"))
-        .iter()
-        .any(|path| {
-            fs::read(path)
-                .map(|bytes| cert_matches_file(&bytes, der))
-                .unwrap_or(false)
-        })
+    anchor_targets(Path::new("/")).iter().any(|path| {
+        fs::read(path)
+            .map(|bytes| cert_matches_file(&bytes, der))
+            .unwrap_or(false)
+    })
 }
 
 #[cfg(target_os = "linux")]
@@ -799,7 +803,10 @@ fn linux_run(program: &str, args: &[&str]) -> Result<(), String> {
 #[cfg(target_os = "linux")]
 fn update_linux_bundle(store: &LinuxStore) -> Result<(), String> {
     let Some(program) = store.refresh.iter().find(|path| Path::new(path).is_file()) else {
-        return Err("no update-ca-certificates/update-ca-trust command for this anchor directory".to_string());
+        return Err(
+            "no update-ca-certificates/update-ca-trust command for this anchor directory"
+                .to_string(),
+        );
     };
     linux_run(program, store.refresh_args)
 }
@@ -920,7 +927,13 @@ fn windows_thumbprint(der: &[u8]) -> String {
 /// lines long, with the published vectors in the tests.
 #[cfg(any(windows, test))]
 fn sha1(data: &[u8]) -> [u8; 20] {
-    let mut h: [u32; 5] = [0x6745_2301, 0xEFCD_AB89, 0x98BA_DCFE, 0x1032_5476, 0xC3D2_E1F0];
+    let mut h: [u32; 5] = [
+        0x6745_2301,
+        0xEFCD_AB89,
+        0x98BA_DCFE,
+        0x1032_5476,
+        0xC3D2_E1F0,
+    ];
     let bit_len = (data.len() as u64).wrapping_mul(8);
     let mut msg = data.to_vec();
     msg.push(0x80);
@@ -991,8 +1004,11 @@ fn certutil(args: &[&std::ffi::OsStr]) -> (bool, String) {
     // Windows 11 as `[trust] NSS database skipped: cannot create the database:
     // cannot run certutil`, which silently left Firefox untrusted. The bare name
     // stays as the fallback for the machine with no `SystemRoot`.
-    let absolute = std::env::var_os("SystemRoot")
-        .map(|root| std::path::Path::new(&root).join("System32").join("certutil.exe"));
+    let absolute = std::env::var_os("SystemRoot").map(|root| {
+        std::path::Path::new(&root)
+            .join("System32")
+            .join("certutil.exe")
+    });
     let mut candidates: Vec<std::ffi::OsString> = Vec::new();
     if let Some(exe) = absolute {
         candidates.push(exe.into_os_string());
@@ -1226,13 +1242,10 @@ iRjL+xZqkbnzAis6uQIhAJc+z9Z5CRp5OFQT110aMAqyuGpi5rouQa7kYzl2smXB
     #[test]
     fn every_store_writes_where_the_check_reads() {
         for (index, store) in LINUX_STORES.iter().enumerate() {
-            let root = fake_root(
-                &format!("store{index}"),
-                store.refresh,
-                &[store.anchors],
-            );
-            let found = linux_store_under(&root)
-                .unwrap_or_else(|| panic!("{} has an anchor dir and a refresh command", store.anchors));
+            let root = fake_root(&format!("store{index}"), store.refresh, &[store.anchors]);
+            let found = linux_store_under(&root).unwrap_or_else(|| {
+                panic!("{} has an anchor dir and a refresh command", store.anchors)
+            });
             assert_eq!(found.anchors, store.anchors);
             assert_eq!(found.refresh, store.refresh);
             // The install target and the install check are the same path; a CA
@@ -1290,9 +1303,14 @@ iRjL+xZqkbnzAis6uQIhAJc+z9Z5CRp5OFQT110aMAqyuGpi5rouQa7kYzl2smXB
     fn sha1_matches_the_published_vectors() {
         let hex = |d: [u8; 20]| d.iter().map(|b| format!("{b:02x}")).collect::<String>();
         assert_eq!(hex(sha1(b"")), "da39a3ee5e6b4b0d3255bfef95601890afd80709");
-        assert_eq!(hex(sha1(b"abc")), "a9993e364706816aba3e25717850c26c9cd0d89d");
         assert_eq!(
-            hex(sha1(b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")),
+            hex(sha1(b"abc")),
+            "a9993e364706816aba3e25717850c26c9cd0d89d"
+        );
+        assert_eq!(
+            hex(sha1(
+                b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"
+            )),
             "84983e441c3bd26ebaae4aa1f95129e5e54670f1"
         );
         assert_eq!(

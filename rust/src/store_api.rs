@@ -158,7 +158,9 @@ fn route(method: &str, target: &str, body: &str) -> Answer {
                 Err(reason) => Answer::Json(envelope(false, None, &reason)),
             }
         }
-        "/userscript/list" => Answer::Json(format!("{{\"ok\":true,\"scripts\":{}}}", installed_json())),
+        "/userscript/list" => {
+            Answer::Json(format!("{{\"ok\":true,\"scripts\":{}}}", installed_json()))
+        }
         _ => Answer::Status("404 Not Found", envelope(false, None, "route")),
     }
 }
@@ -170,7 +172,6 @@ fn envelope(ok: bool, name: Option<&str>, error: &str) -> String {
         (false, _) => format!("{{\"ok\":false,\"error\":{}}}", quote(error)),
     }
 }
-
 
 fn query_param<'a>(query: &'a str, name: &str) -> Option<&'a str> {
     query.split('&').find_map(|pair| {
@@ -273,7 +274,11 @@ fn installed() -> Vec<ScriptRecord> {
 pub fn page_payload(host: &str) -> String {
     format!(
         "{{\"api\":{},\"host\":{},\"token\":{},\"installed\":{}}}",
-        quote(&format!("{}{}", crate::mitm::proxy::LOCAL_ORIGIN, API_PREFIX)),
+        quote(&format!(
+            "{}{}",
+            crate::mitm::proxy::LOCAL_ORIGIN,
+            API_PREFIX
+        )),
         quote(host),
         quote(token()),
         installed_json()
@@ -290,7 +295,8 @@ fn install(url: &str) -> Result<ScriptRecord, String> {
     }
     let core = crate::core();
     let store = core.store().ok_or_else(|| "store".to_string())?;
-    let body = crate::assets::fetch_text(url, MAX_SCRIPT_BYTES, std::time::Duration::from_secs(60))?;
+    let body =
+        crate::assets::fetch_text(url, MAX_SCRIPT_BYTES, std::time::Duration::from_secs(60))?;
     if !looks_like_userscript(&body) {
         return Err("not a userscript".to_string());
     }
@@ -399,13 +405,15 @@ mod tests {
     /// offered after a rename has to land on the script already installed.
     #[test]
     fn a_greasy_fork_key_survives_a_rename() {
-        let before =
-            "https://update.greasyfork.org/scripts/550659/Find%20Scripts.user.js";
+        let before = "https://update.greasyfork.org/scripts/550659/Find%20Scripts.user.js";
         let after =
             "https://update.greasyfork.org/scripts/550659/Find%20Scripts%20For%20This%20Site.user.js";
         assert_eq!(key_for(before), "greasyfork:550659");
         assert_eq!(key_for(before), key_for(after));
-        assert_ne!(key_for(before), key_for("https://update.greasyfork.org/scripts/1/x.user.js"));
+        assert_ne!(
+            key_for(before),
+            key_for("https://update.greasyfork.org/scripts/1/x.user.js")
+        );
     }
 
     /// Any other host falls back to its URL: there is no shared id scheme.
@@ -430,7 +438,10 @@ mod tests {
             key_for("https://scriptcat.org/en/script-show-page/58"),
             "scriptcat:58"
         );
-        assert_eq!(key_for("https://scriptcat.org/ja/script-show-page/58"), "scriptcat:58");
+        assert_eq!(
+            key_for("https://scriptcat.org/ja/script-show-page/58"),
+            "scriptcat:58"
+        );
         assert_ne!(
             key_for("https://scriptcat.org/scripts/code/59/other.user.js"),
             "scriptcat:58"
@@ -463,7 +474,9 @@ mod tests {
             "// ==UserScript==\n// @name Thing\n// @version 1.2\n// ==/UserScript==\n"
         ));
         // A metadata block with no name is a fragment, not an installable script.
-        assert!(!looks_like_userscript("// ==UserScript==\n// @version 1\n// ==/UserScript=="));
+        assert!(!looks_like_userscript(
+            "// ==UserScript==\n// @version 1\n// ==/UserScript=="
+        ));
     }
 
     #[test]
@@ -471,7 +484,10 @@ mod tests {
         let body = "// ==UserScript==\n// @name         A Thing\n// @version      2.0.1\n// @description  does things\n// ==/UserScript==";
         assert_eq!(meta_value(body, "name").as_deref(), Some("A Thing"));
         assert_eq!(meta_value(body, "version").as_deref(), Some("2.0.1"));
-        assert_eq!(meta_value(body, "description").as_deref(), Some("does things"));
+        assert_eq!(
+            meta_value(body, "description").as_deref(),
+            Some("does things")
+        );
         assert_eq!(meta_value(body, "namespace"), None);
     }
 
@@ -479,15 +495,25 @@ mod tests {
     /// allowlist is decided on the host it names.
     #[test]
     fn an_origin_is_read_by_its_host() {
-        assert_eq!(origin_host("https://greasyfork.org"), Some("greasyfork.org"));
-        assert_eq!(origin_host("http://www.greasyfork.org:8080"), Some("www.greasyfork.org"));
+        assert_eq!(
+            origin_host("https://greasyfork.org"),
+            Some("greasyfork.org")
+        );
+        assert_eq!(
+            origin_host("http://www.greasyfork.org:8080"),
+            Some("www.greasyfork.org")
+        );
         assert_eq!(origin_host("null"), None);
     }
 
     /// Nothing answers without the token, and the token is per run.
     #[test]
     fn a_request_without_the_token_is_refused() {
-        let answer = route("POST", "/userscript/install", "{\"url\":\"https://x/y.user.js\"}");
+        let answer = route(
+            "POST",
+            "/userscript/install",
+            "{\"url\":\"https://x/y.user.js\"}",
+        );
         assert!(matches!(answer, Answer::Status("403 Forbidden", _)));
         let answer = route("POST", "/userscript/list", "{}");
         assert!(matches!(answer, Answer::Status("403 Forbidden", _)));
@@ -500,6 +526,9 @@ mod tests {
         let answer = route("POST", "/userscript/whatever", &body);
         assert!(matches!(answer, Answer::Status("404 Not Found", _)));
         let answer = route("GET", "/userscript/list", &body);
-        assert!(matches!(answer, Answer::Status("405 Method Not Allowed", _)));
+        assert!(matches!(
+            answer,
+            Answer::Status("405 Method Not Allowed", _)
+        ));
     }
 }

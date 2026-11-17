@@ -29,7 +29,9 @@ const IPV6: u32 = 23;
 /// the second fills exactly that. Both tables are the same shape at the front —
 /// a count, then rows — which is why they share this.
 fn fetch(tcp: bool, ipv6: bool) -> Option<Vec<u8>> {
-    use windows_sys::Win32::NetworkManagement::IpHelper::{GetExtendedTcpTable, GetExtendedUdpTable};
+    use windows_sys::Win32::NetworkManagement::IpHelper::{
+        GetExtendedTcpTable, GetExtendedUdpTable,
+    };
 
     let family = if ipv6 { IPV6 } else { IPV4 };
     fn call(tcp: bool, family: u32, buf: *mut u8, size: &mut u32) -> u32 {

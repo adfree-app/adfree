@@ -244,9 +244,7 @@ pub fn is_egress_evidence(addr: std::net::SocketAddr) -> bool {
     let std::net::IpAddr::V6(v6) = addr.ip() else {
         return false;
     };
-    !(v6.is_loopback()
-        || v6.is_unicast_link_local()
-        || (v6.segments()[0] & 0xfe00) == 0xfc00)
+    !(v6.is_loopback() || v6.is_unicast_link_local() || (v6.segments()[0] & 0xfe00) == 0xfc00)
 }
 
 /// Reports the outcome of one dial. Only global IPv6 targets feed the verdict
@@ -330,7 +328,10 @@ mod tests {
     fn three_machine_failures_start_the_suppression() {
         let mut egress = Egress::default();
         assert_eq!(egress.note_v6_failure(T, Failure::Timeout), News::None);
-        assert_eq!(egress.note_v6_failure(T + 100, Failure::Timeout), News::None);
+        assert_eq!(
+            egress.note_v6_failure(T + 100, Failure::Timeout),
+            News::None
+        );
         assert_eq!(
             egress.note_v6_failure(T + 200, Failure::Timeout),
             News::Suppressed {
@@ -372,9 +373,17 @@ mod tests {
         let mut egress = Egress::default();
         suppress(&mut egress, T);
         assert!(egress.withhold_aaaa(T + 3));
-        assert_eq!(egress.note_v6_success(T + 4), News::Restored, "the clearing is news");
+        assert_eq!(
+            egress.note_v6_success(T + 4),
+            News::Restored,
+            "the clearing is news"
+        );
         assert!(!egress.withhold_aaaa(T + 5));
-        assert_eq!(egress.note_v6_success(T + 6), News::None, "and only said once");
+        assert_eq!(
+            egress.note_v6_success(T + 6),
+            News::None,
+            "and only said once"
+        );
     }
 
     #[test]
@@ -394,7 +403,10 @@ mod tests {
                 window_ms: BASE_SUPPRESS_MS * 2
             }
         );
-        assert!(egress.withhold_aaaa(T + BASE_SUPPRESS_MS + 2), "suppressed again");
+        assert!(
+            egress.withhold_aaaa(T + BASE_SUPPRESS_MS + 2),
+            "suppressed again"
+        );
         assert!(
             !egress.withhold_aaaa(T + BASE_SUPPRESS_MS * 3 + 1),
             "the second window is twice the first"
@@ -410,7 +422,10 @@ mod tests {
             assert!(!egress.withhold_aaaa(at), "the expiry hands the query back");
             egress.note_v6_failure(at + 1, Failure::Timeout);
         }
-        assert_eq!(egress.window_ms, MAX_SUPPRESS_MS, "a long outage still re-probes");
+        assert_eq!(
+            egress.window_ms, MAX_SUPPRESS_MS,
+            "a long outage still re-probes"
+        );
         let until = egress.suppressed_until_ms;
         assert!(egress.withhold_aaaa(until - 1));
         assert!(!egress.withhold_aaaa(until));
@@ -420,21 +435,30 @@ mod tests {
     fn a_probe_that_lands_ends_the_outage() {
         let mut egress = Egress::default();
         suppress(&mut egress, T);
-        assert!(!egress.withhold_aaaa(T + BASE_SUPPRESS_MS), "the probe is on its way");
+        assert!(
+            !egress.withhold_aaaa(T + BASE_SUPPRESS_MS),
+            "the probe is on its way"
+        );
         assert_eq!(
             egress.note_v6_success(T + BASE_SUPPRESS_MS + 5_000),
             News::Restored,
             "the tunnel came back, and that is worth a line in the log"
         );
         assert!(!egress.withhold_aaaa(T + BASE_SUPPRESS_MS + 6_000));
-        assert_eq!(egress.window_ms, 0, "the whole history is dropped, not paused");
+        assert_eq!(
+            egress.window_ms, 0,
+            "the whole history is dropped, not paused"
+        );
     }
 
     #[test]
     fn the_errno_split_is_the_one_the_verdict_cares_about() {
         assert_eq!(Failure::from_errno(libc::ETIMEDOUT), Failure::Timeout);
         assert_eq!(Failure::from_errno(libc::ENETUNREACH), Failure::Unreachable);
-        assert_eq!(Failure::from_errno(libc::EAFNOSUPPORT), Failure::Unreachable);
+        assert_eq!(
+            Failure::from_errno(libc::EAFNOSUPPORT),
+            Failure::Unreachable
+        );
         assert_eq!(
             Failure::from_errno(libc::ECONNREFUSED),
             Failure::Elsewhere,
@@ -445,7 +469,10 @@ mod tests {
     #[test]
     fn a_dial_the_verdict_already_explains_is_not_made() {
         let mut egress = Egress::default();
-        assert!(egress.dial_worth_making(T), "nothing is believed yet, so everything is tried");
+        assert!(
+            egress.dial_worth_making(T),
+            "nothing is believed yet, so everything is tried"
+        );
         suppress(&mut egress, T);
         assert!(
             !egress.dial_worth_making(T + 1),
@@ -470,7 +497,12 @@ mod tests {
     fn only_a_global_address_is_evidence_about_egress() {
         let global: std::net::SocketAddr = "[2606:4700:4700::22c4]:443".parse().unwrap();
         assert!(is_egress_evidence(global));
-        for text in ["[::1]:443", "[fe80::1]:443", "[fd00::5]:443", "93.184.216.34:443"] {
+        for text in [
+            "[::1]:443",
+            "[fe80::1]:443",
+            "[fd00::5]:443",
+            "93.184.216.34:443",
+        ] {
             let addr: std::net::SocketAddr = text.parse().unwrap();
             assert!(
                 !is_egress_evidence(addr),

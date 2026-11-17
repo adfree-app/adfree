@@ -5,11 +5,9 @@
 //! on top of TLS: the response rewriter that injects scripts into HTML.
 
 use super::proxy::{
-    blocked_response, closing_response, content_hash, local_asset,
-    origin_form, preflight_response, rebuilt_head, redirect_response, request_facts,
-    request_url, rewritable,
-    swallow_body, take_local_request, with_cors,
-    ClientDiscard, ProxySession, RequestBody, HIDE_PATH,
+    blocked_response, closing_response, content_hash, local_asset, origin_form, preflight_response,
+    rebuilt_head, redirect_response, request_facts, request_url, rewritable, swallow_body,
+    take_local_request, with_cors, ClientDiscard, ProxySession, RequestBody, HIDE_PATH,
 };
 use super::*;
 use crate::mitm::ca::CertificateAuthority;
@@ -289,7 +287,11 @@ fn undecodable_bodies_pass_through() {
     assert_eq!(injected, 0, "an undecodable body must not be rewritten");
     let split = http::head_end(&out).expect("head");
     let sent = http::head_end(response).expect("head");
-    assert_eq!(&out[split..], &response[sent..], "the bytes travel as they came");
+    assert_eq!(
+        &out[split..],
+        &response[sent..],
+        "the bytes travel as they came"
+    );
     let head = String::from_utf8(out[..split].to_vec()).expect("utf8");
     assert!(head.contains("Cache-Control: no-cache"), "{head}");
 
@@ -822,7 +824,10 @@ fn a_certificate_alert_is_learned_for_that_client_and_host() {
     assert!(!hello.is_empty(), "the client has a first flight");
 
     let step = proxy.on_client_payload(&hello).expect("first flight");
-    assert!(!step.to_client.is_empty(), "the proxy terminated and answered");
+    assert!(
+        !step.to_client.is_empty(),
+        "the proxy terminated and answered"
+    );
 
     // The client reads our certificate and refuses it: rustls writes the alert
     // it wants to send, which is the bytes the proxy has to learn from.
@@ -833,7 +838,10 @@ fn a_certificate_alert_is_learned_for_that_client_and_host() {
         "an empty root store must reject the forged leaf"
     );
     let alert = tls::take_client_outbound(&mut client);
-    assert!(!alert.is_empty(), "the client answered with an alert record");
+    assert!(
+        !alert.is_empty(),
+        "the client answered with an alert record"
+    );
 
     // The handshake dies, as it must — but the refusal is remembered.
     let err = proxy.on_client_payload(&alert).expect_err("handshake dies");
@@ -905,7 +913,8 @@ fn a_client_that_hangs_up_without_a_request_is_learned() {
         .add(rustls::pki_types::CertificateDer::from(mitm_ca.cert_der()))
         .expect("browser root");
     let name = ServerName::try_from("api.example.com".to_string()).expect("server name");
-    let mut client = ClientConnection::new(tls::client_config_bare_with(roots), name).expect("client");
+    let mut client =
+        ClientConnection::new(tls::client_config_bare_with(roots), name).expect("client");
 
     // Drive the handshake to completion without a request in between.
     let mut plain = Vec::new();
@@ -965,7 +974,8 @@ fn a_close_without_a_request_splices_the_pair_not_the_app() {
 
     let roots = rustls::RootCertStore::empty();
     let name = ServerName::try_from("api.example.com".to_string()).expect("server name");
-    let mut client = ClientConnection::new(tls::client_config_bare_with(roots), name).expect("client");
+    let mut client =
+        ClientConnection::new(tls::client_config_bare_with(roots), name).expect("client");
     let hello = tls::take_client_outbound(&mut client);
     proxy.on_client_payload(&hello).expect("first flight");
 
@@ -1053,11 +1063,8 @@ fn learning_a_client_does_not_splice_the_same_host_for_a_browser() {
             .add(rustls::pki_types::CertificateDer::from(mitm_ca.cert_der()))
             .expect("browser root");
         let name = ServerName::try_from("api.example.com".to_string()).expect("server name");
-        let mut browser = rustls::ClientConnection::new(
-            tls::client_config_with(roots),
-            name,
-        )
-        .expect("browser");
+        let mut browser =
+            rustls::ClientConnection::new(tls::client_config_with(roots), name).expect("browser");
         tls::take_client_outbound(&mut browser)
     };
     let Flight::Hello {
@@ -1086,7 +1093,9 @@ fn learning_a_client_does_not_splice_the_same_host_for_a_browser() {
     .expect("pending session");
     proxy.set_untrusted(untrusted);
 
-    let step = proxy.on_client_payload(&browser_hello).expect("first flight");
+    let step = proxy
+        .on_client_payload(&browser_hello)
+        .expect("first flight");
     assert!(
         !step.to_client.is_empty(),
         "a client that trusts the CA is still terminated"
@@ -1717,8 +1726,9 @@ fn the_live_rules_endpoint_answers_with_the_current_rules() {
         "live-cosmetics",
         "origin.example.com##.ad-slot\norigin.example.com#?#div:has(> .sponsor)\n",
     );
-    let mut buffer = b"GET /adfree-cosmetics.json?dmn=origin.example.com HTTP/1.1\r\nHost: 192.0.2.1\r\n\r\n"
-        .to_vec();
+    let mut buffer =
+        b"GET /adfree-cosmetics.json?dmn=origin.example.com HTTP/1.1\r\nHost: 192.0.2.1\r\n\r\n"
+            .to_vec();
     let response = take_local_request(
         "",
         "",
@@ -1728,20 +1738,24 @@ fn the_live_rules_endpoint_answers_with_the_current_rules() {
     )
     .expect("the endpoint answers");
     let text = String::from_utf8_lossy(&response).to_string();
-    assert!(text.contains("no-store"), "the answer must not be cached: {text}");
+    assert!(
+        text.contains("no-store"),
+        "the answer must not be cached: {text}"
+    );
     let body_start = text.find("\r\n\r\n").expect("headers") + 4;
     let payload: serde_json::Value =
         serde_json::from_str(&text[body_start..]).expect("json payload");
     let hide = payload["hide"].as_array().expect("hide list");
     assert!(hide.iter().any(|v| v == ".ad-slot"), "{payload}");
     assert!(
-        hide.iter().any(|v| v.as_str().is_some_and(|s| s.contains(":has("))),
+        hide.iter()
+            .any(|v| v.as_str().is_some_and(|s| s.contains(":has("))),
         "a functional rule still has to reach the page: {payload}"
     );
 
     // A host nothing covers still answers, with an empty rule set.
-    let mut buffer = b"GET /adfree-cosmetics.json?dmn=quiet.test HTTP/1.1\r\nHost: 192.0.2.1\r\n\r\n"
-        .to_vec();
+    let mut buffer =
+        b"GET /adfree-cosmetics.json?dmn=quiet.test HTTP/1.1\r\nHost: 192.0.2.1\r\n\r\n".to_vec();
     let response = take_local_request("", "", Some(&engine), Some("quiet.test"), &mut buffer)
         .expect("answered");
     let text = String::from_utf8_lossy(&response).to_string();
@@ -2174,7 +2188,10 @@ fn a_store_preflight_sends_no_content_length() {
     let text = String::from_utf8_lossy(&answer).to_string();
     assert!(text.starts_with("HTTP/1.1 204 No Content\r\n"), "{text}");
     assert!(!text.to_lowercase().contains("content-length"), "{text}");
-    assert!(text.contains("Access-Control-Allow-Origin: https://greasyfork.org"), "{text}");
+    assert!(
+        text.contains("Access-Control-Allow-Origin: https://greasyfork.org"),
+        "{text}"
+    );
     assert!(text.ends_with("\r\n\r\n"), "{text}");
 }
 
@@ -2188,9 +2205,18 @@ Accept: */*\r\n\r\n";
     let answer = with_cors(blocked_response(), head);
     let text = String::from_utf8_lossy(&answer);
     assert!(text.starts_with("HTTP/1.1 403 Forbidden\r\n"), "{text}");
-    assert!(text.contains("Access-Control-Allow-Origin: https://site.example"), "{text}");
-    assert!(text.contains("Access-Control-Allow-Credentials: true"), "{text}");
-    assert!(text.contains("Timing-Allow-Origin: https://site.example"), "{text}");
+    assert!(
+        text.contains("Access-Control-Allow-Origin: https://site.example"),
+        "{text}"
+    );
+    assert!(
+        text.contains("Access-Control-Allow-Credentials: true"),
+        "{text}"
+    );
+    assert!(
+        text.contains("Timing-Allow-Origin: https://site.example"),
+        "{text}"
+    );
     assert!(text.contains("Content-Length: 0"), "{text}");
     // Nothing asked for a header list, so none is offered: `*` there would be
     // an answer to a question nobody asked, and an invalid one beside
@@ -2225,9 +2251,19 @@ fn a_stub_answers_the_asking_origin_not_a_wildcard() {
     assert!(!String::from_utf8_lossy(&stub).contains("Access-Control-Allow-Origin"));
     let head = b"GET /a.js HTTP/1.1\r\nHost: ads.example\r\nOrigin: https://site.example\r\n\r\n";
     let text = String::from_utf8_lossy(&with_cors(stub, head)).to_string();
-    assert_eq!(text.matches("Access-Control-Allow-Origin").count(), 1, "{text}");
-    assert!(text.contains("Access-Control-Allow-Origin: https://site.example"), "{text}");
-    assert!(text.contains("Access-Control-Allow-Credentials: true"), "{text}");
+    assert_eq!(
+        text.matches("Access-Control-Allow-Origin").count(),
+        1,
+        "{text}"
+    );
+    assert!(
+        text.contains("Access-Control-Allow-Origin: https://site.example"),
+        "{text}"
+    );
+    assert!(
+        text.contains("Access-Control-Allow-Credentials: true"),
+        "{text}"
+    );
     assert!(!text.contains("Access-Control-Allow-Origin: *"), "{text}");
 }
 
@@ -2241,19 +2277,32 @@ fn a_preflight_for_a_stub_names_the_origin_and_its_credentials() {
                  Access-Control-Request-Method: POST\r\n\
                  Access-Control-Request-Headers: content-type\r\n\r\n";
     let text = String::from_utf8_lossy(&with_cors(stub, head)).to_string();
-    assert!(text.contains("Access-Control-Allow-Origin: https://www.example"), "{text}");
-    assert!(text.contains("Access-Control-Allow-Credentials: true"), "{text}");
-    assert!(text.contains("Access-Control-Allow-Headers: content-type"), "{text}");
+    assert!(
+        text.contains("Access-Control-Allow-Origin: https://www.example"),
+        "{text}"
+    );
+    assert!(
+        text.contains("Access-Control-Allow-Credentials: true"),
+        "{text}"
+    );
+    assert!(
+        text.contains("Access-Control-Allow-Headers: content-type"),
+        "{text}"
+    );
 }
-
-
 
 #[test]
 fn an_error_page_is_not_a_document_to_inject_into() {
     // A `502`/`522` from the origin is not the page the reader asked for, and
     // injecting the runtime into one was wasted bytes on a page nobody reads:
     // the status decides that, not the content type.
-    for (status, injected) in [(200u16, true), (404, true), (410, true), (500, false), (522, false)] {
+    for (status, injected) in [
+        (200u16, true),
+        (404, true),
+        (410, true),
+        (500, false),
+        (522, false),
+    ] {
         let renderable = status < 300 || (400..500).contains(&status);
         assert_eq!(renderable, injected, "status {status}");
     }

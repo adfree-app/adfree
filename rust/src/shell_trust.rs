@@ -55,11 +55,19 @@ pub struct Edit {
 
 impl Edit {
     fn ok(path: &Path) -> Self {
-        Self { path: path.display().to_string(), ok: true, detail: String::new() }
+        Self {
+            path: path.display().to_string(),
+            ok: true,
+            detail: String::new(),
+        }
     }
 
     fn failed(path: &Path, detail: impl Into<String>) -> Self {
-        Self { path: path.display().to_string(), ok: false, detail: detail.into() }
+        Self {
+            path: path.display().to_string(),
+            ok: false,
+            detail: detail.into(),
+        }
     }
 }
 
@@ -88,7 +96,10 @@ pub fn remove() -> Vec<Edit> {
 /// no environment and no real user.
 pub fn install_with(pem_path: &str, home: &Path, shell: &str) -> Vec<Edit> {
     if !Path::new(pem_path).is_file() {
-        return vec![Edit::failed(Path::new(pem_path), format!("no certificate at {pem_path}"))];
+        return vec![Edit::failed(
+            Path::new(pem_path),
+            format!("no certificate at {pem_path}"),
+        )];
     }
     targets(home, shell)
         .into_iter()
@@ -98,7 +109,10 @@ pub fn install_with(pem_path: &str, home: &Path, shell: &str) -> Vec<Edit> {
 
 /// [`remove`] with the home directory and login shell passed in.
 pub fn remove_with(home: &Path, shell: &str) -> Vec<Edit> {
-    targets(home, shell).into_iter().map(|file| strip(&file)).collect()
+    targets(home, shell)
+        .into_iter()
+        .map(|file| strip(&file))
+        .collect()
 }
 
 /// The rc files to write: those that already exist, plus the one belonging to
@@ -147,7 +161,11 @@ fn write(file: &Path, line: &str) -> Edit {
     out.push('\n');
     out.push_str(END);
     out.push('\n');
-    match file.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|_| std::fs::write(file, out)) {
+    match file
+        .parent()
+        .map_or(Ok(()), std::fs::create_dir_all)
+        .and_then(|_| std::fs::write(file, out))
+    {
         Ok(()) => Edit::ok(file),
         Err(e) => Edit::failed(file, e.to_string()),
     }
@@ -204,9 +222,7 @@ fn without_block(text: &str) -> String {
 /// way a one-off export from an older install would.
 fn line_for(file: &Path, pem_path: &str) -> String {
     if file.to_string_lossy().ends_with("config.fish") {
-        format!(
-            "set -gx NODE_EXTRA_CA_CERTS \"{pem_path}\"\nset -gx NODE_USE_SYSTEM_CA 1"
-        )
+        format!("set -gx NODE_EXTRA_CA_CERTS \"{pem_path}\"\nset -gx NODE_USE_SYSTEM_CA 1")
     } else {
         format!("export NODE_EXTRA_CA_CERTS=\"{pem_path}\"\nexport NODE_USE_SYSTEM_CA=1")
     }
@@ -234,7 +250,11 @@ mod tests {
         let home = temp_home("syntax");
         std::fs::write(home.join(".bashrc"), "alias ll='ls -l'\n").unwrap();
         std::fs::create_dir_all(home.join(".config/fish")).unwrap();
-        std::fs::write(home.join(".config/fish/config.fish"), "set -gx EDITOR vim\n").unwrap();
+        std::fs::write(
+            home.join(".config/fish/config.fish"),
+            "set -gx EDITOR vim\n",
+        )
+        .unwrap();
         let pem = pem_in(&home);
 
         let edits = install_with(&pem, &home, "/usr/bin/fish");
@@ -242,7 +262,10 @@ mod tests {
 
         let bash = std::fs::read_to_string(home.join(".bashrc")).unwrap();
         assert!(bash.contains("alias ll"), "kept the user's lines: {bash}");
-        assert!(bash.contains("export NODE_USE_SYSTEM_CA=1"), "bash gets the system-CA knob: {bash}");
+        assert!(
+            bash.contains("export NODE_USE_SYSTEM_CA=1"),
+            "bash gets the system-CA knob: {bash}"
+        );
         assert!(
             bash.contains(&format!("export NODE_EXTRA_CA_CERTS=\"{pem}\"")),
             "bash gets the named certificate too, for Node builds without the flag: {bash}"
@@ -250,7 +273,10 @@ mod tests {
 
         let fish = std::fs::read_to_string(home.join(".config/fish/config.fish")).unwrap();
         assert!(fish.contains("EDITOR vim"), "kept the user's lines: {fish}");
-        assert!(fish.contains("set -gx NODE_USE_SYSTEM_CA 1"), "fish gets the system-CA knob: {fish}");
+        assert!(
+            fish.contains("set -gx NODE_USE_SYSTEM_CA 1"),
+            "fish gets the system-CA knob: {fish}"
+        );
         assert!(
             fish.contains(&format!("set -gx NODE_EXTRA_CA_CERTS \"{pem}\"")),
             "fish gets the named certificate too: {fish}"
@@ -267,7 +293,10 @@ mod tests {
 
         let text = std::fs::read_to_string(home.join(".bashrc")).unwrap();
         assert_eq!(text.matches(START).count(), 1, "exactly one block: {text}");
-        assert!(text.contains("export PATH"), "the user's lines survive: {text}");
+        assert!(
+            text.contains("export PATH"),
+            "the user's lines survive: {text}"
+        );
     }
 
     #[test]
@@ -281,8 +310,14 @@ mod tests {
         assert!(edits.iter().all(|e| e.ok), "{edits:?}");
 
         let text = std::fs::read_to_string(home.join(".zshrc")).unwrap();
-        assert!(!text.contains("NODE_EXTRA_CA_CERTS"), "no stale trust line: {text}");
-        assert!(text.contains("EDITOR=nvim"), "the user's lines survive: {text}");
+        assert!(
+            !text.contains("NODE_EXTRA_CA_CERTS"),
+            "no stale trust line: {text}"
+        );
+        assert!(
+            text.contains("EDITOR=nvim"),
+            "the user's lines survive: {text}"
+        );
     }
 
     #[test]
@@ -291,7 +326,13 @@ mod tests {
         let pem = pem_in(&home);
         install_with(&pem, &home, "/usr/bin/fish");
 
-        assert!(home.join(".config/fish/config.fish").is_file(), "fish is created for the login shell");
-        assert!(!home.join(".bashrc").exists(), "a bash file is not invented");
+        assert!(
+            home.join(".config/fish/config.fish").is_file(),
+            "fish is created for the login shell"
+        );
+        assert!(
+            !home.join(".bashrc").exists(),
+            "a bash file is not invented"
+        );
     }
 }

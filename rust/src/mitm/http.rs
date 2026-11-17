@@ -23,7 +23,6 @@ pub enum Decision {
     Compressed,
 }
 
-
 /// Caps on the class/id tokens scanned out of one body, so the generic-rule
 /// lookup stays bounded on pathological pages.
 const MAX_CLASS_TOKENS: usize = 800;
@@ -805,7 +804,10 @@ pub fn response_mime(head: &[u8]) -> Option<&str> {
         if line.len() < 13 || !line[..13].eq_ignore_ascii_case(b"content-type:") {
             continue;
         }
-        let value = line[13..].split(|b| *b == b';').next().unwrap_or(&line[13..]);
+        let value = line[13..]
+            .split(|b| *b == b';')
+            .next()
+            .unwrap_or(&line[13..]);
         let Ok(value) = std::str::from_utf8(value) else {
             return None;
         };
@@ -1043,9 +1045,9 @@ fn cache_control_says(head: &[u8], directive: &str) -> bool {
         .filter_map(|line| line.split_once(':'))
         .filter(|(name, _)| name.trim().eq_ignore_ascii_case("cache-control"))
         .any(|(_, value)| {
-            value.split(',').any(|part| {
-                part.trim().eq_ignore_ascii_case(directive)
-            })
+            value
+                .split(',')
+                .any(|part| part.trim().eq_ignore_ascii_case(directive))
         })
 }
 
@@ -2191,7 +2193,10 @@ mod tests {
             response_mime(b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\n"),
             None
         );
-        assert_eq!(response_mime(b"HTTP/1.1 200 OK\r\nContent-Type: \r\n\r\n"), None);
+        assert_eq!(
+            response_mime(b"HTTP/1.1 200 OK\r\nContent-Type: \r\n\r\n"),
+            None
+        );
         // Only the header itself counts: `X-Content-Type-Options` is somebody
         // else's business.
         assert_eq!(
@@ -2536,7 +2541,8 @@ mod tests {
     /// stays enforced and every scriptlet is dropped.
     #[test]
     fn trusted_types_policies_learn_our_name() {
-        let head = b"HTTP/1.1 200 OK\r\nContent-Security-Policy: require-trusted-types-for 'script'; \
+        let head =
+            b"HTTP/1.1 200 OK\r\nContent-Security-Policy: require-trusted-types-for 'script'; \
             trusted-types yt-policy dompurify\r\n\r\n";
         let out = String::from_utf8(csp_with_nonce(head, "abc123", "https://192.0.2.1"))
             .unwrap()
@@ -2559,7 +2565,8 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_policy_is_not_invented_into_something() {        let head = b"HTTP/1.1 200 OK\r\nContent-Security-Policy: \r\n\r\n";
+    fn an_empty_policy_is_not_invented_into_something() {
+        let head = b"HTTP/1.1 200 OK\r\nContent-Security-Policy: \r\n\r\n";
         let out = String::from_utf8(csp_with_nonce(head, "abc123", "https://192.0.2.1")).unwrap();
         assert!(out.contains("Content-Security-Policy: \r\n"), "{out}");
     }
@@ -2986,7 +2993,10 @@ mod tests {
             let out = String::from_utf8(require_revalidation(head.as_bytes())).unwrap();
             assert!(out.contains(value), "{value} was replaced: {out}");
             if value.contains("no-store") {
-                assert!(!out.contains("no-cache,"), "no-store needs no addition: {out}");
+                assert!(
+                    !out.contains("no-cache,"),
+                    "no-store needs no addition: {out}"
+                );
             }
         }
     }
@@ -2995,7 +3005,10 @@ mod tests {
     fn revalidation_still_asks_for_a_page_cached_for_an_hour() {
         let head = b"HTTP/1.1 200 OK\r\nCache-Control: public, max-age=3600\r\nETag: \"a\"\r\n\r\n";
         let out = String::from_utf8(require_revalidation(head)).unwrap();
-        assert!(out.contains("Cache-Control: public, max-age=3600, no-cache"), "{out}");
+        assert!(
+            out.contains("Cache-Control: public, max-age=3600, no-cache"),
+            "{out}"
+        );
         assert!(!out.to_lowercase().contains("etag"), "{out}");
         // A page that said nothing gets the directive alone.
         let quiet = b"HTTP/1.1 200 OK\r\n\r\n";

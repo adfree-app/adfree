@@ -130,8 +130,14 @@ mod own_port_tests {
         assert_eq!(own_port_state(OWN_PORTS.0), OwnPort::AlreadyOurs);
         assert_eq!(own_port_state(OWN_PORTS.1), OwnPort::AlreadyOurs);
         assert_eq!(own_port_state(OWN_PORTS.0 + 7), OwnPort::AlreadyOurs);
-        assert_eq!(own_port_state(OWN_PORTS.0 - 1), OwnPort::BoundElsewhere(39999));
-        assert_eq!(own_port_state(OWN_PORTS.1 + 1), OwnPort::BoundElsewhere(41000));
+        assert_eq!(
+            own_port_state(OWN_PORTS.0 - 1),
+            OwnPort::BoundElsewhere(39999)
+        );
+        assert_eq!(
+            own_port_state(OWN_PORTS.1 + 1),
+            OwnPort::BoundElsewhere(41000)
+        );
         assert_eq!(own_port_state(3129), OwnPort::BoundElsewhere(3129));
     }
 }
@@ -179,7 +185,10 @@ mod tests {
         // The answers the local listeners write are loopback packets, and the
         // driver reports those as outbound: without this branch the client never
         // receives an answer at all.
-        assert!(outbound.contains("loopback and (tcp.SrcPort == 3129"), "{outbound}");
+        assert!(
+            outbound.contains("loopback and (tcp.SrcPort == 3129"),
+            "{outbound}"
+        );
         assert!(outbound.contains("udp.SrcPort == 5300"), "{outbound}");
         // The four cases the redirect has an opinion about.
         for want in [

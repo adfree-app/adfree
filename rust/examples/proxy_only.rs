@@ -14,7 +14,9 @@ fn main() {
     let mut args = std::env::args().skip(1);
     let tcp: u16 = args.next().and_then(|v| v.parse().ok()).unwrap_or(3129);
     let dns: u16 = args.next().and_then(|v| v.parse().ok()).unwrap_or(5300);
-    let root = args.next().unwrap_or_else(|| "/tmp/adfree-proxy-only".into());
+    let root = args
+        .next()
+        .unwrap_or_else(|| "/tmp/adfree-proxy-only".into());
 
     if std::fs::create_dir_all(&root).is_err() {
         eprintln!("cannot create {root}");
@@ -27,7 +29,11 @@ fn main() {
     let status = adfree_core::api::core_start_proxy(tcp, dns, false);
     println!(
         "running={} tcp={} dns={} tcp_error={:?} dns_error={:?} root={}",
-        status.running, status.tcp_port, status.dns_port, status.tcp_error, status.dns_error,
+        status.running,
+        status.tcp_port,
+        status.dns_port,
+        status.tcp_error,
+        status.dns_error,
         Path::new(&root).display()
     );
     if !status.running {

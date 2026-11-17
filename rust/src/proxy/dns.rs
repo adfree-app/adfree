@@ -20,13 +20,13 @@
 use super::{parse_sockaddr, poll_readable, sockaddr_for, try_mark, POLL_SLICE_MS};
 use crate::dns;
 use crate::engine::core;
+use crate::sys::fd::{AsRawFd, RawFd};
+use crate::sys::libc;
 use std::collections::HashSet;
 use std::io::{Read as _, Write as _};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream, UdpSocket};
-use crate::sys::fd::{AsRawFd, RawFd};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use crate::sys::libc;
 
 /// Bytes credited to a refused lookup, matching the tun path's accounting.
 const BYTES_PER_BLOCKED_REQUEST: u64 = 48 * 1024;
@@ -110,13 +110,7 @@ fn bind_one(addr: IpAddr, port: u16, v6: bool) -> std::io::Result<Listener> {
     // resolver at all. Setting the option on a bound socket is too late: the
     // kernel has already made the decision it describes.
     let domain = if v6 { libc::AF_INET6 } else { libc::AF_INET };
-    let fd = unsafe {
-        libc::socket(
-            domain,
-            libc::SOCK_DGRAM | libc::SOCK_CLOEXEC,
-            0,
-        )
-    };
+    let fd = unsafe { libc::socket(domain, libc::SOCK_DGRAM | libc::SOCK_CLOEXEC, 0) };
     if !crate::sys::fd::fd_ok(fd) {
         return Err(std::io::Error::last_os_error());
     }
@@ -130,24 +124,47 @@ fn bind_one(addr: IpAddr, port: u16, v6: bool) -> std::io::Result<Listener> {
         // Paired with the v4 socket above, so this one must not also claim the
         // v4 half of the port. Set here, while the socket is still unbound.
         let on: libc::c_int = 1;
-        sockopt(fd, libc::IPPROTO_IPV6, libc::IPV6_V6ONLY, &on as *const _ as *const _);
-        sockopt(fd, libc::IPPROTO_IPV6, libc::IPV6_RECVPKTINFO, &on as *const _ as *const _);
+        sockopt(
+            fd,
+            libc::IPPROTO_IPV6,
+            libc::IPV6_V6ONLY,
+            &on as *const _ as *const _,
+        );
+        sockopt(
+            fd,
+            libc::IPPROTO_IPV6,
+            libc::IPV6_RECVPKTINFO,
+            &on as *const _ as *const _,
+        );
     } else {
         let on: libc::c_int = 1;
-        sockopt(fd, libc::SOL_IP, libc::IP_PKTINFO, &on as *const _ as *const _);
+        sockopt(
+            fd,
+            libc::SOL_IP,
+            libc::IP_PKTINFO,
+            &on as *const _ as *const _,
+        );
     }
     // The mark lets an unprivileged test run this path at all: answering a
     // redirected query means sending from an address the machine does not own,
     // which only a transparent socket may do. Losing it costs the redirect
     // layout, not the explicit-resolver layout.
     let on: libc::c_int = 1;
-    let transparent = if v6 { libc::IPV6_TRANSPARENT } else { libc::IP_TRANSPARENT };
+    let transparent = if v6 {
+        libc::IPV6_TRANSPARENT
+    } else {
+        libc::IP_TRANSPARENT
+    };
     let level = if v6 { libc::IPPROTO_IPV6 } else { libc::SOL_IP };
     sockopt(fd, level, transparent, &on as *const _ as *const _);
 
     let (sa, len) = sockaddr_for(SocketAddr::new(addr, port));
     let rc = unsafe {
-        libc::bind(fd, &sa as *const libc::sockaddr_storage as *const libc::sockaddr, len)
+        libc::bind(
+            fd,
+            &sa as *const libc::sockaddr_storage as *const libc::sockaddr,
+            len,
+        )
     };
     if rc != 0 {
         return close_on_err(fd, std::io::Error::last_os_error());
@@ -228,8 +245,7 @@ impl Listener {
                     let info = &*(libc::CMSG_DATA(cmsg) as *const libc::in_pktinfo);
                     // `ipi_addr` is the destination the datagram was delivered
                     // to, held in network order.
-                    local =
-                        Some(Ipv4Addr::from(u32::from_be(info.ipi_addr.s_addr)).into());
+                    local = Some(Ipv4Addr::from(u32::from_be(info.ipi_addr.s_addr)).into());
                     ifindex = info.ipi_ifindex as u32;
                 } else if self.v6
                     && head.cmsg_level == libc::IPPROTO_IPV6
@@ -271,7 +287,8 @@ impl Listener {
         };
         let space = match (self.v6, query.local) {
             (false, Some(IpAddr::V4(ip))) => {
-                let space = unsafe { libc::CMSG_SPACE(std::mem::size_of::<libc::in_pktinfo>() as u32) };
+                let space =
+                    unsafe { libc::CMSG_SPACE(std::mem::size_of::<libc::in_pktinfo>() as u32) };
                 hdr.msg_controllen = space as usize;
                 let cmsg = match unsafe { libc::CMSG_FIRSTHDR(&hdr) } {
                     cmsg if cmsg.is_null() => return Err(last_error()),
@@ -285,13 +302,16 @@ impl Listener {
                     let info = &mut *(libc::CMSG_DATA(cmsg) as *mut libc::in_pktinfo);
                     // `ipi_spec_dst` is the send-side name for the source address.
                     info.ipi_ifindex = 0;
-                    info.ipi_spec_dst = libc::in_addr { s_addr: u32::from_le_bytes(ip.octets()) };
+                    info.ipi_spec_dst = libc::in_addr {
+                        s_addr: u32::from_le_bytes(ip.octets()),
+                    };
                     info.ipi_addr = libc::in_addr { s_addr: 0 };
                 }
                 true
             }
             (true, Some(IpAddr::V6(ip))) => {
-                let space = unsafe { libc::CMSG_SPACE(std::mem::size_of::<libc::in6_pktinfo>() as u32) };
+                let space =
+                    unsafe { libc::CMSG_SPACE(std::mem::size_of::<libc::in6_pktinfo>() as u32) };
                 hdr.msg_controllen = space as usize;
                 let cmsg = match unsafe { libc::CMSG_FIRSTHDR(&hdr) } {
                     cmsg if cmsg.is_null() => return Err(last_error()),
@@ -303,7 +323,9 @@ impl Listener {
                     (*cmsg).cmsg_len =
                         libc::CMSG_LEN(std::mem::size_of::<libc::in6_pktinfo>() as u32) as usize;
                     let info = &mut *(libc::CMSG_DATA(cmsg) as *mut libc::in6_pktinfo);
-                    info.ipi6_addr = libc::in6_addr { s6_addr: ip.octets() };
+                    info.ipi6_addr = libc::in6_addr {
+                        s6_addr: ip.octets(),
+                    };
                     set_if_index(info, query.ifindex);
                 }
                 true
@@ -437,11 +459,11 @@ fn serve_datagrams(
             Ok((n, peer)) => {
                 got += 1;
                 Inquiry {
-                body: buf[..n].to_vec(),
-                peer,
-                // No packet-info on Windows: the route picks the source address.
-                local: None,
-                ifindex: 0,
+                    body: buf[..n].to_vec(),
+                    peer,
+                    // No packet-info on Windows: the route picks the source address.
+                    local: None,
+                    ifindex: 0,
                 }
             }
             // A read timeout is the slice this loop wakes on, not a fault.
@@ -496,7 +518,11 @@ pub(crate) fn serve_loop(listeners: Vec<Listener>, stop: Arc<AtomicBool>) {
         listeners.into_iter().map(std::sync::Arc::new).collect();
     let mut fds: Vec<libc::pollfd> = listeners
         .iter()
-        .map(|l| libc::pollfd { fd: l.fd(), events: libc::POLLIN, revents: 0 })
+        .map(|l| libc::pollfd {
+            fd: l.fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        })
         .collect();
     let mut buf = vec![0u8; 4096];
     let in_flight = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -614,8 +640,16 @@ fn serve_one(listener: &Listener, query: &Inquiry, stop: &AtomicBool) {
 
     // The reply this listener sends, if any, and the log row describing it.
     enum Served {
-        Blocked { message: Vec<u8>, rule: String, list: String, category: u8 },
-        Rewritten { message: Vec<u8>, answer: String },
+        Blocked {
+            message: Vec<u8>,
+            rule: String,
+            list: String,
+            category: u8,
+        },
+        Rewritten {
+            message: Vec<u8>,
+            answer: String,
+        },
         /// An answer with the question in it and no records: the address the
         /// client asked for is one this machine could not use.
         Nodata(Vec<u8>),
@@ -641,7 +675,10 @@ fn serve_one(listener: &Listener, query: &Inquiry, stop: &AtomicBool) {
         // the lists, and only for the family it names.
         let address = core.dns_rewrite_for(&host).expect("checked");
         match dns::answer_message(&parsed, &[address], 60) {
-            Some(message) => Served::Rewritten { message, answer: address.to_string() },
+            Some(message) => Served::Rewritten {
+                message,
+                answer: address.to_string(),
+            },
             None => Served::Forwarded(forward_query(&query.body, stop, plain)),
         }
     } else {
@@ -706,7 +743,12 @@ fn serve_one(listener: &Listener, query: &Inquiry, stop: &AtomicBool) {
         }
     ));
     match decision {
-        Served::Blocked { message, rule, list, category } => {
+        Served::Blocked {
+            message,
+            rule,
+            list,
+            category,
+        } => {
             if message.is_empty() {
                 return;
             }
@@ -757,10 +799,7 @@ fn serve_one(listener: &Listener, query: &Inquiry, stop: &AtomicBool) {
                 // otherwise invisible. The switch decides it like any other
                 // allowed row.
                 if cfg.log_allowed {
-                    core.log_event(row(
-                        crate::events::allow_event(&host, &server_text, 0),
-                        app,
-                    ));
+                    core.log_event(row(crate::events::allow_event(&host, &server_text, 0), app));
                 }
             }
         }
@@ -803,7 +842,10 @@ fn serve_one(listener: &Listener, query: &Inquiry, stop: &AtomicBool) {
 /// socket asked. Call sites only hand over the decision.
 fn row(event: crate::events::Event, app: &str) -> crate::events::Event {
     crate::events::with_protocol(
-        crate::events::with_type(crate::events::with_app(event, app), crate::events::req_type::DNS),
+        crate::events::with_type(
+            crate::events::with_app(event, app),
+            crate::events::req_type::DNS,
+        ),
         crate::events::protocol::DNS_UDP,
     )
 }
@@ -1022,7 +1064,10 @@ fn forward_over_tcp(body: &[u8], resolver: SocketAddr, budget_ms: i32) -> Option
     if reply.len() < 12 {
         return None;
     }
-    dns::patch_txid(&mut reply, dns::parse_query(body).map(|q| q.id).unwrap_or(0));
+    dns::patch_txid(
+        &mut reply,
+        dns::parse_query(body).map(|q| q.id).unwrap_or(0),
+    );
     Some(reply)
 }
 
@@ -1104,7 +1149,8 @@ pub(crate) fn system_resolver() -> Option<SocketAddr> {
     let mut node: *const _ = &info.DnsServerList;
     while !node.is_null() {
         let entry = unsafe { &*node };
-        let text = unsafe { std::ffi::CStr::from_ptr(entry.IpAddress.String.as_ptr() as *const i8) };
+        let text =
+            unsafe { std::ffi::CStr::from_ptr(entry.IpAddress.String.as_ptr() as *const i8) };
         if let Ok(text) = text.to_str() {
             if let Ok(ip) = text.trim().parse::<IpAddr>() {
                 // A stub on loopback is the thing we are trying to get upstream
@@ -1176,9 +1222,7 @@ fn probe_mark() -> bool {
     let ok = true;
 
     #[cfg(not(windows))]
-    let ok = {
-        probe_mark_unix()
-    };
+    let ok = { probe_mark_unix() };
 
     ok
 }
@@ -1237,7 +1281,12 @@ mod tests {
 
         let zero = dns::block_message(&q, dns::BlockMode::ZeroIp).unwrap();
         assert_eq!(
-            u32::from_be_bytes([zero[ttl_at], zero[ttl_at + 1], zero[ttl_at + 2], zero[ttl_at + 3]]),
+            u32::from_be_bytes([
+                zero[ttl_at],
+                zero[ttl_at + 1],
+                zero[ttl_at + 2],
+                zero[ttl_at + 3]
+            ]),
             0,
             "the 0.0.0.0 record must not be cached"
         );
@@ -1251,7 +1300,12 @@ mod tests {
         );
         let minimum = nx.len() - 4;
         assert_eq!(
-            u32::from_be_bytes([nx[minimum], nx[minimum + 1], nx[minimum + 2], nx[minimum + 3]]),
+            u32::from_be_bytes([
+                nx[minimum],
+                nx[minimum + 1],
+                nx[minimum + 2],
+                nx[minimum + 3]
+            ]),
             0,
             "and its minimum is the negative TTL"
         );
@@ -1391,15 +1445,16 @@ mod tests {
             let mut query = vec![0u8; u16::from_be_bytes(len) as usize];
             stream.read_exact(&mut query).expect("query");
             // Answer with the question echoed under the server's own id.
-            let mut reply = crate::dns::build_query("example.com", crate::dns::TYPE_A, 0x1234)
-                .expect("reply");
+            let mut reply =
+                crate::dns::build_query("example.com", crate::dns::TYPE_A, 0x1234).expect("reply");
             reply[2] |= 0x80; // QR
             let mut framed = (reply.len() as u16).to_be_bytes().to_vec();
             framed.extend_from_slice(&reply);
             stream.write_all(&framed).expect("write");
             query.len()
         });
-        let query = crate::dns::build_query("example.com", crate::dns::TYPE_A, 0x4242).expect("query");
+        let query =
+            crate::dns::build_query("example.com", crate::dns::TYPE_A, 0x4242).expect("query");
         let reply = forward_over_tcp(&query, address, FORWARD_TIMEOUT_MS).expect("answer");
         let parsed = crate::dns::parse_query(&reply).expect("parse");
         assert_eq!(parsed.id, 0x4242, "the client's own id rides back");
@@ -1412,7 +1467,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("adfree-resolv-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let stub = dir.join("stub");
-        std::fs::write(&stub, "# Generated by NetworkManager\nnameserver 127.0.0.53\n").unwrap();
+        std::fs::write(
+            &stub,
+            "# Generated by NetworkManager\nnameserver 127.0.0.53\n",
+        )
+        .unwrap();
         assert_eq!(
             first_real_nameserver(stub.to_str().unwrap()),
             None,
@@ -1462,10 +1521,7 @@ mod tests {
         // socket must report it: bind on a free port, ask that port by name,
         // and see the same address on the other side of `recv`.
         let listeners = bind_listeners(free_port()).unwrap();
-        let index = listeners
-            .iter()
-            .position(|l| !l.v6)
-            .expect("a v4 listener");
+        let index = listeners.iter().position(|l| !l.v6).expect("a v4 listener");
         let fd = listeners[index].fd();
         let target: SocketAddr = listeners[index]
             .socket
@@ -1540,7 +1596,10 @@ mod tests {
                         if n < 12 {
                             panic!("the listener answered with less than a header");
                         }
-                        return ((buf[3] & 0x0f) as u16, u16::from_be_bytes([buf[6], buf[7]]) as usize);
+                        return (
+                            (buf[3] & 0x0f) as u16,
+                            u16::from_be_bytes([buf[6], buf[7]]) as usize,
+                        );
                     }
                 }
             }
@@ -1549,7 +1608,10 @@ mod tests {
         let (rcode, records) = ask(dns::TYPE_AAAA);
         println!("AAAA before the dials: rcode={rcode} records={records}");
         assert_eq!(rcode, 0);
-        assert!(records > 0, "the harness must be able to see records at all");
+        assert!(
+            records > 0,
+            "the harness must be able to see records at all"
+        );
 
         // Three dials this machine cannot finish. Each costs the connect
         // budget on a black-holed route and costs nothing where the family is
@@ -1570,13 +1632,22 @@ mod tests {
 
         let (rcode, records) = ask(dns::TYPE_AAAA);
         println!("AAAA after the dials: rcode={rcode} records={records}");
-        assert_eq!(rcode, 0, "a withheld answer is a plain NOERROR, not an error");
-        assert_eq!(records, 0, "no IPv6 record may reach a client it would strand");
+        assert_eq!(
+            rcode, 0,
+            "a withheld answer is a plain NOERROR, not an error"
+        );
+        assert_eq!(
+            records, 0,
+            "no IPv6 record may reach a client it would strand"
+        );
 
         let (rcode, records) = ask(dns::TYPE_A);
         println!("A after the dials: rcode={rcode} records={records}");
         assert_eq!(rcode, 0);
-        assert!(records > 0, "only the family that cannot be carried is held back");
+        assert!(
+            records > 0,
+            "only the family that cannot be carried is held back"
+        );
 
         stop.store(true, Ordering::Relaxed);
         let _ = worker.join();

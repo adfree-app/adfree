@@ -346,9 +346,7 @@ fn walk(inode: u64, holders: &mut FxHashMap<u64, u32>) -> Option<u32> {
 fn socket_inode(path: &Path) -> Option<u64> {
     let target = std::fs::read_link(path).ok()?;
     let name = target.file_name()?.to_string_lossy();
-    let inner = name
-        .strip_prefix("socket:[")?
-        .strip_suffix(']')?;
+    let inner = name.strip_prefix("socket:[")?.strip_suffix(']')?;
     inner.parse::<u64>().ok()
 }
 
@@ -374,7 +372,9 @@ fn name_of_process(pid: u32) -> Option<String> {
 /// (`-cp … git.shin.adfree.desktop.AdFreeDesktopKt`), so the first non-flag
 /// word is not a script and would be a false name.
 #[cfg(unix)]
-const INTERPRETERS: &[&str] = &["node", "bun", "deno", "python", "python3", "ruby", "perl", "electron"];
+const INTERPRETERS: &[&str] = &[
+    "node", "bun", "deno", "python", "python3", "ruby", "perl", "electron",
+];
 
 /// The script an interpreter was told to run, if that is a better answer than
 /// the interpreter's own name.
@@ -580,7 +580,9 @@ mod tests {
         let _client = TcpStream::connect(our).unwrap();
         let (accepted, from) = listener.accept().unwrap();
         let _ = table.owner(from, our);
-        let peer = table.owner_udp(port).expect("a live UDP socket has an owner");
+        let peer = table
+            .owner_udp(port)
+            .expect("a live UDP socket has an owner");
         assert_eq!(peer.pid, std::process::id());
         assert!(!peer.name.is_empty());
         drop((udp, accepted));
@@ -610,7 +612,10 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn a_plain_program_keeps_its_own_name() {
-        assert_eq!(script_of("chrome", b"/opt/chrome/chrome\0--type=renderer\0"), None);
+        assert_eq!(
+            script_of("chrome", b"/opt/chrome/chrome\0--type=renderer\0"),
+            None
+        );
         assert_eq!(script_of("java", b"java\0-cp\0/lib/a.jar\0Main\0"), None);
     }
 

@@ -13,11 +13,11 @@ use super::{
 };
 use crate::engine::core;
 use crate::mitm::proxy::ProxySession;
-use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use crate::sys::fd::{AsRawFd, RawFd};
+use crate::sys::libc;
+use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use crate::sys::libc;
 
 /// How long a flow that is already open may keep going after the switch is
 /// turned off. A stop is a decision about new traffic, not a reason to cut the
@@ -117,10 +117,7 @@ pub(crate) fn accept_loop(listener: TcpListener, stop: Arc<AtomicBool>) {
         // The wildcard bind is for the redirect's sake, not the network's:
         // a flow that did not start on this machine is not ours to filter,
         // and serving it would make AdFree an open proxy.
-        let local = client
-            .peer_addr()
-            .ok()
-            .is_some_and(super::is_local_peer);
+        let local = client.peer_addr().ok().is_some_and(super::is_local_peer);
         if !local {
             reset_on_close(client.as_raw_fd());
             continue;
@@ -291,14 +288,20 @@ fn handle(client: TcpStream, stop: &AtomicBool) {
         }
     };
 
-    let mut peer_fd = peer.as_ref().map(TcpStream::as_raw_fd).unwrap_or(crate::sys::fd::NO_FD);
+    let mut peer_fd = peer
+        .as_ref()
+        .map(TcpStream::as_raw_fd)
+        .unwrap_or(crate::sys::fd::NO_FD);
 
     // A connection this proxy only relays is still something the log should
     // name: AdGuard's Connection tab lists what passed untouched, and without
     // the row an encrypted session to a host no rule mentions is invisible.
     // A flow that got a TLS session writes its own rows, one per request.
     if session.is_none() && cfg.log_allowed {
-        core.log_event(connection_row(&addr, apps.first().map(String::as_str).unwrap_or("")));
+        core.log_event(connection_row(
+            &addr,
+            apps.first().map(String::as_str).unwrap_or(""),
+        ));
     }
 
     // A flow opened while the page was excepted was let through on that
@@ -554,7 +557,10 @@ fn apply_outcome(
         // one (the ECH fallback, see `mitm::proxy::Outcome`).
         drop(peer.take());
         *peer = dial_marked(redial);
-        *peer_fd = peer.as_ref().map(TcpStream::as_raw_fd).unwrap_or(crate::sys::fd::NO_FD);
+        *peer_fd = peer
+            .as_ref()
+            .map(TcpStream::as_raw_fd)
+            .unwrap_or(crate::sys::fd::NO_FD);
         *peer_open = crate::sys::fd::fd_ok(*peer_fd);
         if !*peer_open {
             return Step::Done;
@@ -673,11 +679,7 @@ fn resolve_target(fd: RawFd, stop: &AtomicBool) -> Option<Target> {
     let text = String::from_utf8_lossy(&head).into_owned();
     let first_line = text.split("\r\n").next().unwrap_or("");
     let mut parts = first_line.split(' ');
-    let (
-        Some(method),
-        Some(uri),
-    ) = (parts.next(), parts.next())
-    else {
+    let (Some(method), Some(uri)) = (parts.next(), parts.next()) else {
         return None;
     };
     let version = parts.next().unwrap_or("HTTP/1.1");
@@ -717,7 +719,10 @@ fn resolve_target(fd: RawFd, stop: &AtomicBool) -> Option<Target> {
             }
             let mut sink = vec![0u8; head.len()];
             read_exact_nb(fd, &mut sink, stop)?;
-            return Some(Target::PlainHttp { addr, head: rebuilt });
+            return Some(Target::PlainHttp {
+                addr,
+                head: rebuilt,
+            });
         }
     }
     None
@@ -745,7 +750,10 @@ fn resolve_authority(text: &str, default_port: u16) -> Option<SocketAddr> {
 }
 
 fn find_head_end(bytes: &[u8]) -> Option<usize> {
-    bytes.windows(4).position(|w| w == b"\r\n\r\n").map(|p| p + 4)
+    bytes
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .map(|p| p + 4)
 }
 
 fn read_exact_nb(fd: RawFd, buf: &mut [u8], stop: &AtomicBool) -> Option<()> {
@@ -983,9 +991,7 @@ mod tests {
         let method = parts.next().unwrap();
         let uri = parts.next().unwrap();
         let version = parts.next().unwrap_or("HTTP/1.1");
-        let path = uri
-            .strip_prefix("http://example.com")
-            .unwrap_or("/");
+        let path = uri.strip_prefix("http://example.com").unwrap_or("/");
         let mut rebuilt = String::new();
         rebuilt.push_str(method);
         rebuilt.push(' ');

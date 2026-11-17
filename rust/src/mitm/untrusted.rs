@@ -173,7 +173,10 @@ impl UntrustedClients {
         }
         // It already talked to us here: that is the certificate being accepted,
         // and the close was a preconnect being dropped.
-        if self.served.lock().unwrap_or_else(|e| e.into_inner())
+        if self
+            .served
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
             .contains(&(host.to_string(), fingerprint.to_string()))
         {
             return false;

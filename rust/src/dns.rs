@@ -1092,11 +1092,19 @@ mod tests {
         assert_eq!(&msg[0..2], &0x1234u16.to_be_bytes(), "the id is echoed");
         assert_eq!(msg[2] & 0x80, 0x80, "QR is set");
         assert_eq!(msg[2] & 0x01, 0x01, "RD is echoed");
-        assert_eq!(msg[3] & 0x80, 0x80, "RA is set: this is an answer, not a shrug");
+        assert_eq!(
+            msg[3] & 0x80,
+            0x80,
+            "RA is set: this is an answer, not a shrug"
+        );
         assert_eq!(msg[3] & 0x0f, 0, "no error to report");
         assert_eq!(&msg[4..6], &1u16.to_be_bytes(), "one question");
         assert_eq!(&msg[6..12], &[0, 0, 0, 0, 0, 0], "and nothing else");
-        assert_eq!(msg.len(), q.q_end, "the header plus the question, and nothing more");
+        assert_eq!(
+            msg.len(),
+            q.q_end,
+            "the header plus the question, and nothing more"
+        );
         // An answer with no records reads back as one.
         let back = parse_query(&msg).unwrap();
         assert!(!back.is_query());
@@ -1302,7 +1310,10 @@ mod tests {
         add_answer(&mut msg, TYPE_A, &[1, 2, 3, 4]);
         assert_eq!(age_ttls(&mut msg, 0), 0);
         assert_eq!(age_ttls(&mut msg, 90), 1);
-        assert_eq!(u32::from_be_bytes([msg[35], msg[36], msg[37], msg[38]]), 210);
+        assert_eq!(
+            u32::from_be_bytes([msg[35], msg[36], msg[37], msg[38]]),
+            210
+        );
         // Never underflows into a huge lifetime.
         assert_eq!(age_ttls(&mut msg, 9_999), 1);
         assert_eq!(u32::from_be_bytes([msg[35], msg[36], msg[37], msg[38]]), 0);

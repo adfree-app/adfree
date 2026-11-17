@@ -15,9 +15,9 @@
 
 use crate::engine::VpnStats;
 use crate::events;
+use crate::filter::{FilterListInfo, ListFormat};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
-use crate::filter::{FilterListInfo, ListFormat};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -369,7 +369,11 @@ pub fn core_is_running() -> bool {
 /// `filter_localhost` is the loopback switch: off, a flow to this machine's
 /// own addresses is carried rather than filtered.
 #[uniffi::export]
-pub fn core_start_proxy(tcp_port: u16, dns_port: u16, filter_localhost: bool) -> crate::proxy::ProxyStatus {
+pub fn core_start_proxy(
+    tcp_port: u16,
+    dns_port: u16,
+    filter_localhost: bool,
+) -> crate::proxy::ProxyStatus {
     guard(crate::proxy::ProxyStatus::default(), || {
         crate::proxy::start(tcp_port, dns_port, filter_localhost)
     })
@@ -441,9 +445,7 @@ pub fn core_set_lists_async(lists: Vec<FilterListBinding>, user_rules: Vec<Strin
 /// see what the page added in order to persist and show it.
 #[uniffi::export]
 pub fn core_take_assistant_rules() -> Vec<String> {
-    guard(Vec::new(), || {
-        crate::core().take_assistant_rules()
-    })
+    guard(Vec::new(), || crate::core().take_assistant_rules())
 }
 
 /// Rules the in-page assistant took back since the last call (its temporary
@@ -461,9 +463,7 @@ pub fn core_take_assistant_removals() -> Vec<String> {
 /// was taken. `true` means "turn protection on".
 #[uniffi::export]
 pub fn core_take_assistant_switches() -> Vec<bool> {
-    guard(Vec::new(), || {
-        crate::core().take_assistant_switches()
-    })
+    guard(Vec::new(), || crate::core().take_assistant_switches())
 }
 
 /// One enabled list whose body the last filter build could not read.
@@ -999,7 +999,12 @@ pub fn core_log_totals() -> LogTotals {
     guard(LogTotals::default(), || match crate::core().store() {
         Some(store) => {
             let (ads, trackers, requests, bytes_saved) = store.log_totals();
-            LogTotals { ads, trackers, requests, bytes_saved }
+            LogTotals {
+                ads,
+                trackers,
+                requests,
+                bytes_saved,
+            }
         }
         None => LogTotals::default(),
     })
@@ -1659,7 +1664,7 @@ pub fn core_ca_mobileconfig() -> String {
 fn mobileconfig_for(der: &[u8]) -> String {
     let uuid = profile_uuid(der);
     format!(
-            r#"<?xml version="1.0" encoding="UTF-8"?>
+        r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -1827,7 +1832,11 @@ pub struct NodeCaEditBinding {
 
 impl From<crate::shell_trust::Edit> for NodeCaEditBinding {
     fn from(value: crate::shell_trust::Edit) -> Self {
-        Self { path: value.path, ok: value.ok, detail: value.detail }
+        Self {
+            path: value.path,
+            ok: value.ok,
+            detail: value.detail,
+        }
     }
 }
 

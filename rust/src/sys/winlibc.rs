@@ -359,7 +359,8 @@ pub unsafe fn recvfrom(
     alen: *mut socklen_t,
 ) -> ssize_t {
     unsafe {
-        ws::recvfrom(fd as usize,
+        ws::recvfrom(
+            fd as usize,
             buf as *mut u8,
             len as c_int,
             flags,
@@ -378,7 +379,8 @@ pub unsafe fn sendto(
     alen: socklen_t,
 ) -> ssize_t {
     unsafe {
-        ws::sendto(fd as usize,
+        ws::sendto(
+            fd as usize,
             buf as *const u8,
             len as c_int,
             flags,
@@ -631,7 +633,9 @@ fn loopback_self() -> RawFd {
     let mut addr = sockaddr_in {
         sin_family: AF_INET as sa_family_t,
         sin_port: 0,
-        sin_addr: in_addr { s_addr: 0x0100_007f },
+        sin_addr: in_addr {
+            s_addr: 0x0100_007f,
+        },
         sin_zero: [0; 8],
     };
     let len = std::mem::size_of::<sockaddr_in>() as socklen_t;
@@ -662,7 +666,9 @@ fn loopback_self() -> RawFd {
         sin.sin_port
     };
     target.sin_family = AF_INET as sa_family_t;
-    target.sin_addr = in_addr { s_addr: 0x0100_007f };
+    target.sin_addr = in_addr {
+        s_addr: 0x0100_007f,
+    };
     if unsafe { connect(fd, &target as *const _ as *const sockaddr, len) } != 0 {
         unsafe {
             close(fd);
@@ -708,12 +714,7 @@ pub unsafe fn eventfd(initval: u32, _flags: c_int) -> RawFd {
     fd
 }
 
-pub unsafe fn socketpair(
-    _domain: c_int,
-    _ty: c_int,
-    _proto: c_int,
-    out: *mut RawFd,
-) -> c_int {
+pub unsafe fn socketpair(_domain: c_int, _ty: c_int, _proto: c_int, out: *mut RawFd) -> c_int {
     let a = loopback_self();
     if fd_invalid(a) {
         return -1;

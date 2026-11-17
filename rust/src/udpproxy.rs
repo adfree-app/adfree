@@ -14,8 +14,8 @@ use crate::api::SocketProtector;
 use crate::packet::IpKey;
 use crate::socks5::{ProxyEndpoint, Socks5Handshake};
 use crate::sys::fd::RawFd;
-use std::sync::Arc;
 use crate::sys::libc;
+use std::sync::Arc;
 
 const CONNECT_TIMEOUT_MS: i32 = 8_000;
 const CONTROL_TIMEOUT: libc::timeval = libc::timeval {

@@ -89,7 +89,10 @@ mod tests {
     #[test]
     fn an_excepted_page_stands_the_early_stages_down_until_it_is_left() {
         let exemption = Exemption::default();
-        assert!(exemption.page().is_none(), "nothing is exempted before a page asks");
+        assert!(
+            exemption.page().is_none(),
+            "nothing is exempted before a page asks"
+        );
 
         exemption.note("ads.example");
         assert_eq!(
@@ -99,7 +102,10 @@ mod tests {
         );
 
         exemption.end();
-        assert!(exemption.page().is_none(), "a page that is not excepted ends it");
+        assert!(
+            exemption.page().is_none(),
+            "a page that is not excepted ends it"
+        );
     }
 
     #[test]

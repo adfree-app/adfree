@@ -41,6 +41,8 @@ use crate::packet::{self, IpKey, Packet, PROTO_TCP, PROTO_UDP};
 use crate::socks5::Socks5Handshake;
 use crate::state::model::{FirewallAccess, ProxyAccess};
 use crate::stats::{self, Stats};
+use crate::sys::fd::RawFd;
+use crate::sys::libc;
 use crate::udpnat::{UdpFlow, UdpKey, UdpNat, UDP_MAX_FLOWS, UDP_MAX_PROXIED_FLOWS};
 use crate::uidmap::UidMap;
 use crate::upstream::Upstream;
@@ -48,18 +50,15 @@ use crate::util::{now_ms, now_ns};
 use crate::waitset::{WaitEntry, WaitSet};
 use std::collections::HashSet;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
-use crate::sys::fd::RawFd;
 use std::sync::atomic::{
     AtomicBool, AtomicU16, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering,
 };
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
-use crate::sys::libc;
 
 /// Read size for the TUN descriptor.
 const TUN_BUF_BYTES: usize = 64 * 1024;
 /// The `state` row holding the app names that refused the CA.
 const CA_REJECTIONS_KEY: &str = "mitm.ca_rejecting_apps";
-
 
 /// How long the tun loop waits before re-checking the shutdown flag. Short
 /// because nothing wakes it but a packet or the timeout.
@@ -1207,8 +1206,10 @@ impl Core {
                 // restart is not a reason to make them prove it again.
                 if let Some(text) = store.state_get(CA_REJECTIONS_KEY) {
                     if let Ok(apps) = serde_json::from_str::<Vec<String>>(&text) {
-                        let mut learned =
-                            self.ca_rejecting_apps.write().unwrap_or_else(|e| e.into_inner());
+                        let mut learned = self
+                            .ca_rejecting_apps
+                            .write()
+                            .unwrap_or_else(|e| e.into_inner());
                         for app in apps {
                             learned.insert(app);
                         }
@@ -1307,7 +1308,8 @@ impl Core {
         // pause wins over the persisted switches: `set_paused` restores them
         // from this config when the user resumes.
         if self.is_paused() {
-            self.filter.set_module_flags(false, false, false, false, false);
+            self.filter
+                .set_module_flags(false, false, false, false, false);
         } else {
             self.filter.set_module_flags(
                 cfg.ad_blocking,
@@ -2335,8 +2337,7 @@ impl Core {
         let global_proxy = self.cfg.read().unwrap().proxy.clone();
         let through = policy.proxy_through(&app_packages, global_proxy.is_some());
         let proxy = if through {
-            global_proxy
-                .filter(|p| !p.automatic || !crate::socks5::bypasses_automatic(server))
+            global_proxy.filter(|p| !p.automatic || !crate::socks5::bypasses_automatic(server))
         } else {
             None
         };
@@ -3145,8 +3146,13 @@ impl Core {
         // The handshake we just answered consumed one sequence number.
         flow.up_bytes = 1;
         let mss = self.relay_mss(pkt);
-        let mut relay =
-            crate::mitm::relay::Relay::new_plain(flow, crate::sys::fd::NO_FD, pkt.raw.to_vec(), mss, true);
+        let mut relay = crate::mitm::relay::Relay::new_plain(
+            flow,
+            crate::sys::fd::NO_FD,
+            pkt.raw.to_vec(),
+            mss,
+            true,
+        );
         relay.setup_pending = true;
         // The relay reports what crossed it when it retires; nothing else knows
         // both byte totals of one connection.
@@ -4064,11 +4070,7 @@ impl Core {
         // A page the user took out of filtering is the one exception the
         // resolver cannot see for itself: a query names no page. While such a
         // page is open the answer is forwarded like any other.
-        if verdict.blocked
-            && !deferred
-            && !smart_allowed
-            && !self.filter.excepted_page_open()
-        {
+        if verdict.blocked && !deferred && !smart_allowed && !self.filter.excepted_page_open() {
             self.stats.inc(&self.stats.dns_blocked);
             let saved = BYTES_PER_BLOCKED_REQUEST;
             self.stats.add(&self.stats.bytes_saved, saved);
@@ -4196,7 +4198,11 @@ impl Core {
     /// forwarded can ever be served from here. Returns whether the client was
     /// answered; a miss leaves the query to the forwarder. The hit also
     /// returns the addresses and the reply size, for the log row.
-    fn serve_cached_answer(&self, pkt: &Packet<'_>, query: &dns::Query<'_>) -> Option<(String, u32)> {
+    fn serve_cached_answer(
+        &self,
+        pkt: &Packet<'_>,
+        query: &dns::Query<'_>,
+    ) -> Option<(String, u32)> {
         let now = now_ms();
         let hit = self.dns_cache.lock().unwrap().get(
             query.qname.as_str(),
@@ -4809,7 +4815,10 @@ impl Core {
         let mut event = event;
         // One place stamps what every row shares: the decision id and the
         // network it was made on. Call sites only build the decision itself.
-        event.flow_id = self.next_flow_id.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
+        event.flow_id = self
+            .next_flow_id
+            .fetch_add(1, Ordering::Relaxed)
+            .wrapping_add(1);
         event.set_network(
             self.network_type.load(Ordering::Relaxed) & 0b11,
             self.roaming.load(Ordering::Relaxed),
@@ -5200,9 +5209,19 @@ impl Core {
 
     /// The HTTPS website lists as they stand right now, for a connection that
     /// opens outside the TUN path (see [`crate::proxy`]).
-    pub(crate) fn https_host_lists(&self) -> (Arc<crate::mitm::hosts::HostPatterns>, Arc<crate::mitm::hosts::HostPatterns>, bool) {
+    pub(crate) fn https_host_lists(
+        &self,
+    ) -> (
+        Arc<crate::mitm::hosts::HostPatterns>,
+        Arc<crate::mitm::hosts::HostPatterns>,
+        bool,
+    ) {
         let hosts = self.https_hosts.read().unwrap();
-        (Arc::clone(&hosts.skip), Arc::clone(&hosts.only), hosts.only_mode)
+        (
+            Arc::clone(&hosts.skip),
+            Arc::clone(&hosts.only),
+            hosts.only_mode,
+        )
     }
 
     /// Overrides the upstream trust anchors. The engine's end-to-end tests use
@@ -5256,7 +5275,8 @@ impl Core {
         // the last launch learned.
         let changed = {
             let current = self.mitm_ca.read().unwrap();
-            self.mitm_ca_loaded.load(std::sync::atomic::Ordering::Relaxed)
+            self.mitm_ca_loaded
+                .load(std::sync::atomic::Ordering::Relaxed)
                 && current.cert_der() != ca.cert_der()
         };
         *self.mitm_ca.write().unwrap() = ca;
@@ -6170,10 +6190,16 @@ mod tests {
     fn assistant_rules_travel_to_the_engine_and_the_platform() {
         let core = Core::new();
         assert!(core.add_assistant_rule("example.com##.banner"));
-        assert!(!core.add_assistant_rule("example.com##.banner"), "already there");
+        assert!(
+            !core.add_assistant_rule("example.com##.banner"),
+            "already there"
+        );
         assert!(!core.add_assistant_rule("   "));
         assert_eq!(core.user_rules(), vec!["example.com##.banner".to_string()]);
-        assert_eq!(core.take_assistant_rules(), vec!["example.com##.banner".to_string()]);
+        assert_eq!(
+            core.take_assistant_rules(),
+            vec!["example.com##.banner".to_string()]
+        );
         assert!(core.take_assistant_rules().is_empty(), "reported once");
         assert!(core.remove_assistant_rule("example.com##.banner"));
         assert!(!core.remove_assistant_rule("example.com##.banner"));
@@ -6192,7 +6218,10 @@ mod tests {
         assert!(core.add_assistant_rule("||ads.example^"));
         core.request_protection(false);
         assert_eq!(core.take_assistant_switches(), vec![false]);
-        assert_eq!(core.take_assistant_rules(), vec!["||ads.example^".to_string()]);
+        assert_eq!(
+            core.take_assistant_rules(),
+            vec!["||ads.example^".to_string()]
+        );
         assert!(core.take_assistant_switches().is_empty());
     }
 
@@ -6272,8 +6301,11 @@ mod tests {
     fn proxy_rules_keep_the_policy_live_without_a_firewall() {
         let mut policy = AppNetworkPolicy::default();
         assert!(policy.is_empty());
-        policy.proxy_rules =
-            Arc::new([("com.example".to_string(), ProxyAccess::Through)].into_iter().collect());
+        policy.proxy_rules = Arc::new(
+            [("com.example".to_string(), ProxyAccess::Through)]
+                .into_iter()
+                .collect(),
+        );
         assert!(!policy.is_empty(), "attribution is needed to honor routing");
     }
 
@@ -7440,7 +7472,10 @@ mod tests {
         let pkt = Packet::parse(raw).expect("packet");
         assert_eq!(&pkt.l4_payload()[0..2], &[0xab, 0xcd]);
         assert_eq!(pkt.l4_payload()[2] & 0x80, 0x80, "it is a response");
-        assert_eq!(dns::answer_addresses(pkt.l4_payload()), vec![(address, 300)]);
+        assert_eq!(
+            dns::answer_addresses(pkt.l4_payload()),
+            vec![(address, 300)]
+        );
 
         // Nothing was forwarded; the client was answered from memory. (The
         // reply counter only moves when a tun accepted the write, and a test
@@ -7570,10 +7605,8 @@ mod tests {
     /// its store from; the configuration it needs is put back afterwards.
     #[test]
     fn a_reaped_udp_mapping_lands_in_the_store() {
-        let dir = std::env::temp_dir().join(format!(
-            "adfree-engine-udp-traffic-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("adfree-engine-udp-traffic-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
         let core = crate::core();
@@ -7990,9 +8023,7 @@ mod tests {
         let answered = core.take_outbox();
         assert_eq!(answered.len(), 1, "the flow is answered once");
         assert_eq!(
-            Packet::parse(&answered[0])
-                .expect("answer")
-                .src_ip_text(),
+            Packet::parse(&answered[0]).expect("answer").src_ip_text(),
             "93.184.216.34"
         );
 
@@ -8707,8 +8738,7 @@ mod tests {
     /// the sync rebuild never runs in the app.
     #[test]
     fn the_async_list_push_persists_the_engine_cache() {
-        let root =
-            std::env::temp_dir().join(format!("adfree-engine-async-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("adfree-engine-async-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         let body = root.join("base.txt");

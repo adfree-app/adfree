@@ -93,11 +93,7 @@ impl ureq::Resolver for BoundedResolver {
 /// above under it.
 fn download_agent() -> &'static ureq::Agent {
     static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
-    AGENT.get_or_init(|| {
-        ureq::AgentBuilder::new()
-            .resolver(BoundedResolver)
-            .build()
-    })
+    AGENT.get_or_init(|| ureq::AgentBuilder::new().resolver(BoundedResolver).build())
 }
 
 /// Fetches a text body with a hard size cap and timeout. Used by the normal
@@ -457,7 +453,10 @@ mod tests {
     fn a_download_equal_to_the_shipped_body_is_not_a_download() {
         let (id, shipped) = BUILTIN_SCRIPTS[0];
         assert!(is_shipped_body(id, shipped));
-        assert!(!is_shipped_body(id, &format!("{shipped}\n")), "not byte-for-byte");
+        assert!(
+            !is_shipped_body(id, &format!("{shipped}\n")),
+            "not byte-for-byte"
+        );
         let dir = temp_dir("builtin-same-body");
         assert_eq!(install_builtin(&dir), BUILTIN_SCRIPTS.len());
         // What `fetch` decides after a successful download of the same bytes.
@@ -560,12 +559,15 @@ mod tests {
     #[test]
     fn the_download_resolver_answers_or_fails() {
         use ureq::Resolver as _;
-        let addrs = BoundedResolver.resolve("localhost:443").expect("localhost resolves");
-        assert!(addrs.iter().any(|addr| addr.ip().is_loopback()), "{addrs:?}");
+        let addrs = BoundedResolver
+            .resolve("localhost:443")
+            .expect("localhost resolves");
+        assert!(
+            addrs.iter().any(|addr| addr.ip().is_loopback()),
+            "{addrs:?}"
+        );
         let started = std::time::Instant::now();
-        assert!(BoundedResolver
-            .resolve("no-such-name.invalid:443")
-            .is_err());
+        assert!(BoundedResolver.resolve("no-such-name.invalid:443").is_err());
         // The `.invalid` TLD exists to be unanswerable; the point here is that
         // the wait is the resolver's, not ours.
         assert!(started.elapsed() < RESOLVE_TIMEOUT + Duration::from_secs(5));

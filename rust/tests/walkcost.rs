@@ -47,7 +47,12 @@ fn pair() -> (RawFd, RawFd) {
             fds.as_mut_ptr(),
         )
     };
-    assert_eq!(rc, 0, "socketpair failed: {}", std::io::Error::last_os_error());
+    assert_eq!(
+        rc,
+        0,
+        "socketpair failed: {}",
+        std::io::Error::last_os_error()
+    );
     (fds[0], fds[1])
 }
 
@@ -56,13 +61,7 @@ fn fill(relays: &mut RelayTable, nat: &mut UdpNat, peers: &mut Vec<RawFd>) {
         let (fd, peer) = pair();
         peers.push(peer);
         let flow = Flow::new(IpKey::V4(1), 40000 + i as u16, 80, 1000, 5000);
-        relays.insert(Relay::new_plain(
-            flow,
-            fd,
-            Vec::new(),
-            1360,
-            false,
-        ));
+        relays.insert(Relay::new_plain(flow, fd, Vec::new(), 1360, false));
     }
     for i in 0..MAPPINGS {
         let (fd, peer) = pair();

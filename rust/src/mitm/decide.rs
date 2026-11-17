@@ -12,9 +12,9 @@ use crate::filter::{CookiePlan, FilterEngine, HlsPlan, HtmlPlan, JsonprunePlan, 
 
 use super::http;
 use super::proxy::{
-    blocked_response, closing_response, content_hash, escape_for_script, header_end, with_cors,
+    blocked_response, closing_response, content_hash, escape_for_script, header_end,
     hide_stylesheet, local_asset, origin_form, rebuilt_head, redirect_response, rewritable,
-    transform_redirect_response, versioned_path, PAGE_RUNTIME, PAGE_SCRIPT_PATH,
+    transform_redirect_response, versioned_path, with_cors, PAGE_RUNTIME, PAGE_SCRIPT_PATH,
 };
 
 /// What one forwarded request carries back from the filter: the response body
@@ -566,7 +566,6 @@ impl Injector<'_> {
         !self.script_src.is_empty() || self.cosmetic.is_some() || self.stealth.injects_guards()
     }
 
-
     /// The HTML snippet injected early in `<head>`: the hiding stylesheet, the
     /// cosmetic payload (rule data inline, runtime fetched from the app's own
     /// origin) plus the user script tag when one is installed. Empty when
@@ -639,8 +638,14 @@ impl Injector<'_> {
             }
         }
         for (on, guard) in [
-            (self.stealth.blocks_web_rtc(), crate::mitm::stealth::WEBRTC_GUARD),
-            (self.stealth.blocks_push_api(), crate::mitm::stealth::PUSH_GUARD),
+            (
+                self.stealth.blocks_web_rtc(),
+                crate::mitm::stealth::WEBRTC_GUARD,
+            ),
+            (
+                self.stealth.blocks_push_api(),
+                crate::mitm::stealth::PUSH_GUARD,
+            ),
             (
                 self.stealth.blocks_geolocation_api(),
                 crate::mitm::stealth::GEOLOCATION_GUARD,

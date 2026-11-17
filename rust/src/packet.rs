@@ -789,13 +789,7 @@ pub fn fix_l4_checksum(raw: &mut [u8], pkt: &Packet<'_>) {
 
 /// The same, from the copied-out facts, for callers editing a buffer the parser
 /// has stopped borrowing.
-pub fn fix_l4_checksum_raw(
-    raw: &mut [u8],
-    version: u8,
-    ip_hdr_len: usize,
-    l4: usize,
-    proto: u8,
-) {
+pub fn fix_l4_checksum_raw(raw: &mut [u8], version: u8, ip_hdr_len: usize, l4: usize, proto: u8) {
     if l4 > raw.len() {
         return;
     }

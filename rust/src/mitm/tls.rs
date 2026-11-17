@@ -706,10 +706,7 @@ fn party_name(name: &x509_parser::x509::X509Name<'_>) -> String {
     if let Some(cn) = name.iter_common_name().find_map(|attr| attr.as_str().ok()) {
         return cn.to_string();
     }
-    if let Some(org) = name
-        .iter_organization()
-        .find_map(|attr| attr.as_str().ok())
-    {
+    if let Some(org) = name.iter_organization().find_map(|attr| attr.as_str().ok()) {
         return org.to_string();
     }
     if let Some(unit) = name
@@ -1074,8 +1071,7 @@ mod tests {
         // that survives as milliseconds is what lets the UI say whether the
         // claim was good at the time.
         let key = rcgen::KeyPair::generate().unwrap();
-        let mut params =
-            rcgen::CertificateParams::new(vec!["cdn.example".to_string()]).unwrap();
+        let mut params = rcgen::CertificateParams::new(vec!["cdn.example".to_string()]).unwrap();
         let mut dn = rcgen::DistinguishedName::new();
         dn.push(rcgen::DnType::CommonName, "cdn.example");
         dn.push(rcgen::DnType::OrganizationName, "Example Networks");
@@ -1091,7 +1087,10 @@ mod tests {
         // Self-signed, so the signer is the party — which is precisely the
         // reading a user needs when a device endpoint carries its own name.
         assert_eq!(party_name(&tbs.issuer), "cdn.example");
-        assert_eq!(tbs.validity.not_before.timestamp() * 1000, 1_700_000_000_000);
+        assert_eq!(
+            tbs.validity.not_before.timestamp() * 1000,
+            1_700_000_000_000
+        );
         assert_eq!(tbs.validity.not_after.timestamp() * 1000, 1_800_000_000_000);
     }
 

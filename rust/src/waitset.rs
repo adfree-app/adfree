@@ -13,12 +13,12 @@
 //! once per pass, in [`WaitSet::sync`], from a fresh snapshot of the engine's
 //! tables.
 
-use std::collections::HashMap;
 use crate::sys::fd::RawFd;
+use std::collections::HashMap;
 
 use crate::mitm::relay::RelayPoll;
-use crate::udpnat::UdpPoll;
 use crate::sys::libc;
+use crate::udpnat::UdpPoll;
 
 /// Cap on how many descriptors one wait reports. Level-triggered, so whatever
 /// is left over makes the next `epoll_wait` return at once; nothing is lost by
@@ -55,8 +55,8 @@ impl WaitEntry {
             WaitEntry::Relay(p) => {
                 let write = p.connecting || p.want_write;
                 let listen = !p.paused;
-                (if listen { libc::EPOLLIN } else { 0 }
-                    | if write { libc::EPOLLOUT } else { 0 }) as u32
+                (if listen { libc::EPOLLIN } else { 0 } | if write { libc::EPOLLOUT } else { 0 })
+                    as u32
             }
         }
     }
@@ -189,10 +189,7 @@ impl WaitSet {
             stamp: 0,
             stamped: 0,
             ops: 0,
-            events: vec![
-                libc::epoll_event { events: 0, u64: 0 };
-                MAX_READY
-            ],
+            events: vec![libc::epoll_event { events: 0, u64: 0 }; MAX_READY],
             ready: Vec::with_capacity(MAX_READY),
         }
     }
@@ -218,13 +215,7 @@ impl WaitSet {
     /// What is left per row is that one lookup. A pass whose snapshot held every
     /// registration it already had has nothing to reap, and `stamped` says so
     /// without looking: see [`WaitSet::drop_gone`].
-    pub fn sync(
-        &mut self,
-        wake_fd: RawFd,
-        dns: &[RawFd],
-        relays: &[RelayPoll],
-        udp: &[UdpPoll],
-    ) {
+    pub fn sync(&mut self, wake_fd: RawFd, dns: &[RawFd], relays: &[RelayPoll], udp: &[UdpPoll]) {
         self.stamp += 1;
         self.stamped = 0;
         if crate::sys::fd::fd_ok(wake_fd) {
@@ -486,7 +477,11 @@ mod tests {
         let mut writing = relay(1, pipe.read);
         writing.want_write = true;
         set.sync(-1, &[], &[writing], &[]);
-        assert_eq!(set.ops(), ops + 1, "a mask change should cost one EPOLL_CTL_MOD");
+        assert_eq!(
+            set.ops(),
+            ops + 1,
+            "a mask change should cost one EPOLL_CTL_MOD"
+        );
         assert_eq!(set.interest[&pipe.read].instance, Some(1));
     }
 

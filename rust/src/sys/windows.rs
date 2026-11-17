@@ -57,7 +57,11 @@ pub fn mark_own_traffic(socket: RawSock, _mark: u32) {
             &mut probe_len,
         )
     } == 0;
-    let family = if probed { i32::from(probe.ss_family) } else { libc::AF_INET };
+    let family = if probed {
+        i32::from(probe.ss_family)
+    } else {
+        libc::AF_INET
+    };
 
     match own_port_state(if probed { local_port(&probe) } else { 0 }) {
         // The promise is already kept: the DNS half binds its forwarding socket

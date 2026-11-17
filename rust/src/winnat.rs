@@ -237,7 +237,11 @@ impl Nat {
     pub fn sweep(&mut self, now: u64) -> usize {
         let before = self.maps.len();
         self.maps.retain(|_, m| {
-            let idle = if m.proto == PROTO_UDP { UDP_IDLE } else { TCP_IDLE };
+            let idle = if m.proto == PROTO_UDP {
+                UDP_IDLE
+            } else {
+                TCP_IDLE
+            };
             now.saturating_sub(m.seen) < idle
         });
         before - self.maps.len()
@@ -288,7 +292,13 @@ pub fn set_destination(raw: &mut [u8], shape: Shape, to: Endpoint) -> bool {
     // WinDivert recomputes L4 checksums on injection
     // (`WinDivertHelperCalcChecksums`), so this is only for tests and for the
     // case where the helper is unavailable.
-    packet::fix_l4_checksum_raw(raw, shape.version, shape.ip_hdr_len, shape.l4_offset, proto_of(shape));
+    packet::fix_l4_checksum_raw(
+        raw,
+        shape.version,
+        shape.ip_hdr_len,
+        shape.l4_offset,
+        proto_of(shape),
+    );
     true
 }
 
@@ -318,7 +328,13 @@ pub fn set_loopback_source(raw: &mut [u8], shape: Shape) -> bool {
     if shape.version == 4 {
         packet::fix_ipv4_checksum(raw);
     }
-    packet::fix_l4_checksum_raw(raw, shape.version, shape.ip_hdr_len, shape.l4_offset, proto_of(shape));
+    packet::fix_l4_checksum_raw(
+        raw,
+        shape.version,
+        shape.ip_hdr_len,
+        shape.l4_offset,
+        proto_of(shape),
+    );
     true
 }
 
@@ -347,7 +363,13 @@ pub fn set_source(raw: &mut [u8], shape: Shape, from: Endpoint) -> bool {
     if shape.version == 4 {
         packet::fix_ipv4_checksum(raw);
     }
-    packet::fix_l4_checksum_raw(raw, shape.version, shape.ip_hdr_len, shape.l4_offset, proto_of(shape));
+    packet::fix_l4_checksum_raw(
+        raw,
+        shape.version,
+        shape.ip_hdr_len,
+        shape.l4_offset,
+        proto_of(shape),
+    );
     true
 }
 
@@ -506,7 +528,10 @@ mod tests {
             0,
             "the TCP checksum must cover the new address"
         );
-        assert_eq!(after.dst_ip(), Some(IpKey::V4(u32::from_be_bytes([127, 0, 0, 1]))));
+        assert_eq!(
+            after.dst_ip(),
+            Some(IpKey::V4(u32::from_be_bytes([127, 0, 0, 1])))
+        );
     }
 
     #[test]
@@ -552,7 +577,10 @@ mod tests {
     fn quic_is_dropped_so_the_app_falls_back_to_tls() {
         let raw = udp_v4([192, 168, 1, 5], 51000, [142, 250, 80, 46], 443, &[0u8; 8]);
         let mut nat = nat();
-        assert_eq!(nat.outbound(&Packet::parse(&raw).unwrap(), 0), Decision::Drop);
+        assert_eq!(
+            nat.outbound(&Packet::parse(&raw).unwrap(), 0),
+            Decision::Drop
+        );
         assert_eq!(nat.dropped(), 1);
     }
 
@@ -564,7 +592,13 @@ mod tests {
             nat.outbound(&Packet::parse(&query).unwrap(), 0),
             Decision::Destination(Endpoint::v4([127, 0, 0, 1], DNS_PORT))
         );
-        let answer = udp_v4([127, 0, 0, 1], DNS_PORT, [127, 0, 0, 1], 52000, &[5, 6, 7, 8]);
+        let answer = udp_v4(
+            [127, 0, 0, 1],
+            DNS_PORT,
+            [127, 0, 0, 1],
+            52000,
+            &[5, 6, 7, 8],
+        );
         assert_eq!(
             nat.inbound(&Packet::parse(&answer).unwrap(), 1),
             Decision::Restore {
@@ -581,7 +615,10 @@ mod tests {
         // From inside the proxy's port range, to a real server.
         let raw = tcp_v4([192, 168, 1, 5], 40100, [93, 184, 216, 34], 443, 0x02);
         let mut nat = nat();
-        assert_eq!(nat.outbound(&Packet::parse(&raw).unwrap(), 0), Decision::Pass);
+        assert_eq!(
+            nat.outbound(&Packet::parse(&raw).unwrap(), 0),
+            Decision::Pass
+        );
         assert_eq!(nat.live_mappings(), 0);
     }
 
@@ -589,7 +626,10 @@ mod tests {
     fn traffic_already_inside_is_left_alone() {
         let raw = tcp_v4([192, 168, 1, 5], 50000, [127, 0, 0, 1], PROXY_PORT, 0x02);
         let mut nat = nat();
-        assert_eq!(nat.outbound(&Packet::parse(&raw).unwrap(), 0), Decision::Pass);
+        assert_eq!(
+            nat.outbound(&Packet::parse(&raw).unwrap(), 0),
+            Decision::Pass
+        );
     }
 
     #[test]

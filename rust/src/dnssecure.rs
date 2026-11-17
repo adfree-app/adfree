@@ -13,10 +13,10 @@
 //!   resolver once the tunnel owns DNS, so it goes through a plain UDP
 //!   bootstrap query on a protected socket.
 
+use crate::sys::fd::{AsRawFd, FromRawFd, RawFd};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream, UdpSocket};
-use crate::sys::fd::{AsRawFd, FromRawFd, RawFd};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
@@ -571,7 +571,9 @@ fn connect(
 
 fn protect(protector: Option<&dyn SocketProtector>, fd: RawFd) -> Result<(), SecureError> {
     match protector {
-        Some(protector) if !protector.protect(crate::sys::fd::as_i32(fd)) => Err(SecureError::Protect),
+        Some(protector) if !protector.protect(crate::sys::fd::as_i32(fd)) => {
+            Err(SecureError::Protect)
+        }
         _ => Ok(()),
     }
 }

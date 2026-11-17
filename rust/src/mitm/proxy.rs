@@ -933,10 +933,7 @@ impl ProxySession {
     /// TLS alerts at the handshake; a remembered pair splices the flow verbatim
     /// so the app keeps working without the machine's stores having to reach
     /// it (see [`crate::mitm::untrusted`]).
-    pub fn set_untrusted(
-        &mut self,
-        untrusted: Arc<crate::mitm::untrusted::UntrustedClients>,
-    ) {
+    pub fn set_untrusted(&mut self, untrusted: Arc<crate::mitm::untrusted::UntrustedClients>) {
         self.untrusted = Some(untrusted);
     }
 
@@ -1430,7 +1427,9 @@ impl ProxySession {
             // host, so a silent close later in the session is a preconnect
             // being dropped, not a refusal (see `UntrustedClients::note_served`).
             self.served_noted = true;
-            if let (Some(untrusted), Some(name)) = (self.untrusted.as_deref(), self.captured.as_deref()) {
+            if let (Some(untrusted), Some(name)) =
+                (self.untrusted.as_deref(), self.captured.as_deref())
+            {
                 let fingerprint = self.client_fingerprint.clone().unwrap_or_default();
                 untrusted.note_served(name, &fingerprint);
             }
@@ -1734,9 +1733,7 @@ impl ProxySession {
             && cross_site
             && drop_request_headers(buffer, &mut head_end, &["authorization".to_string()])
         {
-            crate::logbuf::push_debug(&format!(
-                "mitm {host}: third-party authorization stripped"
-            ));
+            crate::logbuf::push_debug(&format!("mitm {host}: third-party authorization stripped"));
         }
 
         if stealth.hides_third_party_referer()
@@ -3186,7 +3183,11 @@ fn request_target(first_line: &str) -> Option<&str> {
 /// The body is read only once all of it has arrived. The caller hands over
 /// whatever the socket has so far, and a half-read JSON object would be a
 /// refused install instead of a slow one.
-fn take_store_request(first_line: &str, head_bytes: &[u8], buffer: &mut Vec<u8>) -> Option<Vec<u8>> {
+fn take_store_request(
+    first_line: &str,
+    head_bytes: &[u8],
+    buffer: &mut Vec<u8>,
+) -> Option<Vec<u8>> {
     let mut parts = first_line.split(' ');
     let method = parts.next()?;
     let raw_target = parts.next()?;
@@ -3214,7 +3215,11 @@ fn take_store_request(first_line: &str, head_bytes: &[u8], buffer: &mut Vec<u8>)
         .unwrap_or(0);
     if want > crate::store_api::MAX_REQUEST {
         buffer.drain(..head);
-        return Some(store_response(400, "{\"ok\":false,\"error\":\"size\"}", Some(allowed)));
+        return Some(store_response(
+            400,
+            "{\"ok\":false,\"error\":\"size\"}",
+            Some(allowed),
+        ));
     }
     if buffer.len() < head + want {
         return None;
@@ -3432,7 +3437,10 @@ fn has_header(response: &[u8], name: &str) -> bool {
 fn cors_headers(head: &[u8]) -> String {
     let mut origin: Option<&str> = None;
     let mut requested: Option<&str> = None;
-    for line in head.split(|&b| b == b'\n').take_while(|line| !line.is_empty()) {
+    for line in head
+        .split(|&b| b == b'\n')
+        .take_while(|line| !line.is_empty())
+    {
         let Ok(line) = std::str::from_utf8(line) else {
             continue;
         };
@@ -3815,12 +3823,7 @@ fn drop_request_headers(buffer: &mut Vec<u8>, head_end: &mut usize, names: &[Str
 /// Sets one header on the request head at the front of `buffer`, the same way
 /// [`drop_request_headers`] keeps `head_end` in step. `false` when the head
 /// already carried exactly this value.
-fn set_request_header(
-    buffer: &mut Vec<u8>,
-    head_end: &mut usize,
-    name: &str,
-    value: &str,
-) -> bool {
+fn set_request_header(buffer: &mut Vec<u8>, head_end: &mut usize, name: &str, value: &str) -> bool {
     let Some(fixed) = http::set_header_value(&buffer[..*head_end], name, value) else {
         return false;
     };

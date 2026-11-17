@@ -46,7 +46,10 @@ pub fn start(proxy_port: u16, dns_port: u16) -> Result<(), String> {
         let redirector = windivert::Redirector::start(proxy, dns)?;
         let mut threads = Vec::new();
         for (name, pass) in [
-            ("adfree-redirect-out", windivert::run_outbound as fn(&Arc<_>)),
+            (
+                "adfree-redirect-out",
+                windivert::run_outbound as fn(&Arc<_>),
+            ),
             ("adfree-redirect-in", windivert::run_inbound),
         ] {
             let inner = Arc::clone(&redirector);
@@ -68,9 +71,7 @@ pub fn start(proxy_port: u16, dns_port: u16) -> Result<(), String> {
         let status_target = Arc::clone(&redirector);
         *slot = Some(Running {
             stop: Box::new(move || stop_target.stop()),
-            status: Box::new(move || {
-                (status_target.packets_seen(), status_target.live_mappings())
-            }),
+            status: Box::new(move || (status_target.packets_seen(), status_target.live_mappings())),
             threads,
         });
         Ok(())
@@ -93,7 +94,11 @@ pub fn start(proxy_port: u16, dns_port: u16) -> Result<(), String> {
 fn watch(redirector: &std::sync::Arc<crate::sys::windivert::Redirector>) {
     let mut first_report = true;
     while !redirector.stopped() {
-        std::thread::sleep(std::time::Duration::from_secs(if first_report { 10 } else { 60 }));
+        std::thread::sleep(std::time::Duration::from_secs(if first_report {
+            10
+        } else {
+            60
+        }));
         if redirector.stopped() {
             break;
         }

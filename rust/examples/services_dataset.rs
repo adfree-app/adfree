@@ -42,8 +42,8 @@ fn main() {
         })
         .collect();
     let texts: Vec<&str> = bodies.iter().map(String::as_str).collect();
-    let text = adfree_core::services::import::merge(&texts)
-        .expect("the inputs are not tracker datasets");
+    let text =
+        adfree_core::services::import::merge(&texts).expect("the inputs are not tracker datasets");
     std::fs::write(&out, &text)
         .unwrap_or_else(|e| panic!("{} could not be written: {e}", out.display()));
     println!(

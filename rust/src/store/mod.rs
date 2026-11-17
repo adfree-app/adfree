@@ -801,7 +801,10 @@ mod tests {
         let mut fresh = with_app(
             crate::events::with_traffic(
                 crate::events::with_url(
-                    crate::events::with_answer(allow_event("new.example", "10.0.0.2", 1), "10.0.0.2"),
+                    crate::events::with_answer(
+                        allow_event("new.example", "10.0.0.2", 1),
+                        "10.0.0.2",
+                    ),
                     "https://new.example/path",
                 ),
                 12,
@@ -1083,7 +1086,10 @@ mod tests {
         assert_eq!(totals.bytes_saved, 157);
         assert_eq!(totals.bytes_sent, 1_300, "both connections counted");
         assert_eq!(totals.bytes_recv, 4_600);
-        assert_eq!(store.log_window_totals(1_000, 1), WindowTotalsRow::default());
+        assert_eq!(
+            store.log_window_totals(1_000, 1),
+            WindowTotalsRow::default()
+        );
     }
 
     #[test]
@@ -1281,7 +1287,11 @@ mod tests {
         drop(store);
         let reopened = Store::open(&dir).expect("store reopens");
         let (ads, trackers, requests, _bytes) = reopened.log_totals();
-        assert_eq!((ads, trackers, requests), (1, 1, 3), "totals survive a reopen");
+        assert_eq!(
+            (ads, trackers, requests),
+            (1, 1, 3),
+            "totals survive a reopen"
+        );
     }
 
     #[test]

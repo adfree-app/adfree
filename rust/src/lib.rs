@@ -16,20 +16,12 @@
 // must live in the crate root for the generated code to find `UniFfiTag`.
 uniffi::setup_scaffolding!("adfree");
 
-pub mod sys;
-/// The Windows redirector's tables and rewrites. Portable and tested: the
-/// packet surgery is the same bytes on either platform, only the driver that
-/// delivers them differs.
-pub mod winnat;
-/// The Windows redirect's lifecycle: start, stop, and the counters the tray
-/// shows. A no-op with a sentence elsewhere.
-pub mod wredirect;
 pub mod api;
+mod appmask;
+pub mod assets;
 /// The browser extension's wire: Chrome's framing, the endpoint, and the
 /// callback that answers it.
 pub mod assistant;
-mod appmask;
-pub mod assets;
 pub mod conntrack;
 pub mod dns;
 pub mod dnscache;
@@ -57,6 +49,7 @@ pub mod state;
 pub mod stats;
 pub mod store;
 pub mod store_api;
+pub mod sys;
 pub mod trust;
 pub mod udpnat;
 pub mod udpproxy;
@@ -64,6 +57,13 @@ pub mod uidmap;
 pub mod upstream;
 pub mod util;
 pub mod waitset;
+/// The Windows redirector's tables and rewrites. Portable and tested: the
+/// packet surgery is the same bytes on either platform, only the driver that
+/// delivers them differs.
+pub mod winnat;
+/// The Windows redirect's lifecycle: start, stop, and the counters the tray
+/// shows. A no-op with a sentence elsewhere.
+pub mod wredirect;
 
 pub use engine::core;
 
