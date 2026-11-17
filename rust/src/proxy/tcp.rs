@@ -93,12 +93,25 @@ const LISTEN_BACKLOG: i32 = 128;
 pub(crate) fn accept_loop(listener: TcpListener, stop: Arc<AtomicBool>) {
     let fd = listener.as_raw_fd();
     while !stop.load(Ordering::Relaxed) {
-        if !super::poll_readable(fd, POLL_SLICE_MS) {
-            continue;
+        match super::poll_readable_alive(fd, POLL_SLICE_MS) {
+            Some(true) => {}
+            Some(false) => continue,
+            // The listener this loop was reading has been closed — a stopped
+            // generation, not a quiet one. Returning is the only way out that
+            // does not burn a core for the life of the process.
+            None => return,
         }
         let (client, _) = match listener.accept() {
             Ok(pair) => pair,
-            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            // A readiness the queue had already given up on: the next poll waits
+            // again. Returning here would end the listener for the life of the
+            // process on one racing abort.
+            Err(e)
+                if e.kind() == std::io::ErrorKind::Interrupted
+                    || e.kind() == std::io::ErrorKind::WouldBlock =>
+            {
+                continue
+            }
             Err(_) => return,
         };
         // The wildcard bind is for the redirect's sake, not the network's:
@@ -312,6 +325,7 @@ fn handle(client: TcpStream, stop: &AtomicBool) {
         }
     }
 
+    let mut stall = Stall::new();
     while !hard_stop.load(Ordering::Relaxed) {
         if last_activity.elapsed() > IDLE_TIMEOUT {
             break;
@@ -343,14 +357,19 @@ fn handle(client: TcpStream, stop: &AtomicBool) {
             poll2(client_fd, None, POLL_SLICE_MS)
         };
         if !client_ready && !peer_ready {
+            // A real timeout: nothing happened, which is what a keep-alive flow
+            // between two requests looks like. Waiting is the right answer here
+            // and the idle timeout is what ends it.
             continue;
         }
         last_activity = std::time::Instant::now();
+        let moved = std::cell::Cell::new(false);
 
         // Client bytes first: on a session they decide the handshake.
         if client_ready {
             match read_nb(client_fd, &mut buf) {
                 Read::Bytes(n) => {
+                    moved.set(true);
                     let outcome = match &mut session {
                         Some(session) => session.on_client_payload(&buf[..n]),
                         None => Ok(crate::mitm::proxy::Outcome {
@@ -390,6 +409,7 @@ fn handle(client: TcpStream, stop: &AtomicBool) {
         if peer_open && peer_ready {
             match read_nb(peer_fd, &mut buf) {
                 Read::Bytes(n) => {
+                    moved.set(true);
                     let outcome = match &mut session {
                         Some(session) => session.on_peer_payload(&buf[..n]),
                         None => Ok(crate::mitm::proxy::Outcome {
@@ -417,6 +437,14 @@ fn handle(client: TcpStream, stop: &AtomicBool) {
             }
         }
 
+        // A round that read or wrote anything is not a stall, however many
+        // times poll and read disagree about why it woke.
+        if stall.round(moved.get()) {
+            crate::logbuf::push(&format!("proxy: closing a stalled flow ({addr})"));
+            reset_on_close(client_fd);
+            break;
+        }
+
         // Requests the client queued while the upstream handshake ran.
         if let Some(session) = session.as_mut() {
             if peer_open {
@@ -433,6 +461,36 @@ fn handle(client: TcpStream, stop: &AtomicBool) {
 enum Step {
     Continue,
     Done,
+}
+
+/// How many consecutive "ready" rounds may hand over nothing before a flow is
+/// called stalled.
+///
+/// Poll and read disagree in one direction that matters: a descriptor can be
+/// reported ready (`POLLNVAL`, a half-closed peer, a socket whose error the
+/// kernel already queued) while `read` answers `EAGAIN`. Believing both, the
+/// pump waits, reads nothing, and asks again — instantly, forever, because a
+/// readiness that never becomes a byte never clears. Measured on this machine:
+/// one such flow sat at a full core for ten minutes inside `poll` and `read`,
+/// and every minute of it also held the connection slot it had taken.
+const STALL_ROUNDS: u32 = 64;
+
+struct Stall(u32);
+
+impl Stall {
+    fn new() -> Stall {
+        Stall(0)
+    }
+
+    /// Counts a round; `true` means the flow is spinning and has to be closed.
+    fn round(&mut self, moved: bool) -> bool {
+        if moved {
+            self.0 = 0;
+            return false;
+        }
+        self.0 += 1;
+        self.0 >= STALL_ROUNDS
+    }
 }
 
 /// The row for a connection this proxy carries without looking inside it.
@@ -783,8 +841,59 @@ fn arm_local_session(
 }
 
 #[cfg(test)]
+mod stall_tests {
+    use super::{Stall, STALL_ROUNDS};
+
+    /// A flow that is told "ready" and handed nothing, round after round, is
+    /// spinning rather than waiting: nothing about that answer gets better with
+    /// time, and the loop that reads it as a wait never ends.
+    ///
+    /// Measured on this machine: one connection thread sat at a full core for
+    /// over ten minutes inside `poll` and `read`, and held its connection slot
+    /// the whole time. This is the count that turns that into a closed flow.
+    #[test]
+    fn readiness_that_never_becomes_bytes_is_a_stall() {
+        let mut stall = Stall::new();
+        for round in 1..STALL_ROUNDS {
+            assert!(!stall.round(false), "round {round} is not a stall yet");
+        }
+        assert!(stall.round(false), "round {STALL_ROUNDS} is");
+    }
+
+    /// The same rounds with a byte in one of them are not a stall: a flow that
+    /// moves and then waits is a flow doing its job.
+    #[test]
+    fn a_round_that_moved_resets_the_count() {
+        let mut stall = Stall::new();
+        for _ in 1..STALL_ROUNDS {
+            stall.round(false);
+        }
+        assert!(!stall.round(true), "progress clears the history");
+        for round in 1..STALL_ROUNDS {
+            assert!(!stall.round(false), "counting starts over at {round}");
+        }
+        assert!(stall.round(false));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A descriptor the kernel cannot resolve is news the pump can act on, not
+    /// an absence of news.
+    ///
+    /// `poll` answers `POLLNVAL` for it, and `POLLNVAL` sits outside the
+    /// readable/error mask the pump used to test, so the answer was "nothing is
+    /// ready" — returned at once, every time, with no wait at all. The pump
+    /// then looped on that answer forever. Any event has to count as ready so
+    /// the read that follows can see the error and close the flow.
+    #[test]
+    fn a_descriptor_the_kernel_cannot_name_counts_as_ready() {
+        let (client, peer) = super::super::poll2(987_654, None, 0);
+        assert!(client, "POLLNVAL is readiness");
+        assert!(!peer, "an absent peer is never ready");
+    }
 
     /// The listener has to answer whichever family the client picked.
     ///

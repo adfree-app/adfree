@@ -344,14 +344,25 @@ impl Drop for Slot {
 
 /// True when `fd` has data (or an error/EOF pending) within `timeout_ms`.
 pub(crate) fn poll_readable(fd: RawFd, timeout_ms: i32) -> bool {
+    poll_fd(fd, libc::POLLIN, timeout_ms).unwrap_or(false)
+}
+
+/// Waits for readability and says whether the descriptor still exists.
+///
+/// `None` is the answer a loop needs and a boolean cannot carry: a descriptor
+/// that has been closed makes `poll` fail at once and forever, so a loop that
+/// reads that as "not ready yet" spins at a full core while the window says it
+/// is doing nothing at all. That is one core per abandoned listener, and a
+/// restart leaves one behind every time.
+pub(crate) fn poll_readable_alive(fd: RawFd, timeout_ms: i32) -> Option<bool> {
     poll_fd(fd, libc::POLLIN, timeout_ms)
 }
 
 pub(crate) fn poll_writable(fd: RawFd, timeout_ms: i32) -> bool {
-    poll_fd(fd, libc::POLLOUT, timeout_ms)
+    poll_fd(fd, libc::POLLOUT, timeout_ms).unwrap_or(false)
 }
 
-fn poll_fd(fd: RawFd, events: i16, mut timeout_ms: i32) -> bool {
+fn poll_fd(fd: RawFd, events: i16, mut timeout_ms: i32) -> Option<bool> {
     let mut pfd = libc::pollfd {
         fd,
         events,
@@ -360,11 +371,13 @@ fn poll_fd(fd: RawFd, events: i16, mut timeout_ms: i32) -> bool {
     loop {
         let rc = unsafe { libc::poll(&mut pfd, 1, timeout_ms) };
         if rc >= 0 {
-            return rc > 0;
+            return Some(rc > 0);
         }
         let err = std::io::Error::last_os_error();
         if err.raw_os_error() != Some(libc::EINTR) {
-            return false;
+            // Not a timeout and not a signal: the descriptor is unusable, and
+            // the caller has to be able to tell that from "nothing yet".
+            return None;
         }
         timeout_ms = 0; // A signal is not permission to wait again for free.
     }
@@ -389,8 +402,13 @@ pub(crate) fn poll2(client_fd: RawFd, peer_fd: Option<RawFd>, mut timeout_ms: i3
     loop {
         let rc = unsafe { libc::poll(fds.as_mut_ptr(), count, timeout_ms) };
         if rc >= 0 {
-            return (fds[0].revents & (libc::POLLIN | libc::POLLERR | libc::POLLHUP) != 0,
-                    fds[1].revents & (libc::POLLIN | libc::POLLERR | libc::POLLHUP) != 0);
+            // Any event counts, not just the readable ones. `POLLNVAL` and the
+            // error bits a mask does not name are still news about the
+            // descriptor, and the read that follows is what turns the news into
+            // a closed flow. Filtering them out left the pump with a wake-up it
+            // could not act on — it waited, read nothing, and asked again
+            // immediately, for as long as the flow lived.
+            return (fds[0].revents != 0, fds[1].revents != 0);
         }
         let err = std::io::Error::last_os_error();
         if err.raw_os_error() != Some(libc::EINTR) {

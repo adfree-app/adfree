@@ -502,7 +502,16 @@ pub(crate) fn serve_loop(listeners: Vec<Listener>, stop: Arc<AtomicBool>) {
     let in_flight = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     while !stop.load(Ordering::Relaxed) {
         let rc = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, POLL_SLICE_MS) };
-        if rc <= 0 {
+        if rc < 0 {
+            if std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
+                continue;
+            }
+            // A listener this loop no longer owns: `poll` fails at once and
+            // every time, and reading that as "no query yet" is a busy loop on a
+            // whole core for the life of the process.
+            return;
+        }
+        if rc == 0 {
             continue;
         }
         for (index, ready) in fds.iter().enumerate() {
