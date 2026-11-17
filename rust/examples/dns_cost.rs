@@ -50,7 +50,11 @@ fn run(path: &str, dns_only: bool) -> (u128, u64) {
 
     println!(
         "{}: build {build} ms, resident +{} MB ({} -> {} MB), blocked={}",
-        if dns_only { "domain set" } else { "full engine" },
+        if dns_only {
+            "domain set"
+        } else {
+            "full engine"
+        },
         (after - before) / 1024,
         before / 1024,
         after / 1024,

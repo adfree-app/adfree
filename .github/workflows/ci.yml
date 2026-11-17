@@ -43,7 +43,7 @@ jobs:
     name: Rust — tests and lints
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -72,7 +72,7 @@ jobs:
     name: JavaScript — lint and node tests
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -95,7 +95,7 @@ jobs:
     name: Playwright — the injected code in Chromium
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -119,9 +119,9 @@ jobs:
     name: Kotlin — shared, desktop and app tests
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           java-version: "21"
           distribution: "temurin"
@@ -178,7 +178,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       # A diff against the base commit needs the base commit.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -198,7 +198,7 @@ jobs:
 
       # ktlint is a jar; the job needs a JVM for it and nothing else. The cache
       # is keyed on the script, which owns the pinned version.
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           java-version: "21"
           distribution: "temurin"
