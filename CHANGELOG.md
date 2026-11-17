@@ -1,3 +1,9 @@
+# [1.15.0](https://github.com/yuuki-kagura/adfree/compare/v1.14.1...v1.15.0) (2026-11-17)
+
+### Features
+
+* **website:** captions of the builds, in a swiper, in the app's own English ([2bc43a3](https://github.com/yuuki-kagura/adfree/commit/2bc43a38a8f0161da3c31b8d903c18ff62b4cc96))
+
 ## [1.14.1](https://github.com/yuuki-kagura/adfree/compare/v1.14.0...v1.14.1) (2026-11-17)
 
 ### Performance Improvements
