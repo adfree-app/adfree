@@ -1,3 +1,13 @@
+# [1.14.0](https://github.com/yuuki-kagura/adfree/compare/v1.13.6...v1.14.0) (2026-11-17)
+
+### Bug Fixes
+
+* **cosmetics:** a hash-shaped name is not an ad, and a slot that fills comes back ([5f0c82a](https://github.com/yuuki-kagura/adfree/commit/5f0c82afbab59530978c5c4ae5778a4616e33a41))
+
+### Features
+
+* **dns:** the DNS filters move to the DNS screen, with their own rules ([24c1dd9](https://github.com/yuuki-kagura/adfree/commit/24c1dd90b5a1a77c64d4981202c20dd1a449b84e))
+
 ## [1.13.6](https://github.com/yuuki-kagura/adfree/compare/v1.13.5...v1.13.6) (2026-11-17)
 
 ### Performance Improvements
