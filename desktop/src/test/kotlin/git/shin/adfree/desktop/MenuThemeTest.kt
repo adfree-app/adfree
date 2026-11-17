@@ -32,7 +32,11 @@ class MenuThemeTest {
         assertEquals(Color(32, 35, 38), globals.rgb("Colors:Window", "BackgroundNormal"))
         assertEquals(Color(61, 174, 233), globals.rgb("Colors:Selection", "BackgroundNormal"))
         val font = globals.font()!!
-        assertEquals("Noto Sans", font.family)
+        // The family the theme *asks* for, which is what this parser decides.
+        // `getFamily()` is resolved by the font system afterwards and answers
+        // "Dialog" on a machine without the font — a CI runner has no Noto Sans
+        // — so asserting it would be testing the machine's installed fonts.
+        assertEquals("Noto Sans", font.name)
         assertEquals(11, font.size)
         assertEquals(Font.BOLD, font.style)
         // A missing key is a miss, not a crash and not black.

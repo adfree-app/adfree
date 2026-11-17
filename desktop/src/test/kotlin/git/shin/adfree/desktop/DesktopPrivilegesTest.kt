@@ -18,8 +18,17 @@ class DesktopPrivilegesTest {
 
     @Test
     fun theGeneratedRulesetMatchesTheHandWrittenOne() {
+        // The documented file is written for the first user on the machine
+        // (`skuid != 1000`), which is what a reader copying it gets. The real
+        // ruleset carries whoever is running the app, so the comparison pins
+        // the uid instead of comparing against the uid of the machine the tests
+        // happen to run on — a CI runner is not user 1000.
         val generated = significantLines(
-            DesktopPrivileges().ruleset(CoreEngine.PROXY_TCP_PORT, CoreEngine.PROXY_DNS_PORT)
+            DesktopPrivileges().ruleset(
+                CoreEngine.PROXY_TCP_PORT,
+                CoreEngine.PROXY_DNS_PORT,
+                uid = 1000,
+            )
         )
         val documented = significantLines(repositoryRules().readText())
         assertEquals(documented, generated)
