@@ -1,3 +1,9 @@
+## [1.14.1](https://github.com/yuuki-kagura/adfree/compare/v1.14.0...v1.14.1) (2026-11-17)
+
+### Performance Improvements
+
+* **dns:** a name list is not a rule engine ([017b9ed](https://github.com/yuuki-kagura/adfree/commit/017b9ed0befbad2de5a7a088ca7d3bfbe43d8f04))
+
 # [1.14.0](https://github.com/yuuki-kagura/adfree/compare/v1.13.6...v1.14.0) (2026-11-17)
 
 ### Bug Fixes
