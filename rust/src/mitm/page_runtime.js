@@ -1081,13 +1081,39 @@
   // where only the long unambiguous ones count (`LEADER_BOARD` is one word).
   const SLOT_WORD = /(?:^|[^a-z])(?:ad|ads|adv|advert|adverts|gpt|dfp|promo|sponsor|sponsored|promoted)(?![a-z])/;
   const SLOT_COMPOUND = /(?:advertisement|advertising|adslot|adunit|adbox|adbanner|adcontainer|adwrapper|leaderboard|billboard|skyscraper|doubleclick|googlesyndication|sponsor|promoted)/;
+  // A name is not always a name. Google writes its container names as
+  // obfuscated prose — `D5ad8b` around the AI answer panel, `GkDqAd` on the box
+  // beside it — and both read as an ad word once they are split into words:
+  // `d5ad8b` puts `ad` between two digits and `GkDqAd` splits into `gk dq ad`.
+  // Collapsing the panel hid a 383 px answer that arrives empty and is filled a
+  // moment later, so the reader got the black band the AI overview reports
+  // (gemini search preview, 17/11/2026). A token with no separator that is all
+  // hex digits, or that splits into three or more runs of one or two
+  // characters, is a hash and names nothing.
+  const HASH_HEX = /^[0-9a-f]{4,8}$/;
+  const mangledName = (token) => {
+    if (/[-_\s]/.test(token)) {
+      return false;
+    }
+    if (HASH_HEX.test(token.toLowerCase())) {
+      return true;
+    }
+    const runs = token
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .toLowerCase()
+      .split(' ')
+      .filter(Boolean);
+    return runs.length >= 3 && runs.every((run) => run.length <= 2);
+  };
   const slotNames = new WeakMap();
   const namedAsSlot = (el) => {
     let hit = slotNames.get(el);
     if (hit === undefined) {
-      const name = `${el.id || ''} ${el.getAttribute('class') || ''}`
-        .replace(/([a-z])([A-Z])/g, '$1 $2')
-        .toLowerCase();
+      const tokens = [el.id || '', ...(el.getAttribute('class') || '').split(/\s+/)];
+      const name = tokens
+        .filter((token) => token && !mangledName(token))
+        .map((token) => token.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase())
+        .join(' ');
       hit = SLOT_WORD.test(name) || SLOT_COMPOUND.test(name.replace(/[^a-z0-9]/g, ''));
       slotNames.set(el, hit);
     }
@@ -1186,8 +1212,47 @@
     }
   };
 
+  // A slot that was empty when the pass ran is not necessarily empty for good:
+  // an answer panel, a carousel and a live region all ship their box first and
+  // their content later, and hiding the box hides what arrives in it. Every
+  // element this pass collapses is remembered so the next pass can hand the box
+  // back when something lands inside it.
+  const collapsedSlots = new Set();
+  const restoreSlot = (el) => {
+    el.classList.remove(SLOT_COLLAPSED);
+    try {
+      el.style.removeProperty('display');
+    } catch {
+      /* a frozen element keeps the class off, which is the part that matters */
+    }
+    let parent = el.parentElement;
+    for (let depth = 0; parent && depth < 4; depth += 1) {
+      if (parent.classList?.contains(SLOT_PARENT_COLLAPSED)) {
+        parent.classList.remove(SLOT_PARENT_COLLAPSED);
+      }
+      parent = parent.parentElement;
+    }
+  };
+  const refilledSlots = () => {
+    if (collapsedSlots.size > 512) {
+      collapsedSlots.clear();
+      return;
+    }
+    for (const el of collapsedSlots) {
+      if (!el.isConnected) {
+        collapsedSlots.delete(el);
+        continue;
+      }
+      if (slotHasContent(el) || !labelOnly(el.innerText)) {
+        restoreSlot(el);
+        collapsedSlots.delete(el);
+      }
+    }
+  };
+
   const collapseSlots = (root) => {
     const scope = root?.querySelectorAll ? root : document;
+    refilledSlots();
     let slots;
     try {
       slots = [...scope.querySelectorAll(SLOT_SELECTOR)];
@@ -1237,6 +1302,7 @@
         }
         // Belt and braces for an element the page rebuilds its own style on.
         el.style.setProperty('display', 'none', 'important');
+        collapsedSlots.add(el);
       } catch {
         /* a frozen element keeps its gap, nothing else is lost */
       }

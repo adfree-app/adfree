@@ -815,6 +815,47 @@ describe('emptied ad slots', () => {
     expect(page.errors).toEqual([]);
   });
 
+  /// Google names the AI answer panel `D5ad8b` and the box beside it
+  /// `GkDqAd`. Split into words both carry an ad: `ad` sits between two digits
+  /// in the first and on its own at the end of the second. The panel ships
+  /// empty and is filled a moment later, so collapsing it hid the whole answer
+  /// behind a 383 px black band — the reported gemini search preview.
+  test('a hash-shaped name is not an ad slot', async () => {
+    const page = await openPage({
+      html: {
+        head: '<style>#panel{height:383px;background:#000}</style>',
+        body: '<div id="panel" class="D5ad8b"><div class="GkDqAd"></div></div>',
+      },
+    });
+
+    // The observer pass runs on mutations; give it the same window the real
+    // page has before the answer arrives.
+    await page.page.waitForTimeout(1200);
+    expect(await page.display('#panel')).not.toBe('none');
+    expect(page.errors).toEqual([]);
+  });
+
+  /// A real slot still collapses, and a panel that was genuinely empty when
+  /// the pass ran gets its box back when the page fills it — the other half of
+  /// the same report: hiding a box that later receives content hides the
+  /// content.
+  test('a slot that fills later gets its box back', async () => {
+    const page = await openPage({
+      html: {
+        head: '<style>#late{height:120px;background:#111}</style>',
+        body: '<div id="late" class="ad-slot"></div>',
+      },
+    });
+
+    await expect.poll(() => page.display('#late')).toBe('none');
+    await page.page.evaluate(() => {
+      document.querySelector('#late').textContent =
+        'Vite bundles with Rollup and serves with esbuild; Vike is a framework on top of Vite.';
+    });
+    await expect.poll(() => page.display('#late')).not.toBe('none');
+    expect(page.errors).toEqual([]);
+  });
+
   /// The walk has to stop at content: a picture in the wrapper is the story,
   /// not the ad, so the wrapper keeps its box even though the slot collapses.
   test('a wrapper holding a picture keeps its box', async () => {
