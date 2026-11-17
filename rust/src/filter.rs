@@ -2275,6 +2275,13 @@ impl FilterEngine {
         {
             self.exemption.note(&page);
         }
+        // A build is the one moment this process allocates hundreds of
+        // megabytes and then drops most of them: the previous compiled engine,
+        // the rule text, and the buffer the cache file was serialized into.
+        // Handing the freed arenas back here is the difference between a
+        // reload that costs memory for good and one that costs it for a
+        // moment.
+        crate::mem::trim();
         generation
     }
 

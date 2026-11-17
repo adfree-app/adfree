@@ -220,6 +220,12 @@ fn writer_loop(db: &Db, rx: &Receiver<Msg>) {
     let mut batch: Vec<LogRow> = Vec::with_capacity(BATCH);
     let mut traffic: Vec<FlowTraffic> = Vec::with_capacity(BATCH);
     let mut last_prune = Instant::now();
+    // The engine's DNS forwarder is the usual host for this, but a desktop
+    // install runs the proxy half without a tun, and that thread is not there.
+    // This one is: the log writer exists wherever the app does, and it is the
+    // one thread that is never on the packet path, so a trampoline through the
+    // allocator costs nothing anybody can feel.
+    let mut last_trim = Instant::now();
     loop {
         match rx.recv_timeout(FLUSH_EVERY) {
             Ok(Msg::Event(e)) => {
@@ -251,6 +257,10 @@ fn writer_loop(db: &Db, rx: &Receiver<Msg>) {
                 insert(db, &mut batch, &mut traffic);
                 return;
             }
+        }
+        if last_trim.elapsed() >= std::time::Duration::from_millis(crate::mem::TRIM_INTERVAL_MS) {
+            last_trim = Instant::now();
+            crate::mem::trim();
         }
         if last_prune.elapsed() >= PRUNE_EVERY {
             last_prune = Instant::now();

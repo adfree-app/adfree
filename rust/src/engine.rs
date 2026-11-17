@@ -5461,6 +5461,10 @@ fn tun_loop(core: &'static Core, fd: RawFd) {
 /// NAT mappings.
 fn forwarder_loop(core: &'static Core) {
     let mut replies: Vec<crate::upstream::Reply> = Vec::with_capacity(32);
+    // Wall clock, not `Instant`: the interval is a policy about the process's
+    // resident size, and it is measured in the same units the rest of the
+    // engine's timers use.
+    let mut last_trim = now_ms();
     // Created here, used only by this thread, dropped when it exits: the
     // registrations survive the pass boundaries, which is the whole point of
     // `epoll`, and no other thread has any business touching the set.
@@ -5498,6 +5502,13 @@ fn forwarder_loop(core: &'static Core) {
         // first one due. With nothing in flight the slow cadence applies.
         let wait_ms = core.forward_wait_ms(now);
         core.wait_for_events(&mut waitset, wait_ms);
+        // This thread is the one that owns the idle cadence, it never holds a
+        // lock across the wait, and the allocator lock the trim takes is held
+        // for one call — the packet path and the proxy do not go through here.
+        if crate::mem::due(last_trim, now) {
+            last_trim = now;
+            crate::mem::trim();
+        }
 
         for reply in core.take_secure_replies() {
             core.handle_secure_reply(reply);

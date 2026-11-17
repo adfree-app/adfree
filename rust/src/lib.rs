@@ -43,6 +43,7 @@ pub mod hls;
 pub mod htmlfilter;
 pub mod jsonprune;
 pub mod logbuf;
+pub mod mem;
 pub mod packet;
 pub mod page_exception;
 pub mod pathmask;
