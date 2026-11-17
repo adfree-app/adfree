@@ -1,3 +1,9 @@
+## [1.13.4](https://github.com/yuuki-kagura/adfree/compare/v1.13.3...v1.13.4) (2026-11-17)
+
+### Bug Fixes
+
+* **proxy:** stop a flow that is told "ready" and handed nothing ([62d47d0](https://github.com/yuuki-kagura/adfree/commit/62d47d0bda51bb875e7f73df76edb09b15739af3))
+
 ## [1.13.3](https://github.com/yuuki-kagura/adfree/compare/v1.13.2...v1.13.3) (2026-11-16)
 
 ### Bug Fixes
