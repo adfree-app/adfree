@@ -97,6 +97,8 @@ data class AdGuardUiState(
     val inspectedFilterId: String? = null,
     val showAddFilterDialog: Boolean = false,
     val showAddDnsFilterDialog: Boolean = false,
+    /** The DNS screen's rule editor (its rules apply to name lookups only). */
+    val showDnsRuleEditor: Boolean = false,
     val userscripts: List<UserScriptInfo> = emptyList(),
     val scriptsMasterEnabled: Boolean = false,
     val inspectedScriptId: String? = null,
@@ -241,6 +243,9 @@ sealed interface AdGuardIntent {
     data class AddCustomFilter(val name: String, val url: String) : AdGuardIntent
     /** Adds a subscription under "DNS filters" (name lookups only). */
     data class AddDnsFilter(val name: String, val url: String) : AdGuardIntent
+    data class ShowDnsRuleEditor(val show: Boolean) : AdGuardIntent
+    /** Replaces the DNS screen's own rules; unused rules are dropped. */
+    data class UpdateDnsUserRules(val rules: List<String>) : AdGuardIntent
     data class ImportLocalFilter(val uri: String, val dnsOnly: Boolean = false) : AdGuardIntent
     /** Write settings + filter choices to a JSON backup (SAF URI). */
     data class ExportBackup(val uri: String) : AdGuardIntent

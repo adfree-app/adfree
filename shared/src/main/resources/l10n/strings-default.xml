@@ -666,6 +666,12 @@
     <string name="filters_dns_title">DNS filters</string>
     <string name="filters_dns_subtitle">Lists applied to domain lookups only, before any connection is made</string>
     <string name="filters_dns_empty">No DNS filters yet.</string>
+    <string name="dns_filters_default_name">AdGuard DNS filter</string>
+    <string name="dns_filters_default_description">AdGuard\'s own domain list, the one its DNS service blocks with</string>
+    <string name="dns_rules_user_title">Your DNS rules</string>
+    <string name="dns_rules_user_subtitle">Rules you write here are checked on domain lookups only</string>
+    <string name="dns_rules_user_empty">No rule of your own yet.</string>
+    <string name="dns_rules_user_count">%1$d rules of your own</string>
     <string name="filters_dns_add_title">New DNS filter</string>
     <string name="filters_dns_add_body">Paste the address of a hosts or dnsmasq list. Its rules are checked on every domain lookup; URLs and SNI are never matched against it.</string>
     <string name="filters_user_rules_title">Your rules</string>

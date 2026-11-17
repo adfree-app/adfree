@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -23,6 +24,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lock
@@ -33,11 +36,14 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
@@ -48,6 +54,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -79,11 +86,14 @@ import git.shin.adfree.ui.theme.AdGuardTextMuted
 import git.shin.adfree.ui.theme.AdGuardTextPrimary
 import git.shin.adfree.ui.theme.AdGuardOnAccent
 import git.shin.adfree.ui.theme.AdGuardTextSecondary
+import git.shin.adfree.platform.currentFileHost
+import kotlinx.coroutines.launch
 
 /**
  * Full-screen DNS module: which resolver sees the names, how blocked answers
  * look, what may leave the tunnel, and where the flows are routed.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NetworkScreen(
     viewModel: AdGuardViewModel,
@@ -92,6 +102,18 @@ fun NetworkScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val privateDnsOn by viewModel.privateDnsOn.collectAsState()
+    val files = currentFileHost()
+    val pickerScope = rememberCoroutineScope()
+
+    // Same picker the Filters tab uses: the URI is copied into the app's own
+    // directory once, because a SAF grant is not trusted to survive.
+    fun pickFilterFile(dnsOnly: Boolean) {
+        pickerScope.launch {
+            val uriText = files.openText() ?: return@launch
+            files.persistRead(uriText)
+            viewModel.onIntent(AdGuardIntent.ImportLocalFilter(uriText, dnsOnly = dnsOnly))
+        }
+    }
 
     Column(
         modifier = modifier
@@ -138,6 +160,38 @@ fun NetworkScreen(
                     viewModel.onIntent(AdGuardIntent.AddCustomDnsProvider(name, address, type))
                 },
                 onProbe = { viewModel.onIntent(AdGuardIntent.ProbeDnsProvider(it)) },
+            )
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            // Filters live with the resolver that applies them: a list that is
+            // only ever consulted on a name lookup belongs on this screen, not
+            // among the URL and SNI lists.
+            // This card lists the subscriptions; the rules the user types have
+            // a row of their own below. The rule list is the one DNS list that
+            // did not come from the user's own additions.
+            val dnsLists = state.filterLists.filter { it.isDnsOnly && it.isUserAdded }
+            val dnsRules = state.filterLists
+                .firstOrNull { it.isDnsOnly && !it.isUserAdded }
+                ?.customRules
+                .orEmpty()
+            CustomFiltersCard(
+                lists = dnsLists,
+                onAdd = { viewModel.onIntent(AdGuardIntent.ShowAddDnsFilterDialog(true)) },
+                onToggleList = { viewModel.onIntent(AdGuardIntent.ToggleFilterList(it.id, !it.isEnabled)) },
+                onOpenList = { viewModel.onIntent(AdGuardIntent.InspectFilter(it.id)) },
+                titleRes = Strings.filters_dns_title,
+                subtitleRes = Strings.filters_dns_subtitle,
+                emptyRes = Strings.filters_dns_empty,
+                icon = Icons.Default.Language,
+                tag = "dns_filters_section",
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            DnsUserRulesCard(
+                count = dnsRules.size,
+                onOpen = { viewModel.onIntent(AdGuardIntent.ShowDnsRuleEditor(true)) },
             )
 
             Spacer(modifier = Modifier.height(18.dp))
@@ -242,6 +296,95 @@ fun NetworkScreen(
             )
 
             Spacer(modifier = Modifier.height(64.dp))
+        }
+    }
+
+    if (state.showAddDnsFilterDialog) {
+        AddDnsFilterDialog(
+            onDismiss = { viewModel.onIntent(AdGuardIntent.ShowAddDnsFilterDialog(false)) },
+            onAdd = { name, url -> viewModel.onIntent(AdGuardIntent.AddDnsFilter(name, url)) },
+            onPickFile = {
+                viewModel.onIntent(AdGuardIntent.ShowAddDnsFilterDialog(false))
+                pickFilterFile(dnsOnly = true)
+            },
+        )
+    }
+
+    if (state.showDnsRuleEditor) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        val currentRules = state.filterLists
+            .firstOrNull { it.isDnsOnly && it.customRules.isNotEmpty() }
+            ?.customRules
+            .orEmpty()
+        ModalBottomSheet(
+            onDismissRequest = { viewModel.onIntent(AdGuardIntent.ShowDnsRuleEditor(false)) },
+            sheetState = sheetState,
+            containerColor = AdGuardDarkSurface,
+            contentColor = AdGuardTextPrimary,
+        ) {
+            FriendlyCustomRuleEditorSheet(
+                initialRules = currentRules,
+                onSaveAll = { rules -> viewModel.onIntent(AdGuardIntent.UpdateDnsUserRules(rules)) },
+                onClose = { viewModel.onIntent(AdGuardIntent.ShowDnsRuleEditor(false)) },
+            )
+        }
+    }
+}
+
+/**
+ * The DNS screen's own rule editor. It writes to a list of its own, so a rule
+ * typed here is applied to name lookups and to nothing else.
+ */
+@Composable
+private fun DnsUserRulesCard(count: Int, onOpen: () -> Unit) {
+    SurfaceCard(
+        modifier = Modifier.clickable { onOpen() },
+        tag = "dns_user_rules_row",
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(AdGuardBlueDns.copy(alpha = 0.14f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Default.Edit,
+                    contentDescription = null,
+                    tint = AdGuardBlueDns,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    L10n.get(Strings.dns_rules_user_title),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AdGuardTextPrimary,
+                )
+                Text(
+                    text = if (count == 0) {
+                        L10n.get(Strings.dns_rules_user_subtitle)
+                    } else {
+                        L10n.format(Strings.dns_rules_user_count, count)
+                    },
+                    fontSize = 11.sp,
+                    color = AdGuardTextMuted,
+                )
+            }
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = AdGuardTextMuted,
+                modifier = Modifier.size(20.dp),
+            )
         }
     }
 }

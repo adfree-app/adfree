@@ -181,10 +181,8 @@ fun FiltersScreen(
     // DNS filters block name lookups only and live in their own card, so the
     // web-filter counters above must not count their rules.
     val customLists = state.filterLists.filter { it.isUserAdded && !it.isDnsOnly }
-    val dnsLists = state.filterLists.filter { it.isDnsOnly }
     val visibleCatalog = catalogLists.filter(matchesQuery)
     val visibleCustom = customLists.filter(matchesQuery)
-    val visibleDns = dnsLists.filter(matchesQuery)
     val userRules = state.filterLists.firstOrNull { it.isCustom }?.customRules.orEmpty()
     val userRulesCount = userRules.size
     val allowCount = userRules.count { it.startsWith("@@") }
@@ -464,7 +462,7 @@ fun FiltersScreen(
                     }
                 }
 
-                if (query.isNotBlank() && visibleCatalog.isEmpty() && visibleCustom.isEmpty() && visibleDns.isEmpty()) {
+                if (query.isNotBlank() && visibleCatalog.isEmpty() && visibleCustom.isEmpty()) {
                     // The screen used to end at the last group card with no
                     // word about the query, which reads like a loading glitch.
                     item(key = "no_results") {
@@ -480,20 +478,6 @@ fun FiltersScreen(
                             onAdd = { viewModel.onIntent(AdGuardIntent.ShowAddFilterDialog(true)) },
                             onToggleList = { viewModel.onIntent(AdGuardIntent.ToggleFilterList(it.id, !it.isEnabled)) },
                             onOpenList = { viewModel.onIntent(AdGuardIntent.InspectFilter(it.id)) },
-                        )
-                    }
-
-                    item(key = "dns_filters") {
-                        CustomFiltersCard(
-                            lists = visibleDns,
-                            onAdd = { viewModel.onIntent(AdGuardIntent.ShowAddDnsFilterDialog(true)) },
-                            onToggleList = { viewModel.onIntent(AdGuardIntent.ToggleFilterList(it.id, !it.isEnabled)) },
-                            onOpenList = { viewModel.onIntent(AdGuardIntent.InspectFilter(it.id)) },
-                            titleRes = Strings.filters_dns_title,
-                            subtitleRes = Strings.filters_dns_subtitle,
-                            emptyRes = Strings.filters_dns_empty,
-                            icon = Icons.Default.Language,
-                            tag = "dns_filters_section",
                         )
                     }
                 }
@@ -535,16 +519,6 @@ fun FiltersScreen(
             onPickFile = {
                 viewModel.onIntent(AdGuardIntent.ShowAddFilterDialog(false))
                 pickFilterFile(dnsOnly = false)
-            },
-        )
-    }
-
-    if (state.showAddDnsFilterDialog) {
-        AddDnsFilterDialog(
-            onDismiss = { viewModel.onIntent(AdGuardIntent.ShowAddDnsFilterDialog(false)) },
-            onAdd = { name, url -> viewModel.onIntent(AdGuardIntent.AddDnsFilter(name, url)) },
-            onPickFile = {
-                pickFilterFile(dnsOnly = true)
             },
         )
     }
@@ -965,7 +939,7 @@ private fun SearchEmptyCard(
 }
 
 @Composable
-private fun CustomFiltersCard(
+internal fun CustomFiltersCard(
     lists: List<FilterList>,
     onAdd: () -> Unit,
     onToggleList: (FilterList) -> Unit,
@@ -1410,7 +1384,7 @@ private fun AddFilterDialog(
  * web-filter dialog (no file import, no syntax examples).
  */
 @Composable
-private fun AddDnsFilterDialog(
+internal fun AddDnsFilterDialog(
     onDismiss: () -> Unit,
     onAdd: (String, String) -> Unit,
     onPickFile: () -> Unit,

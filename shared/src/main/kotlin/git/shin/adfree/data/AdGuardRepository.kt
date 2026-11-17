@@ -109,6 +109,18 @@ private const val SECURITY_NOTICE_PAGE = 32
 private const val SECURITY_NOTICE_MAX_DOMAINS = 64
 
 /**
+ * The DNS rule editor's last gate before the core.
+ *
+ * Blank lines and comments carry nothing into a lookup, and a rule repeated
+ * twice would be compiled twice, so both go. Order is kept: the editor shows
+ * the rules back in the order they were written.
+ */
+internal fun cleanDnsUserRules(raw: List<String>): List<String> = raw
+    .map { it.trim() }
+    .filter { it.isNotEmpty() && !it.startsWith("!") && !it.startsWith("#") }
+    .distinct()
+
+/**
  * Single source of truth.
  *
  * Every number here comes from the Rust core ([CoreEngine]) — nothing is
@@ -1044,6 +1056,52 @@ class AdGuardRepository(
                     isDnsOnly = true,
                 )
             }
+            // The DNS screen ships one filter and one editor. The filter is
+            // seeded once: `dnsConfigured` is flipped by the first save, so a
+            // default the user deleted stays deleted instead of coming back
+            // on every launch.
+            if (!saved.dnsConfigured) {
+                lists += FilterList(
+                    id = DNS_DEFAULT_ID,
+                    name = L10n.get(Strings.dns_filters_default_name),
+                    description = L10n.get(Strings.dns_filters_default_description),
+                    ruleCount = 0,
+                    isEnabled = true,
+                    category = "dns",
+                    version = "",
+                    isOnlineSubscription = true,
+                    subscriptionUrl = DNS_DEFAULT_URL,
+                    lastUpdatedText = L10n.get(Strings.filter_not_loaded),
+                    groupId = "dns",
+                    format = "standard",
+                    isUserAdded = true,
+                    trusted = true,
+                    isDnsOnly = true,
+                )
+            }
+            // The user's own DNS rules are a list like any other, so the core
+            // consults them on name lookups and nowhere else. Not `isCustom`:
+            // that pseudo-list carries the web rules, and mixing the two would
+            // let a DNS rule block a URL.
+            val dnsRules = saved.dnsUserRules
+            if (dnsRules.isNotEmpty()) {
+                withContext(Dispatchers.IO) {
+                    engine.saveListText(BUILTIN_DNS_RULES, dnsRules.joinToString("\n"))
+                }
+            }
+            lists += FilterList(
+                id = BUILTIN_DNS_RULES,
+                name = L10n.get(Strings.dns_rules_user_title),
+                description = L10n.get(Strings.dns_rules_user_subtitle),
+                ruleCount = dnsRules.size,
+                isEnabled = dnsRules.isNotEmpty(),
+                category = "dns",
+                version = "",
+                groupId = "dns",
+                isDnsOnly = true,
+                customRules = dnsRules,
+            )
+
             val rules = if (saved.userRulesConfigured) saved.userRules else starterRules
             lists += FilterList(
                 id = BUILTIN_CUSTOM,
@@ -1678,6 +1736,11 @@ class AdGuardRepository(
                 },
                 userRules = lists.firstOrNull { it.isCustom }?.customRules.orEmpty(),
                 userRulesConfigured = true,
+                dnsUserRules = lists
+                    .firstOrNull { it.id == BUILTIN_DNS_RULES }
+                    ?.customRules
+                    .orEmpty(),
+                dnsConfigured = true,
                 dnsFilters = lists.filter { it.isUserAdded && it.isDnsOnly }.map {
                     FilterChoice(
                         id = it.id,
@@ -1701,6 +1764,39 @@ class AdGuardRepository(
             _filterLists.update { lists ->
                 lists.map {
                     if (it.isCustom) it.copy(ruleCount = cleaned.size, customRules = cleaned, isEnabled = cleaned.isNotEmpty()) else it
+                }
+            }
+            saveFilterChoices()
+            pushListsToEngine()
+        }
+    }
+
+    /**
+     * Replaces the DNS screen's user rules.
+     *
+     * The rules are written as a list body so the core builds them the way it
+     * builds any other list — with one flag, `dns_only`, that keeps them out of
+     * URL and SNI matching — and the whole list is pushed afterwards, because
+     * the core rebuilds from the complete set.
+     */
+    fun updateDnsUserRules(newRules: List<String>) {
+        scope.launch {
+            val cleaned = cleanDnsUserRules(newRules)
+            val text = cleaned.joinToString("\n")
+            if (cleaned.isNotEmpty()) {
+                withContext(Dispatchers.IO) { engine.saveListText(BUILTIN_DNS_RULES, text) }
+            }
+            _filterLists.update { lists ->
+                lists.map {
+                    if (it.id == BUILTIN_DNS_RULES) {
+                        it.copy(
+                            ruleCount = cleaned.size,
+                            customRules = cleaned,
+                            isEnabled = cleaned.isNotEmpty(),
+                        )
+                    } else {
+                        it
+                    }
                 }
             }
             saveFilterChoices()
@@ -2968,6 +3064,15 @@ class AdGuardRepository(
         const val LOG_DB_KEEP_DAYS = 7
         private const val MAX_APPS_SHOWN = 250
         private const val BUILTIN_CUSTOM = "builtin_custom"
+
+        /**
+         * The one DNS filter a fresh screen starts with: AdGuard's own domain
+         * list, the optimized Android build the AdGuard app downloads too.
+         */
+        const val DNS_DEFAULT_URL =
+            "https://filters.adtidy.org/android/filters/15_optimized.txt"
+        private const val DNS_DEFAULT_ID = "dns_default_ag"
+        private const val BUILTIN_DNS_RULES = "builtin_dns_rules"
 
         /** A few starter rules so the user sees how they work. */
         private val starterRules = listOf(

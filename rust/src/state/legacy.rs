@@ -371,6 +371,10 @@ fn filters_from(blob: LegacyFilters) -> LegacyFiltersPart {
             user_rules_configured: blob.user_rules.is_some(),
             user_rules: blob.user_rules.unwrap_or_default(),
             dns_filters: Vec::new(),
+            // A blob from before the DNS screen holds no DNS filters; the
+            // first launch after the import seeds the shipped one.
+            dns_user_rules: Vec::new(),
+            dns_configured: false,
         },
         scripts: ScriptState {
             master: blob.userscripts_master.unwrap_or(true),

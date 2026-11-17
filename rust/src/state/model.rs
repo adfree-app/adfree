@@ -810,6 +810,15 @@ pub struct FilterState {
     /// Lists the user added under "DNS filters". They are consulted by name
     /// lookups only, never by URL or SNI checks.
     pub dns_filters: Vec<FilterChoice>,
+    /// Rules the user typed in the DNS screen's editor. They are a list of
+    /// their own, applied to name lookups only, so a rule written here can
+    /// never start blocking a URL or an SNI elsewhere.
+    pub dns_user_rules: Vec<String>,
+    /// False means the DNS protection screen has never been set up: the
+    /// platform seeds the one filter it ships with (AdGuard's DNS filter) and
+    /// flips this. A DNS filter the user deleted afterwards stays deleted,
+    /// because the seed only happens while this is false.
+    pub dns_configured: bool,
 }
 
 #[derive(uniffi::Record, Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

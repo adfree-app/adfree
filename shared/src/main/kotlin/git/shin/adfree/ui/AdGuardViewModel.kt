@@ -103,6 +103,7 @@ class AdGuardViewModel(
     private val _inspectedFilter = MutableStateFlow<String?>(null)
     private val _showAddFilterDialog = MutableStateFlow(false)
     private val _showAddDnsFilterDialog = MutableStateFlow(false)
+    private val _showDnsRuleEditor = MutableStateFlow(false)
     private val _inspectedScript = MutableStateFlow<String?>(null)
     private val _showAddScriptDialog = MutableStateFlow(false)
     private val _showScriptStore = MutableStateFlow(false)
@@ -260,8 +261,13 @@ class AdGuardViewModel(
                 _appCategoryFilter,
                 _selectedAppFilter,
                 _aiLabState,
-                _showAddDnsFilterDialog,
-            ) { q, cat, app, lab, addDns -> UiPartD(q, cat, app, lab, addDns) },
+                // The two DNS sheets travel together: `combine` takes five
+                // flows before it needs a typed array, and a pair is clearer
+                // than an unnamed one.
+                combine(_showAddDnsFilterDialog, _showDnsRuleEditor) { add, editor -> add to editor },
+            ) { q, cat, app, lab, dnsSheets ->
+                UiPartD(q, cat, app, lab, dnsSheets.first, dnsSheets.second)
+            },
             combine(
                 _showVpnPermissionPrompt,
                 repository.loadingMessage,
@@ -358,6 +364,7 @@ class AdGuardViewModel(
             selectedAppFilter = d.selectedApp,
             aiLabState = d.aiLabState,
             showAddDnsFilterDialog = d.showAddDnsFilter,
+            showDnsRuleEditor = d.showDnsRuleEditor,
             showVpnPermissionPrompt = d.showVpnPermission,
             loadingMessage = d.loadingMessage,
         )
@@ -664,6 +671,11 @@ class AdGuardViewModel(
             is AdGuardIntent.FilterSearchQueryChanged -> _filterSearchQuery.value = intent.query
             is AdGuardIntent.ShowAddFilterDialog -> _showAddFilterDialog.value = intent.show
             is AdGuardIntent.ShowAddDnsFilterDialog -> _showAddDnsFilterDialog.value = intent.show
+            is AdGuardIntent.ShowDnsRuleEditor -> _showDnsRuleEditor.value = intent.show
+            is AdGuardIntent.UpdateDnsUserRules -> {
+                repository.updateDnsUserRules(intent.rules)
+                _showDnsRuleEditor.value = false
+            }
             is AdGuardIntent.AddCustomFilter -> {
                 repository.addCustomFilter(intent.name, intent.url)
                 _showAddFilterDialog.value = false
@@ -1248,6 +1260,7 @@ class AdGuardViewModel(
         val selectedApp: String?,
         val aiLabState: AiLabUiState,
         val showAddDnsFilter: Boolean,
+        val showDnsRuleEditor: Boolean,
     ) {
         var showVpnPermission: Boolean = false
         var loadingMessage: UiText? = null

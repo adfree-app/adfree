@@ -227,6 +227,9 @@ impl StateStore {
         // the catalogue defaults, even when the list came back empty.
         value.catalog_configured = true;
         value.user_rules_configured = true;
+        // The DNS screen has been seen: whatever it holds now is the user's
+        // arrangement, and the shipped default must not be seeded again.
+        value.dns_configured = true;
         value.enabled_catalog_ids = dedupe(value.enabled_catalog_ids);
         value.trusted_ids = dedupe(value.trusted_ids);
         value.custom.retain(|f| !f.id.trim().is_empty());
@@ -647,6 +650,49 @@ mod tests {
         assert_eq!(saved.dns_filters.len(), 1, "a blank id never persists");
         assert_eq!(saved.dns_filters[0].name, "Hosts");
         assert_eq!(saved.dns_filters[0].format, "hosts");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The DNS screen seeds one filter the first time it is opened, so the
+    /// store has to remember that it did: an emptied screen that seeds itself
+    /// again on the next launch is a default the user cannot refuse.
+    /// DNS rules are their own list: they persist with the DNS screen, and a
+    /// screen that was emptied stays empty rather than falling back to the
+    /// starter rules the web filter seeds.
+    #[test]
+    fn dns_user_rules_persist_on_their_own() {
+        let (store, dir) = temp("dns-rules");
+        let state = StateStore::open(store);
+        assert!(state.snapshot().filters.dns_user_rules.is_empty());
+
+        let mut filters = state.snapshot().filters;
+        filters.dns_user_rules = vec!["||ads.example.test^".to_string()];
+        filters.user_rules = vec!["||web.example.test^".to_string()];
+        assert!(state.save_filters(filters));
+
+        let saved = state.snapshot().filters;
+        assert_eq!(saved.dns_user_rules, vec!["||ads.example.test^"]);
+        assert_eq!(saved.user_rules, vec!["||web.example.test^"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_saved_dns_screen_is_not_seeded_again() {
+        let (store, dir) = temp("dns-configured");
+        let state = StateStore::open(store);
+        assert!(!state.snapshot().filters.dns_configured);
+
+        let mut filters = state.snapshot().filters;
+        filters.dns_configured = false;
+        assert!(state.save_filters(filters));
+        assert!(state.snapshot().filters.dns_configured);
+
+        let mut emptied = state.snapshot().filters;
+        emptied.dns_filters.clear();
+        assert!(state.save_filters(emptied));
+        let saved = state.snapshot().filters;
+        assert!(saved.dns_configured);
+        assert!(saved.dns_filters.is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

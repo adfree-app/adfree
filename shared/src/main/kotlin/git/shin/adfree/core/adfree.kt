@@ -4194,6 +4194,21 @@ data class FilterState (
      * lookups only, never by URL or SNI checks.
      */
     var `dnsFilters`: List<FilterChoice>
+    , 
+    /**
+     * Rules the user typed in the DNS screen's editor. They are a list of
+     * their own, applied to name lookups only, so a rule written here can
+     * never start blocking a URL or an SNI elsewhere.
+     */
+    var `dnsUserRules`: List<kotlin.String>
+    , 
+    /**
+     * False means the DNS protection screen has never been set up: the
+     * platform seeds the one filter it ships with (AdGuard's DNS filter) and
+     * flips this. A DNS filter the user deleted afterwards stays deleted,
+     * because the seed only happens while this is false.
+     */
+    var `dnsConfigured`: kotlin.Boolean
     
 ){
     
@@ -4217,6 +4232,8 @@ public object FfiConverterTypeFilterState: FfiConverterRustBuffer<FilterState> {
             FfiConverterSequenceString.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterSequenceTypeFilterChoice.read(buf),
+            FfiConverterSequenceString.read(buf),
+            FfiConverterBoolean.read(buf),
         )
     }
 
@@ -4227,7 +4244,9 @@ public object FfiConverterTypeFilterState: FfiConverterRustBuffer<FilterState> {
             FfiConverterSequenceTypeFilterChoice.allocationSize(value.`custom`) +
             FfiConverterSequenceString.allocationSize(value.`userRules`) +
             FfiConverterBoolean.allocationSize(value.`userRulesConfigured`) +
-            FfiConverterSequenceTypeFilterChoice.allocationSize(value.`dnsFilters`)
+            FfiConverterSequenceTypeFilterChoice.allocationSize(value.`dnsFilters`) +
+            FfiConverterSequenceString.allocationSize(value.`dnsUserRules`) +
+            FfiConverterBoolean.allocationSize(value.`dnsConfigured`)
     )
 
     override fun write(value: FilterState, buf: ByteBuffer) {
@@ -4238,6 +4257,8 @@ public object FfiConverterTypeFilterState: FfiConverterRustBuffer<FilterState> {
             FfiConverterSequenceString.write(value.`userRules`, buf)
             FfiConverterBoolean.write(value.`userRulesConfigured`, buf)
             FfiConverterSequenceTypeFilterChoice.write(value.`dnsFilters`, buf)
+            FfiConverterSequenceString.write(value.`dnsUserRules`, buf)
+            FfiConverterBoolean.write(value.`dnsConfigured`, buf)
     }
 }
 
