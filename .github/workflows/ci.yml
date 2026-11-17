@@ -9,9 +9,9 @@
 #               styles, MutationObserver timing and XPath are the point
 #   kotlin      the shared UI, the desktop app and the Android app's unit
 #               tests, headless under Xvfb
-#   hygiene     the cheap invariants: formatting of the lines a change adds
-#               (Rust and Kotlin), string constants against string resources,
-#               shell syntax, the syntax of every workflow and JSON file
+#   hygiene     the cheap invariants: ktlint over the Kotlin a change adds,
+#               string constants against string resources, shell syntax, and
+#               the syntax of every workflow and JSON file
 #
 # Deliberately elsewhere: the Android lint and APK (android-ci.yml owns them and
 # they need the NDK and twenty minutes), the Windows cross build
@@ -52,6 +52,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
+
+      # Whole tree, not the added lines: the tree is formatted, so the plain
+      # command is the honest one and there is nothing to hold back.
+      - name: Formatting
+        working-directory: rust
+        run: cargo fmt --all --check
 
       - name: Tests
         working-directory: rust
@@ -181,20 +187,6 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-
-      # No `rust-toolchain` action: the formatting question is asked of the file
-      # that ships, so the stable compiler's rustfmt is enough and the tree is
-      # otherwise untouched here.
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-
-      # Only the lines the change adds: see the script's header for why the
-      # whole tree is not held to rustfmt.
-      - name: Formatting of the added Rust
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: ./scripts/check-rustfmt.py
 
       # ktlint is a jar; the job needs a JVM for it and nothing else. The cache
       # is keyed on the script, which owns the pinned version.

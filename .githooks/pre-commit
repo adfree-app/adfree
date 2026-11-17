@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# The two checks the Android CI runs, run here instead of twenty minutes later.
+# The three checks CI runs on the Rust half, run here instead of seven minutes
+# later.
 #
-# CI holds the line twice: `cargo clippy --all-targets -- -D warnings` (six
-# warnings once reached the default branch as six build failures) and the test
-# suite. Both are cheap once warm, and both are the checks a change can pass
-# locally by simply not running them.
+# CI holds the line three times: `cargo fmt --check` (the tree is formatted, and
+# a hand-wrapped line is a diff nobody asked for), `cargo clippy --all-targets
+# -- -D warnings` (six warnings once reached the default branch as six build
+# failures), and the test suite. All three are cheap once warm, and all three
+# are the checks a change can pass locally by simply not running them.
 #
 #   git commit --no-verify            skips this, deliberately
 #   ADFREE_SKIP_HOOKS=1 git commit …  skips it without pretending to be urgent
@@ -24,6 +26,14 @@ if ! git diff --cached --name-only | grep -qE '^rust/.*\.(rs|toml)$'; then
 fi
 
 cd "$root/rust" || exit 0
+
+# First, because it is the cheapest and the one a machine without a warm build
+# can still answer: no compile, just the file as rustfmt would write it.
+echo "pre-commit: cargo fmt --check"
+if ! cargo fmt --all --check; then
+    echo "pre-commit: rustfmt would rewrite the files above — run \`cargo fmt\`" >&2
+    exit 1
+fi
 
 echo "pre-commit: cargo clippy --all-targets"
 if ! cargo clippy --all-targets -- -D warnings; then
