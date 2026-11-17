@@ -182,7 +182,7 @@
     Lib.prototype.emitEvent = function (detected) {
       var fns = this._var.event[detected === true ? 'detected' : 'notDetected'];
       for (var i in fns) {
-        if (fns.hasOwnProperty(i)) {
+        if (Object.prototype.hasOwnProperty.call(fns, i)) {
           fns[i]();
         }
       }

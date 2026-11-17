@@ -60,7 +60,13 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: JavaScript tests
-        run: bun run test
+        run: bun run test:node
+
+      # The browser half runs on the runner image's own Chrome: this job does
+      # not install Playwright's Chromium, and does not need to, because the
+      # suite falls back to the system Chrome when PLAYWRIGHT_CHANNEL is unset.
+      - name: Playwright tests
+        run: bun run test:playwright
 
       - name: Rust tests
         working-directory: rust

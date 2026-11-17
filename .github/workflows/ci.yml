@@ -1,20 +1,24 @@
 # Everything a change must pass, in one place.
 #
-# Four jobs, because they need four different machines worth of tooling:
+# Five jobs, because they need five different machines worth of tooling:
 #
 #   rust        the core: its own tests, and clippy as the compiler's opinion
-#   javascript  the code the app injects into pages, driven in a real Chromium
-#   kotlin      the shared UI and the desktop app, headless under Xvfb
-#   hygiene     the cheap invariants: formatting of the lines a change adds,
-#               string constants against string resources, shell syntax, the
-#               syntax of every workflow and JSON file in the tree
+#   javascript  the code the app injects into pages, linted and tested where it
+#               needs no DOM
+#   playwright  the same injected code driven in a real Chromium: computed
+#               styles, MutationObserver timing and XPath are the point
+#   kotlin      the shared UI, the desktop app and the Android app's unit
+#               tests, headless under Xvfb
+#   hygiene     the cheap invariants: formatting of the lines a change adds
+#               (Rust and Kotlin), string constants against string resources,
+#               shell syntax, the syntax of every workflow and JSON file
 #
 # Deliberately elsewhere: the Android lint and APK (android-ci.yml owns them and
 # they need the NDK and twenty minutes), the Windows cross build
 # (windows-port-check.yml), and packaging (the release workflows).
 #
 # The jobs are independent on purpose: a red Kotlin job must not hide a green
-# Rust one, and `fail-fast` would turn one mistake into four cancelled runs.
+# Rust one, and `fail-fast` would turn one mistake into five cancelled runs.
 name: CI
 
 on:
@@ -65,7 +69,30 @@ jobs:
         run: cargo build --examples --locked
 
   javascript:
-    name: JavaScript — vitest in Chromium
+    name: JavaScript — lint and node tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+
+      - name: Install the test dependencies
+        run: bun install --frozen-lockfile
+
+      # The test dependencies include ESLint; the lint step reads the same
+      # install rather than paying for a second one.
+      - name: Lint
+        run: bun run lint
+
+      # The redirect stubs are a `vm` context and a fake window: no browser is
+      # started here, so this job needs no Chromium and is the quick one.
+      - name: Tests
+        run: bun run test:node
+
+  playwright:
+    name: Playwright — the injected code in Chromium
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -86,10 +113,10 @@ jobs:
       - name: Tests
         env:
           PLAYWRIGHT_CHANNEL: chromium
-        run: bun run test
+        run: bun run test:playwright
 
   kotlin:
-    name: Kotlin — shared and desktop tests
+    name: Kotlin — shared, desktop and app tests
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -99,6 +126,14 @@ jobs:
           java-version: "21"
           distribution: "temurin"
           cache: gradle
+
+      # The app module is an Android module even when its tests are plain JVM
+      # tests: AGP still wants the SDK, and it compiles against the minor API
+      # level below.
+      - uses: android-actions/setup-android@v3
+
+      - name: The platform the app compiles against
+        run: sdkmanager --install "platforms;android-36.1"
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -116,11 +151,16 @@ jobs:
       - name: A display and a session bus for the UI tests
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb dbus-x11
 
+      # `-PskipNative` keeps the app's Kotlin compile from shelling out to
+      # cargo-ndk for four ABIs: the unit tests run on the JVM, and the suites
+      # that do load the core are :shared and :desktop, whose libraries were
+      # built above.
       - name: Tests
         run: >
           dbus-run-session --
           xvfb-run -a --server-args="-screen 0 1400x900x24"
-          ./gradlew --no-daemon --console=plain :shared:test :desktop:test
+          ./gradlew --no-daemon --console=plain -PskipNative
+          :shared:test :desktop:test :app:testDebugUnitTest
 
       # A failing Compose test says which assertion failed and nothing about the
       # frame it failed on; the XML and the HTML report say the rest.
@@ -132,6 +172,7 @@ jobs:
           path: |
             shared/build/reports/tests/
             desktop/build/reports/tests/
+            app/build/reports/tests/
           if-no-files-found: ignore
 
   hygiene:
@@ -156,6 +197,24 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: ./scripts/check-rustfmt.py
+
+      # ktlint is a jar; the job needs a JVM for it and nothing else. The cache
+      # is keyed on the script, which owns the pinned version.
+      - uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: "temurin"
+
+      - uses: actions/cache@v4
+        with:
+          path: .cache/ktlint
+          key: ktlint-${{ runner.os }}-${{ hashFiles('scripts/check-ktlint.py') }}
+
+      # Same narrow question as the Rust step above, for the same reason.
+      - name: Formatting of the added Kotlin
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: ./scripts/check-ktlint.py
 
       - name: String constants against string resources
         run: ./scripts/check-l10n.py

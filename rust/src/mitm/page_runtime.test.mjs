@@ -649,7 +649,7 @@ describe('procedural rules', () => {
     });
     await page.page.evaluate(() => {
       // 1x1 PNGs: one 2 px wide, one 3 px wide.
-      const png = (w) =>
+      const png = () =>
         'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
       void png;
       const wide = document.getElementById('wide');

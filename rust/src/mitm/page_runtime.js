@@ -677,7 +677,7 @@
   // Tokens the proxy already looked up (its scan found a selector for them).
   const seenTokens = new Set();
   for (const sel of generic) {
-    if (sel.length > 1 && !/[ .#\[:]/.test(sel.slice(1))) {
+    if (sel.length > 1 && !/[ .#[:]/.test(sel.slice(1))) {
       if (sel.startsWith('.')) {
         seenTokens.add(`c${sel.slice(1)}`);
       } else if (sel.startsWith('#')) {
@@ -1190,7 +1190,9 @@
   // rule of ours marked `!important` outranks it and survives the rewrite.
   const SLOT_STYLE_ID = 'adfree-empty-slots';
   const ensureSlotStyle = () => {
-    let el = null;
+    // Both arms assign; the declaration starts without a value because the
+    // `null` it used to hold was never read.
+    let el;
     try {
       el = document.getElementById(SLOT_STYLE_ID);
     } catch {
