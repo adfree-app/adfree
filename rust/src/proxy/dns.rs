@@ -515,7 +515,12 @@ pub(crate) fn serve_loop(listeners: Vec<Listener>, stop: Arc<AtomicBool>) {
             continue;
         }
         for (index, ready) in fds.iter().enumerate() {
-            if ready.revents & libc::POLLIN == 0 {
+            // An error bit is an event too: a listener that sent towards an
+            // unreachable client holds an ICMP port-unreachable as a socket
+            // error, and `poll` keeps answering `POLLERR` — immediately, for
+            // ever — until a read consumes it. Skipping it here is a DNS loop at
+            // a full core with no query in sight.
+            if !super::drainable(ready.revents) {
                 continue;
             }
             let Some(query) = listeners[index].recv(&mut buf) else {

@@ -749,9 +749,14 @@ fn find_head_end(bytes: &[u8]) -> Option<usize> {
 }
 
 fn read_exact_nb(fd: RawFd, buf: &mut [u8], stop: &AtomicBool) -> Option<()> {
+    // A client that opens a tunnel, sends half a head and then goes quiet would
+    // otherwise sit here for as long as it likes — the pump's own idle timeout
+    // only starts once this returns, and the slot this flow took is held the
+    // whole time. Bounded by the same budget as an idle flow.
+    let started = std::time::Instant::now();
     let mut off = 0usize;
     while off < buf.len() {
-        if stop.load(Ordering::Relaxed) {
+        if stop.load(Ordering::Relaxed) || started.elapsed() > super::IDLE_TIMEOUT {
             return None;
         }
         if !super::poll_readable(fd, POLL_SLICE_MS) {

@@ -34,31 +34,50 @@ pub fn original_destination(_socket: RawSock) -> Option<SocketAddr> {
 /// one flow, and a busy proxy dials many origins at once.
 pub fn mark_own_traffic(socket: RawSock, _mark: u32) {
     use crate::sys::libc;
-    use crate::sys::windivert_filter::OWN_PORTS;
+    use crate::sys::windivert_filter::{own_port_state, OwnPort, OWN_PORTS};
     use std::sync::atomic::{AtomicU32, Ordering};
 
     /// Round-robin position, so two dials in the same millisecond do not fight
     /// over the same port.
     static NEXT: AtomicU32 = AtomicU32::new(0);
     static LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    static OUTSIDE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
     let fd = socket as libc::RawFd;
-    // An unbound socket still reports its family, which is what decides whether
-    // the wildcard address to bind is 0.0.0.0 or ::.
+    // `getsockname` answers two things at once: the family (which decides
+    // whether the wildcard to bind is 0.0.0.0 or ::) and whether the socket
+    // already has a port. A socket can only be bound once, so the second answer
+    // is the one that decides whether binding is even possible.
     let mut probe: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
     let mut probe_len = std::mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t;
-    let family = if unsafe {
+    let probed = unsafe {
         libc::getsockname(
             fd,
             &mut probe as *mut libc::sockaddr_storage as *mut libc::sockaddr,
             &mut probe_len,
         )
-    } == 0
-    {
-        i32::from(probe.ss_family)
-    } else {
-        libc::AF_INET
-    };
+    } == 0;
+    let family = if probed { i32::from(probe.ss_family) } else { libc::AF_INET };
+
+    match own_port_state(if probed { local_port(&probe) } else { 0 }) {
+        // The promise is already kept: the DNS half binds its forwarding socket
+        // itself, and asking to bind it again failed on all thousand ports and
+        // reported `no port in the own-traffic range could be bound (last error
+        // 10022)` — an error that named the range when the socket was the
+        // problem. Nothing to do, and nothing to say.
+        OwnPort::AlreadyOurs => return,
+        OwnPort::BoundElsewhere(port) => {
+            if !OUTSIDE.swap(true, Ordering::Relaxed) {
+                crate::logbuf::push_error(&format!(
+                    "proxy: a socket already bound to port {port} is outside the                      own-traffic range ({}-{}), and a bound socket cannot be moved; \
+                     a dial on it may be redirected",
+                    OWN_PORTS.0, OWN_PORTS.1
+                ));
+            }
+            return;
+        }
+        OwnPort::Unbound => {}
+    }
 
     let (lo, hi) = OWN_PORTS;
     let span = u32::from(hi - lo) + 1;
@@ -69,6 +88,12 @@ pub fn mark_own_traffic(socket: RawSock, _mark: u32) {
             return;
         }
         last = std::io::Error::last_os_error().raw_os_error().unwrap_or(-1);
+        // `WSAEINVAL` and `WSAEAFNOSUPPORT` are properties of the socket, not of
+        // the port: no other port in the range will answer differently, so the
+        // other 999 attempts are the same expensive answer.
+        if last == 10022 || last == 10047 {
+            break;
+        }
     }
     if !LOGGED.swap(true, Ordering::Relaxed) {
         // Once per process: a dial that cannot be marked is a dial the redirect
@@ -76,7 +101,8 @@ pub fn mark_own_traffic(socket: RawSock, _mark: u32) {
         // can fix it.
         crate::logbuf::push_error(&format!(
             "proxy: no port in the own-traffic range could be bound \
-             (family {family}, last error {last}); a dial may be redirected"
+             (family {family}, last error {last} {}); a dial may be redirected",
+            meaning(last)
         ));
     }
     // Every port in the range is taken, which means the redirect will see this
@@ -84,6 +110,33 @@ pub fn mark_own_traffic(socket: RawSock, _mark: u32) {
     // unbound gives the driver a chance to hand it back, which at least does
     // not lose the connection outright.
     crate::logbuf::push("proxy: no free port in the own-traffic range; a dial may be redirected");
+}
+
+/// The port `getsockname` just filled in, or 0 when the socket has none.
+fn local_port(probe: &crate::sys::libc::sockaddr_storage) -> u16 {
+    use crate::sys::libc;
+    let family = i32::from(probe.ss_family);
+    unsafe {
+        if family == libc::AF_INET6 {
+            let sin6 = &*(probe as *const libc::sockaddr_storage as *const libc::sockaddr_in6);
+            u16::from_be(sin6.sin6_port)
+        } else {
+            let sin = &*(probe as *const libc::sockaddr_storage as *const libc::sockaddr_in);
+            u16::from_be(sin.sin_port)
+        }
+    }
+}
+
+/// The Winsock error in words, so one line of the log names the fault.
+fn meaning(code: i32) -> &'static str {
+    match code {
+        10013 => "(access forbidden: the port range is reserved by another component)",
+        10022 => "(the socket cannot be bound: it already has a local address)",
+        10047 => "(the socket's address family is not the one that was bound)",
+        10048 => "(every port tried in the range is in use)",
+        10049 => "(the address is not available on this machine)",
+        _ => "(unrecognised)",
+    }
 }
 
 /// Binds `fd` to the wildcard address of `family` with `port`. Returns whether

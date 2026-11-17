@@ -17,6 +17,41 @@
 /// cannot happen.
 pub const OWN_PORTS: (u16, u16) = (40000, 40999);
 
+/// What a socket's own port says about whether it still needs binding.
+///
+/// A socket can only be bound once. `mark_own_traffic` promises a source port
+/// inside [`OWN_PORTS`], and the DNS half already keeps that promise by binding
+/// the socket itself (`proxy::dns::bind_own_port`) — so it then asks to have the
+/// port "marked" on a socket that already has one. Every port in the range
+/// answered `WSAEINVAL`, the loop exhausted the range, and the only thing the
+/// user ever saw was `proxy: no port in the own-traffic range could be bound
+/// (last error 10022)`: a permanent, harmless, and completely misleading error
+/// on every machine, logged once per process.
+///
+/// The state is decided from the local port alone, which is why it can live here
+/// and be tested on a platform without Winsock.
+#[derive(Debug, PartialEq, Eq)]
+pub enum OwnPort {
+    /// Bound to nothing yet: rotating through the range is the right move.
+    Unbound,
+    /// Already bound inside the range: the promise is already kept.
+    AlreadyOurs,
+    /// Already bound somewhere else: the socket cannot be rebound, so the only
+    /// honest thing left is to say so.
+    BoundElsewhere(u16),
+}
+
+pub fn own_port_state(local_port: u16) -> OwnPort {
+    let (lo, hi) = OWN_PORTS;
+    if local_port == 0 {
+        OwnPort::Unbound
+    } else if (lo..=hi).contains(&local_port) {
+        OwnPort::AlreadyOurs
+    } else {
+        OwnPort::BoundElsewhere(local_port)
+    }
+}
+
 /// The filter for traffic leaving the machine: the four cases the redirect has
 /// an opinion about, and nothing else.
 ///
@@ -80,6 +115,25 @@ pub fn report(seen: u64, redirected: u64, dropped: u64, flows: usize) -> String 
     format!(
         "[net] redirect: {seen} packets, {redirected} redirected, {dropped} dropped, {flows} live flows"
     )
+}
+
+#[cfg(test)]
+mod own_port_tests {
+    use super::{own_port_state, OwnPort, OWN_PORTS};
+
+    /// Binding is a one-time thing, and the code that promises the range has to
+    /// know which case it is in: rotating through a thousand ports on a socket
+    /// that already has one fails a thousand times and reports the wrong reason.
+    #[test]
+    fn a_socket_is_only_bound_once() {
+        assert_eq!(own_port_state(0), OwnPort::Unbound);
+        assert_eq!(own_port_state(OWN_PORTS.0), OwnPort::AlreadyOurs);
+        assert_eq!(own_port_state(OWN_PORTS.1), OwnPort::AlreadyOurs);
+        assert_eq!(own_port_state(OWN_PORTS.0 + 7), OwnPort::AlreadyOurs);
+        assert_eq!(own_port_state(OWN_PORTS.0 - 1), OwnPort::BoundElsewhere(39999));
+        assert_eq!(own_port_state(OWN_PORTS.1 + 1), OwnPort::BoundElsewhere(41000));
+        assert_eq!(own_port_state(3129), OwnPort::BoundElsewhere(3129));
+    }
 }
 
 #[cfg(test)]

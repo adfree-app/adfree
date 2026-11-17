@@ -357,8 +357,10 @@ impl Upstream {
         let mut received = 0;
         for (i, p) in fds.iter().enumerate() {
             // Drain every pending datagram: poll reports that data is ready but not how
-            // much, so read until EWOULDBLOCK.
-            if p.revents & libc::POLLIN == 0 {
+            // much, so read until EWOULDBLOCK. An error bit counts even though the
+            // read of it yields nothing — it is what keeps this socket ready, and
+            // the failed read is what clears it (see `proxy::drainable`).
+            if !crate::proxy::drainable(p.revents) {
                 continue;
             }
             loop {

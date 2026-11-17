@@ -347,6 +347,22 @@ pub(crate) fn poll_readable(fd: RawFd, timeout_ms: i32) -> bool {
     poll_fd(fd, libc::POLLIN, timeout_ms).unwrap_or(false)
 }
 
+/// Whether a `poll` answer is worth a `recv`.
+///
+/// Everything except "nothing happened" is. The bits a drain used to require —
+/// `POLLIN` — are the ones that carry data, but the bits that decide whether the
+/// *next* `poll` returns at once are the error bits, and ignoring them is a loop
+/// that never waits again:
+///
+/// measured on this kernel, a UDP socket that sent to a port nobody listens on
+/// answers `poll` with `POLLERR` alone, `rc = 1`, on every call — for ever —
+/// until something reads the queued error, and only that read clears it. A
+/// listener or a forwarding socket that gets an ICMP port-unreachable therefore
+/// spins at a full core while the window says nothing is happening.
+pub(crate) fn drainable(revents: libc::c_short) -> bool {
+    revents != 0
+}
+
 /// Waits for readability and says whether the descriptor still exists.
 ///
 /// `None` is the answer a loop needs and a boolean cannot carry: a descriptor
@@ -970,6 +986,64 @@ mod lifecycle_tests {
         for ip in own_addresses() {
             assert!(is_local_peer(SocketAddr::new(ip, 44321)), "{ip} is this host");
         }
+    }
+}
+
+#[cfg(test)]
+mod drain_bits_tests {
+    use super::drainable;
+
+    /// `POLLERR` is news, not noise: it is the bit that makes the next `poll`
+    /// return immediately, and the read it points at is what clears it.
+    #[test]
+    fn an_error_bit_is_worth_a_read() {
+        assert!(drainable(libc::POLLERR), "POLLERR alone must be drained");
+        assert!(drainable(libc::POLLHUP), "POLLHUP alone must be drained");
+        assert!(drainable(libc::POLLIN | libc::POLLERR));
+        assert!(drainable(libc::POLLNVAL), "a bad descriptor is news too");
+        assert!(!drainable(0), "timeout is the only nothing");
+    }
+
+    /// The measurement the rule is written from, taken from the kernel rather
+    /// than assumed: an ICMP port-unreachable leaves a UDP socket reporting
+    /// `POLLERR` only, at once, on every `poll`, until a `recv` consumes it.
+    #[test]
+    fn a_queued_socket_error_keeps_poll_ready_until_it_is_read() {
+        use std::os::fd::AsRawFd;
+        let closed = std::net::UdpSocket::bind("127.0.0.1:0").expect("bind");
+        let port = closed.local_addr().expect("addr").port();
+        drop(closed);
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").expect("bind");
+        socket.connect(("127.0.0.1", port)).expect("connect");
+        socket.send(b"query").expect("send");
+        std::thread::sleep(std::time::Duration::from_millis(150));
+
+        let ready = || {
+            let mut pfd = libc::pollfd {
+                fd: socket.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            let rc = unsafe { libc::poll(&mut pfd, 1, 0) };
+            assert!(rc >= 0, "poll failed");
+            pfd.revents
+        };
+        let first = ready();
+        assert_eq!(first, libc::POLLERR, "the error arrives without any data");
+        assert!(drainable(first));
+        assert_eq!(ready(), libc::POLLERR, "and it is still there next time");
+
+        let mut buf = [0u8; 16];
+        let read = unsafe {
+            libc::recv(
+                socket.as_raw_fd(),
+                buf.as_mut_ptr() as *mut libc::c_void,
+                buf.len(),
+                libc::MSG_DONTWAIT,
+            )
+        };
+        assert_eq!(read, -1, "the read fails, and that is the point");
+        assert_eq!(ready(), 0, "reading is what clears the readiness");
     }
 }
 
