@@ -981,6 +981,239 @@ pub struct HostVerdict {
     pub redirect: bool,
 }
 
+/// A host-only list reduced to what a name lookup can ask.
+///
+/// These lists are lines like `||ads.example.test^`: no path, no modifier, no
+/// pattern. A full engine answers that by compiling every line into a pattern,
+/// its options and a source index — tens of megabytes resident, plus a rebuild
+/// per launch — to answer one question: is this name, or a parent of it, in the
+/// set? A sorted list of domains answers the same question with a binary
+/// search, and the AdGuard DNS filter alone is 190 000 such lines.
+///
+/// A line the set cannot express (`$important`, a wildcard, a regex) is not
+/// dropped: [`SimpleDns::absorb`] hands it back, and the caller compiles just
+/// those into the host-only engine. A list that mixes both keeps working, and
+/// only the lines that need it pay for an engine.
+#[derive(Default)]
+struct SimpleDns {
+    /// Sorted by domain and deduped; matched by suffix, so `b.test` also
+    /// answers for `a.b.test`.
+    blocked: Vec<DnsDomain>,
+    /// The `@@` exceptions, matched the same way and consulted first: an
+    /// allowlist entry is the one thing that can take a name back out.
+    allowed: Vec<DnsDomain>,
+    /// The lists those entries came from, for the log and the row they blame.
+    lists: Vec<SourceMapEntry>,
+}
+
+/// One domain in a [`SimpleDns`], with where it was written.
+#[derive(Clone)]
+struct DnsDomain {
+    domain: Box<str>,
+    /// Index into [`SimpleDns::lists`].
+    list: u16,
+    /// Line of that list's text, read back only when a block is logged.
+    line: u32,
+}
+
+/// What one line of a host-only list is, as far as a domain set is concerned.
+enum SimpleLine<'a> {
+    /// Blank or a comment: carries nothing, needs no engine either.
+    Skip,
+    /// A domain the set can answer on its own.
+    Domain { allow: bool, domain: &'a str },
+    /// Something else (`$important`, a wildcard, a regex): the engine's job.
+    Unsupported,
+}
+
+/// Classifies one line of a host-only list.
+///
+/// Only the shapes that survive a suffix lookup are accepted: `||domain^`
+/// (with or without the trailing anchor), its `@@` exception, a hosts row, and
+/// a bare domain. Everything with a pattern in it — `*`, `$`, `/`, a
+/// non-trailing `^` — is left to the engine, because a domain set that
+/// silently drops such a line would stop blocking what the list says.
+fn simple_line(line: &str) -> SimpleLine<'_> {
+    let t = line.trim();
+    if t.is_empty() || t.starts_with('!') || t.starts_with('#') || t.starts_with('[') {
+        return SimpleLine::Skip;
+    }
+    let (allow, rest) = match t.strip_prefix("@@") {
+        Some(rest) => (true, rest),
+        None => (false, t),
+    };
+    // A hosts row — a blocking address and the name it answers with — or a
+    // bare domain. No allocation per line: this runs over 190 000 of them.
+    let mut words = rest.split_whitespace();
+    let (first, second, third) = (words.next(), words.next(), words.next());
+    let rest = match (first, second, third) {
+        (Some(ip), Some(host), None) if is_blocking_ip(ip) && is_plain_domain(host) => host,
+        (Some(host), None, None) if !allow && is_plain_domain(host) => host,
+        _ => rest,
+    };
+    let domain = rest
+        .strip_prefix("||")
+        .unwrap_or(rest)
+        // `^` closes the host anchor, `|` pins the end of the URL; either
+        // order means the same thing for a bare name.
+        .trim_end_matches('|')
+        .trim_end_matches('^')
+        .trim_end_matches('|');
+    if !is_plain_domain(domain) || domain.contains('*') {
+        return SimpleLine::Unsupported;
+    }
+    SimpleLine::Domain { allow, domain }
+}
+
+impl SimpleDns {
+    /// Takes the lines a domain set can answer and returns what it cannot.
+    ///
+    /// The rest is the same text with those lines left out (not blanked: the
+    /// engine reports line numbers, so the caller keeps the line count it
+    /// started with by replacing them with comments). A list entry is only
+    /// recorded once a domain has been taken from it, so a list that is all
+    /// patterns still costs no source entry here.
+    fn absorb(&mut self, text: &str, list: DnsListMeta, taken: &mut usize, rest: &mut String) {
+        let mut entry: Option<u16> = None;
+        for (number, line) in text.lines().enumerate() {
+            match simple_line(line) {
+                SimpleLine::Skip => rest.push('\n'),
+                SimpleLine::Domain { allow, domain } => {
+                    let index = *entry.get_or_insert_with(|| {
+                        self.lists.push(SourceMapEntry {
+                            // The domain set is not the engine: it has no
+                            // source indices of its own, and nothing reads
+                            // this field.
+                            source_index: 0,
+                            list_id: list.id,
+                            name: list.name.clone(),
+                            category: list.category,
+                            rules: list.rules.clone(),
+                        });
+                        (self.lists.len() - 1) as u16
+                    });
+                    let bucket = if allow {
+                        &mut self.allowed
+                    } else {
+                        &mut self.blocked
+                    };
+                    bucket.push(DnsDomain {
+                        domain: domain.into(),
+                        list: index,
+                        line: number as u32,
+                    });
+                    *taken += 1;
+                    rest.push('\n');
+                }
+                SimpleLine::Unsupported => {
+                    rest.push_str(line);
+                    rest.push('\n');
+                }
+            }
+        }
+    }
+
+    /// Sorts the domains for the binary search the lookups use.
+    ///
+    /// Duplicates are dropped — the same name in two lists blocks once — and an
+    /// allowlist entry removes its name from the block set outright, because an
+    /// exception outranks a block however the two arrived.
+    fn finish(&mut self) {
+        for bucket in [&mut self.blocked, &mut self.allowed] {
+            bucket.sort_by(|a, b| a.domain.cmp(&b.domain).then(a.list.cmp(&b.list)));
+            bucket.dedup_by(|a, b| a.domain == b.domain);
+        }
+        if self.allowed.is_empty() {
+            return;
+        }
+        let allowed = &self.allowed;
+        self.blocked
+            .retain(|entry| dns_domain_hit(allowed, entry.domain.as_ref()).is_none());
+    }
+
+    /// Whether the set's own exceptions name this host: the other half of the
+    /// answer, so a plain block from the engine cannot outrank them.
+    fn allowed(&self, host: &str) -> bool {
+        dns_domain_hit(&self.allowed, host).is_some()
+    }
+
+    /// The verdict for one bare hostname, or `None` when the set has nothing to
+    /// say about it.
+    fn verdict(&self, host: &str) -> Option<HostVerdict> {
+        // Consulted first: an exception takes the name back out, and it does
+        // not matter which list wrote it.
+        if dns_domain_hit(&self.allowed, host).is_some() {
+            return None;
+        }
+        let hit = dns_domain_hit(&self.blocked, host)?;
+        let list = self.lists.get(hit.list as usize)?;
+        Some(HostVerdict {
+            blocked: true,
+            rule_text: list.rule(hit.line),
+            list_name: Some(list.name.clone()),
+            category: list.category,
+            redirect: false,
+        })
+    }
+
+    /// Resident cost of the set, for [`FilterEngine::memory_bytes`].
+    fn bytes(&self) -> usize {
+        let domains = self.blocked.len() + self.allowed.len();
+        let names: usize = self
+            .blocked
+            .iter()
+            .chain(self.allowed.iter())
+            .map(|entry| entry.domain.len())
+            .sum();
+        domains * std::mem::size_of::<DnsDomain>()
+            + names
+            + self
+                .lists
+                .iter()
+                .map(|list| list.name.len() + std::mem::size_of::<SourceMapEntry>())
+                .sum::<usize>()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.blocked.is_empty() && self.allowed.is_empty()
+    }
+}
+
+/// What to call a host-only list in the log and the detail row.
+fn dns_list_name(given: &str, text: &str) -> String {
+    if !given.is_empty() {
+        return given.to_string();
+    }
+    text.lines()
+        .find_map(|line| line.trim().strip_prefix("! Title:"))
+        .map(|title| title.trim().to_string())
+        .filter(|title| !title.is_empty())
+        .unwrap_or_else(|| "Untitled list".to_string())
+}
+
+/// The list a [`SimpleDns`] entry came from.
+struct DnsListMeta {
+    id: u16,
+    name: String,
+    category: u8,
+    rules: Option<RuleText>,
+}
+
+/// The domain a hostname asks about, or the closest parent that is in the set.
+///
+/// `a.b.test` asks about `a.b.test`, then `b.test`, then `test` — which is what
+/// `||b.test^` means, and why a sorted slice and a binary search per label are
+/// the whole lookup.
+fn dns_domain_hit<'a>(domains: &'a [DnsDomain], host: &str) -> Option<&'a DnsDomain> {
+    let mut rest = host;
+    loop {
+        if let Ok(index) = domains.binary_search_by(|entry| entry.domain.as_ref().cmp(rest)) {
+            return Some(&domains[index]);
+        }
+        rest = &rest[rest.find('.')? + 1..];
+    }
+}
+
 /// What the engine says about one full request URL.
 ///
 /// The DNS layer only ever has a hostname; the MITM path has the request line
@@ -1461,6 +1694,9 @@ struct Compiled {
     /// Host-only lists (`dns_only`), compiled apart so their rules can block
     /// lookups without ever touching URL or cosmetic decisions.
     dns_engine: Option<Engine>,
+    /// The same lists, without the engine: everything a domain set can answer
+    /// (see [`SimpleDns`]). `None` when no host-only list is loaded.
+    dns_domains: Option<SimpleDns>,
     generation: u64,
     /// Rule text the engine was built from; see [`FilterEngine::memory_bytes`].
     memory_bytes: usize,
@@ -1683,6 +1919,7 @@ impl FilterEngine {
             inner: RwLock::new(Arc::new(Compiled {
                 engine: Engine::default(),
                 dns_engine: None,
+                dns_domains: None,
                 generation: 0,
                 memory_bytes: 0,
                 sources: Vec::new(),
@@ -1799,6 +2036,10 @@ impl FilterEngine {
         let mut dns_set: Option<FilterSet> = None;
         let mut sources: Vec<SourceMapEntry> = Vec::with_capacity(lists.len() + 1);
         let mut dns_sources: Vec<SourceMapEntry> = Vec::new();
+        // The part of the host-only lists a plain domain set can answer: no
+        // engine, no patterns, a binary search per label.
+        let mut simple_dns = SimpleDns::default();
+        let mut simple_domains = 0usize;
         let mut rule_count = 0u64;
         // What the engine was fed, in bytes. `Engine::serialize` would say how
         // much the compiled data weighs, but it materializes the whole engine a
@@ -1874,10 +2115,31 @@ impl FilterEngine {
                             let counted = count_rules(&text);
                             text_bytes += text.len();
                             rule_count += counted;
-                            let dns_set =
-                                dns_set.get_or_insert_with(|| FilterSet::new(true));
+                            // A domain set answers `||name^` lines on its own.
+                            // What is left over — a `$important`, a wildcard,
+                            // a regex — is what pays for a host-only engine.
+                            let mut rest = String::with_capacity(text.len() / 8);
+                            simple_dns.absorb(
+                                &text,
+                                DnsListMeta {
+                                    id: list.id,
+                                    // The engine reads the title out of the
+                                    // list's metadata; the domain set has to
+                                    // be given one now, and the log blames the
+                                    // row the same way.
+                                    name: dns_list_name(list.name.trim(), &text),
+                                    category: list.category,
+                                    rules: rules.clone(),
+                                },
+                                &mut simple_domains,
+                                &mut rest,
+                            );
+                            if rest.trim().is_empty() {
+                                continue;
+                            }
+                            let dns_set = dns_set.get_or_insert_with(|| FilterSet::new(true));
                             let record = dns_set.add_filter_list(
-                                text,
+                                rest,
                                 ParseOptions {
                                     format,
                                     rule_types: RuleTypes::NetworkOnly,
@@ -2096,7 +2358,10 @@ impl FilterEngine {
             self.pending_builds.fetch_sub(1, Ordering::SeqCst);
             return self.generation.load(Ordering::SeqCst);
         }
-        let memory_bytes = text_bytes;
+        // The domain set is resident too, and it is the part that replaced a
+        // whole engine: count it here so the number the UI shows keeps meaning
+        // "what this build costs", not "how big the lists were".
+        let memory_bytes = text_bytes + simple_dns.bytes();
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         if untrusted_dropped > 0 {
             crate::logbuf::push(&format!(
@@ -2214,9 +2479,24 @@ impl FilterEngine {
         // build replaces (and usually empties) the list.
         *self.build_errors.lock().unwrap() = errors;
         let dns_engine = dns_set.map(Engine::new_with_filter_set);
+        simple_dns.finish();
+        if simple_domains > 0 {
+            let lists = simple_dns.lists.len();
+            crate::logbuf::push(&format!(
+                "filter: {simple_domains} DNS domains in a plain set from {lists} list{}",
+                if lists == 1 { "" } else { "s" },
+            ));
+        }
+        if dns_engine.is_some() {
+            crate::logbuf::push(
+                "filter: the host-only lines a plain name set cannot answer kept an engine",
+            );
+        }
+        let dns_domains = (!simple_dns.is_empty()).then_some(simple_dns);
         let compiled = Arc::new(Compiled {
             engine,
             dns_engine,
+            dns_domains,
             generation,
             memory_bytes,
             sources,
@@ -7497,16 +7777,46 @@ fn evaluate(compiled: &Compiled, host: &str) -> HostVerdict {
     if verdict.blocked {
         return verdict;
     }
+    // The two halves decide together, and the precedence is the reference's:
+    // an `$important` block outranks every exception, a plain exception
+    // outranks a plain block, and it does not matter which half either came
+    // from — a list that mixes `||name^` lines with wildcards must not answer
+    // differently from the same list compiled whole.
+    let lower = host.to_ascii_lowercase();
+    let domains = compiled.dns_domains.as_ref();
+    let allowed = domains.is_some_and(|domains| domains.allowed(&lower));
     let Some(engine) = compiled.dns_engine.as_ref() else {
-        return verdict;
+        if allowed {
+            return verdict;
+        }
+        return domains
+            .and_then(|domains| domains.verdict(&lower))
+            .unwrap_or(verdict);
     };
     let request = Request::preparsed(host, host, "", "other", false, "");
     let result = engine.check_network_request(&request);
-    if !result.should_block() {
+    if result.should_block() && result.important {
+        return dns_blocked(compiled, &result, host);
+    }
+    if allowed || result.exception.is_some() {
         return verdict;
     }
-    let (rule_text, list_name, category) =
-        matched_details(&compiled.dns_sources, &result, host);
+    if result.should_block() {
+        return dns_blocked(compiled, &result, host);
+    }
+    domains
+        .and_then(|domains| domains.verdict(&lower))
+        .unwrap_or(verdict)
+}
+
+/// A host-only verdict the engine reached, with the line and the list the log
+/// blames for it.
+fn dns_blocked(
+    compiled: &Compiled,
+    result: &adblock::blocker::BlockerResult,
+    host: &str,
+) -> HostVerdict {
+    let (rule_text, list_name, category) = matched_details(&compiled.dns_sources, result, host);
     HostVerdict {
         blocked: true,
         rule_text,
@@ -8403,6 +8713,122 @@ mod tests {
         // ...nor the SNI fallback, which is a transport decision.
         assert!(fe.connection_block("hostonly.dns.test").is_none());
         assert!(fe.connection_block("main.dns.test").is_some());
+    }
+
+    /// A host-only list is domains, not patterns. Compiling 190 000 of them
+    /// into an engine is what this cost before the domain set: an engine per
+    /// launch, and its resident patterns for a question a binary search
+    /// answers.
+    #[test]
+    fn a_host_only_list_answers_from_a_domain_set() {
+        let mut dns = temp_list(
+            "dns-filter.txt",
+            "! Title: Simple list\n\
+             ||simple.dns.test^\n\
+             @@||ok.simple.dns.test^\n",
+            ListFormat::Standard,
+            2,
+        );
+        dns.dns_only = true;
+        dns.name = "Simple list".to_string();
+        let fe = engine(vec![dns]);
+
+        let compiled = fe.compiled();
+        assert!(
+            compiled.dns_engine.is_none(),
+            "a list of plain names needs no engine"
+        );
+        assert!(compiled.dns_domains.is_some(), "the domains were not kept");
+
+        // The name, and anything under it, is blocked…
+        assert!(fe.check_host("simple.dns.test").blocked);
+        assert!(fe.check_host("deep.simple.dns.test").blocked);
+        let verdict = fe.check_host_detailed("deep.simple.dns.test");
+        assert_eq!(
+            verdict.rule_text.as_deref(),
+            Some("||simple.dns.test^"),
+            "the log names the line the list wrote"
+        );
+        assert_eq!(verdict.list_name.as_deref(), Some("Simple list"));
+        // …except the one the list allows.
+        assert!(!fe.check_host("ok.simple.dns.test").blocked);
+        assert!(!fe.check_host("other.dns.test").blocked);
+    }
+
+    /// A line the domain set cannot express (`$important`, a wildcard) is not
+    /// dropped on the floor: it still blocks, through the host-only engine.
+    #[test]
+    fn a_pattern_line_still_blocks_through_an_engine() {
+        let mut dns = temp_list(
+            "mixed.dns.txt",
+            "||plain.mixed.test^\n\
+             ||wild*.mixed.test^\n\
+             ||important.mixed.test^$important\n",
+            ListFormat::Standard,
+            2,
+        );
+        dns.dns_only = true;
+        let fe = engine(vec![dns]);
+
+        let compiled = fe.compiled();
+        assert!(compiled.dns_domains.is_some(), "the plain line was dropped");
+        assert!(
+            compiled.dns_engine.is_some(),
+            "the pattern lines need an engine"
+        );
+        assert!(fe.check_host("plain.mixed.test").blocked);
+        assert!(fe.check_host("wildcard.mixed.test").blocked);
+        assert!(fe.check_host("important.mixed.test").blocked);
+    }
+
+    /// An exception the domain set cannot express still outranks it: the
+    /// engine is asked first, so `$important` keeps its meaning when half the
+    /// list lives in the plain set.
+    /// A list that mixes `||name^` lines with wildcards is split between the
+    /// two halves, and it must still answer the way it did compiled whole: the
+    /// exception takes the name back even though the block that would have hit
+    /// it lives in the engine.
+    #[test]
+    fn an_exception_beats_a_pattern_block_in_the_other_half() {
+        let mut dns = temp_list(
+            "split.dns.txt",
+            "||plain.split.test^\n\
+             ||*adserver*^\n\
+             @@||ok.adserver.split.test^\n",
+            ListFormat::Standard,
+            2,
+        );
+        dns.dns_only = true;
+        let fe = engine(vec![dns]);
+
+        assert!(fe.compiled().dns_domains.is_some());
+        assert!(fe.compiled().dns_engine.is_some());
+        assert!(
+            !fe.check_host("ok.adserver.split.test").blocked,
+            "an exception in the plain set outranks a wildcard block"
+        );
+        // The wildcard still blocks what the exception does not name, and the
+        // plain name still blocks from the set.
+        assert!(fe.check_host("other.adserver.split.test").blocked);
+        assert!(fe.check_host("plain.split.test").blocked);
+    }
+
+    /// A hosts list is domains too: `0.0.0.0 name` is the same decision as
+    /// `||name^`, and it must not need an engine either.
+    #[test]
+    fn a_hosts_list_of_addresses_stays_a_domain_set() {
+        let mut dns = temp_list(
+            "hosts.dns.txt",
+            "0.0.0.0 hosts.dns.test\n127.0.0.1 second.hosts.dns.test\n# note\n",
+            ListFormat::Hosts,
+            2,
+        );
+        dns.dns_only = true;
+        let fe = engine(vec![dns]);
+
+        assert!(fe.compiled().dns_engine.is_none());
+        assert!(fe.check_host("hosts.dns.test").blocked);
+        assert!(fe.check_host("sub.second.hosts.dns.test").blocked);
     }
 
     #[test]

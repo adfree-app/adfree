@@ -1037,10 +1037,21 @@ class AdGuardRepository(
                 )
             }
             for (stored in saved.dnsFilters) {
+                // A list the screen shipped itself is named in the user's
+                // language, not in whichever language it was installed under.
+                val shipped = stored.url.trim() == DNS_DEFAULT_URL
                 lists += FilterList(
                     id = stored.id,
-                    name = stored.name,
-                    description = L10n.get(Strings.filter_dns_description),
+                    name = if (shipped) {
+                        L10n.get(Strings.dns_filters_default_name)
+                    } else {
+                        stored.name
+                    },
+                    description = if (shipped) {
+                        L10n.get(Strings.dns_filters_default_description)
+                    } else {
+                        L10n.get(Strings.filter_dns_description)
+                    },
                     ruleCount = 0,
                     isEnabled = stored.enabled,
                     category = "custom",

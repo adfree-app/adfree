@@ -666,8 +666,8 @@
     <string name="filters_dns_title">Bộ lọc DNS</string>
     <string name="filters_dns_subtitle">Danh sách chỉ áp dụng cho truy vấn tên miền, trước khi mở kết nối</string>
     <string name="filters_dns_empty">Chưa có bộ lọc DNS nào.</string>
-    <string name="dns_filters_default_name">Bộ lọc DNS AdGuard</string>
-    <string name="dns_filters_default_description">Danh sách tên miền của chính AdGuard, bộ mà dịch vụ DNS của họ dùng để chặn</string>
+    <string name="dns_filters_default_name">Bộ lọc đơn giản cho DNS</string>
+    <string name="dns_filters_default_description">Danh sách của chính AdGuard, đã rút gọn về tên miền để một truy vấn tên trả lời được ngay</string>
     <string name="dns_rules_user_title">Quy tắc DNS của bạn</string>
     <string name="dns_rules_user_subtitle">Quy tắc viết ở đây chỉ được kiểm tra ở truy vấn tên miền</string>
     <string name="dns_rules_user_empty">Chưa có quy tắc nào của bạn.</string>
