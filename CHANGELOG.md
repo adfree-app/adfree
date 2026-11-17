@@ -1,3 +1,9 @@
+## [1.13.6](https://github.com/yuuki-kagura/adfree/compare/v1.13.5...v1.13.6) (2026-11-17)
+
+### Performance Improvements
+
+* **mem:** hand the freed arenas back instead of hoarding them ([1c1a931](https://github.com/yuuki-kagura/adfree/commit/1c1a931352dbc160fdcb7389254b3bd58ef0a14c))
+
 ## [1.13.5](https://github.com/yuuki-kagura/adfree/compare/v1.13.4...v1.13.5) (2026-11-17)
 
 ### Bug Fixes
