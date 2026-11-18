@@ -406,6 +406,8 @@ private fun appLanguageLabel(language: AppLanguage): String = L10n.get(when (lan
         AppLanguage.SYSTEM -> Strings.settings_language_system
         AppLanguage.ENGLISH -> Strings.settings_language_english
         AppLanguage.VIETNAMESE -> Strings.settings_language_vietnamese
+        AppLanguage.JAPANESE -> Strings.settings_language_japanese
+        AppLanguage.CHINESE -> Strings.settings_language_chinese
     }
 )
 

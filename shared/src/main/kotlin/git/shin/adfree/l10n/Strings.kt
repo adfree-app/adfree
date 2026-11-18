@@ -1074,6 +1074,8 @@ object Strings {
     const val settings_language_system = "settings_language_system"
     const val settings_language_english = "settings_language_english"
     const val settings_language_vietnamese = "settings_language_vietnamese"
+    const val settings_language_japanese = "settings_language_japanese"
+    const val settings_language_chinese = "settings_language_chinese"
     const val settings_theme_title = "settings_theme_title"
     const val settings_theme_system = "settings_theme_system"
     const val settings_theme_light = "settings_theme_light"

@@ -26,18 +26,29 @@ object L10n {
 
     private val vietnamese: Map<String, String> = load("l10n/strings-vi.xml")
 
+    private val japanese: Map<String, String> = load("l10n/strings-ja.xml")
+
+    private val chinese: Map<String, String> = load("l10n/strings-zh.xml")
+
     /** The locale tag the tables are being read in right now. */
     fun locale(): String = when (language) {
         AppLanguage.SYSTEM -> systemLanguage
         AppLanguage.ENGLISH -> "en"
         AppLanguage.VIETNAMESE -> "vi"
+        AppLanguage.JAPANESE -> "ja"
+        AppLanguage.CHINESE -> "zh"
     }
 
     fun get(key: String): String = get(key, locale())
 
     /** The key's value in an explicit locale, for notifications and services. */
     fun get(key: String, locale: String): String {
-        val table = if (locale.startsWith("vi")) vietnamese else default
+        val table = when {
+            locale.startsWith("vi") -> vietnamese
+            locale.startsWith("ja") -> japanese
+            locale.startsWith("zh") -> chinese
+            else -> default
+        }
         return table[key] ?: default[key] ?: key
     }
 

@@ -5990,7 +5990,9 @@ enum class AppLanguage {
     
     SYSTEM,
     ENGLISH,
-    VIETNAMESE;
+    VIETNAMESE,
+    JAPANESE,
+    CHINESE;
 
     
 

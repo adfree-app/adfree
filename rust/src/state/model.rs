@@ -55,6 +55,8 @@ pub enum AppLanguage {
     System,
     English,
     Vietnamese,
+    Japanese,
+    Chinese,
 }
 
 #[derive(uniffi::Enum, Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]

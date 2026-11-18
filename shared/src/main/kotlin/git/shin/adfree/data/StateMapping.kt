@@ -209,12 +209,16 @@ private fun AppLanguage.toCore(): CoreAppLanguage = when (this) {
     AppLanguage.SYSTEM -> CoreAppLanguage.SYSTEM
     AppLanguage.ENGLISH -> CoreAppLanguage.ENGLISH
     AppLanguage.VIETNAMESE -> CoreAppLanguage.VIETNAMESE
+    AppLanguage.JAPANESE -> CoreAppLanguage.JAPANESE
+    AppLanguage.CHINESE -> CoreAppLanguage.CHINESE
 }
 
 private fun CoreAppLanguage.toModel(): AppLanguage = when (this) {
     CoreAppLanguage.SYSTEM -> AppLanguage.SYSTEM
     CoreAppLanguage.ENGLISH -> AppLanguage.ENGLISH
     CoreAppLanguage.VIETNAMESE -> AppLanguage.VIETNAMESE
+    CoreAppLanguage.JAPANESE -> AppLanguage.JAPANESE
+    CoreAppLanguage.CHINESE -> AppLanguage.CHINESE
 }
 
 private fun ThemeMode.toCore(): CoreThemeMode = when (this) {

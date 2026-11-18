@@ -15,6 +15,8 @@ object Localization {
         AppLanguage.SYSTEM -> null
         AppLanguage.ENGLISH -> Locale.ENGLISH
         AppLanguage.VIETNAMESE -> Locale.forLanguageTag("vi")
+        AppLanguage.JAPANESE -> Locale.forLanguageTag("ja")
+        AppLanguage.CHINESE -> Locale.forLanguageTag("zh")
     }
 
     fun apply(language: AppLanguage) {

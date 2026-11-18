@@ -57,6 +57,10 @@ class L10nTest {
     fun languageSwitchChangesResolution() {
         L10n.language = AppLanguage.VIETNAMESE
         assertEquals("vi", L10n.locale())
+        L10n.language = AppLanguage.JAPANESE
+        assertEquals("ja", L10n.locale())
+        L10n.language = AppLanguage.CHINESE
+        assertEquals("zh", L10n.locale())
         L10n.systemLanguage = "de"
         L10n.language = AppLanguage.SYSTEM
         assertEquals("de", L10n.locale())
@@ -64,6 +68,47 @@ class L10nTest {
         assertEquals("en", L10n.locale())
         L10n.language = AppLanguage.SYSTEM
         L10n.systemLanguage = "en"
+    }
+
+    /**
+     * A locale table that misses a key silently renders English, so the switch
+     * would look half-translated. Both new tables were written by hand in
+     * slices; this is the check that no slice dropped a key.
+     */
+    @Test
+    fun japaneseAndChineseTablesCarryEveryDefaultKey() {
+        val expected = resourceKeys("l10n/strings-default.xml")
+        for (locale in listOf("ja", "zh")) {
+            val actual = resourceKeys("l10n/strings-$locale.xml")
+            assertEquals("$locale: missing ${expected - actual}", expected, actual)
+            val empty = actual.filter { L10n.get(it, locale).isBlank() }
+            assertEquals("$locale: blank values $empty", emptyList<String>(), empty)
+        }
+    }
+
+    @Test
+    fun japaneseAndChineseTranslateWhatEnglishSays() {
+        val probes = listOf(
+            Strings.home_modules_title,
+            Strings.settings_language_title,
+            Strings.log_title,
+        )
+        for (locale in listOf("ja", "zh")) {
+            val differs = probes.any { L10n.get(it, "en") != L10n.get(it, locale) }
+            assertTrue("$locale table must carry translations", differs)
+            // The locale tags live in their own script; an ASCII-only value
+            // would mean the slice was never translated.
+            assertTrue(
+                "$locale must not fall back to English",
+                L10n.get(Strings.settings_language_title, locale).any { it.code > 0x2e80 },
+            )
+        }
+    }
+
+    private fun resourceKeys(path: String): Set<String> {
+        val text = L10n::class.java.classLoader.getResourceAsStream(path)!!
+            .use { it.readBytes().toString(Charsets.UTF_8) }
+        return Regex("<string name=\"([^\"]+)\"").findAll(text).map { it.groupValues[1] }.toSet()
     }
 
     @Test

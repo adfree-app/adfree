@@ -781,6 +781,8 @@ enum class AppLanguage {
     SYSTEM,
     ENGLISH,
     VIETNAMESE,
+    JAPANESE,
+    CHINESE,
 }
 
 /** Light/dark selection. */
