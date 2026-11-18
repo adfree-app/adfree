@@ -65,3 +65,10 @@ bench/probe
 # website/package.json and website/src.
 website/node_modules/
 website/dist/
+
+# website build output and dependencies
+website/node_modules/
+website/dist/
+
+# Nuxt UI generated types (rebuilt by vite)
+website/.nuxt/
