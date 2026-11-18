@@ -1867,6 +1867,11 @@ fn the_plan_endpoint_describes_what_the_proxy_would_have_injected() {
         runtime.contains("adfree-page.js?dmn=origin.example.com"),
         "{runtime}"
     );
+    assert_eq!(
+        plan["base"].as_str(),
+        Some("https://yuuki-kagura.github.io/local"),
+        "the extension hands the runtime the origin it serves from"
+    );
     let css = plan["css"].as_str().expect("css");
     assert!(
         css.contains("adfree-hide.css?dmn=origin.example.com"),

@@ -3970,6 +3970,9 @@ pub(crate) fn plan_answer(
         None => versioned_path(PAGE_SCRIPT_PATH, content_hash(PAGE_RUNTIME.as_bytes())),
     };
     let mut obj = serde_json::Map::new();
+    // Where everything else lives. The runtime reads it from here instead of
+    // from its own tag, which a page assembled by an extension does not have.
+    obj.insert("base".into(), LOCAL_ORIGIN.into());
     obj.insert("runtime".into(), local_asset(&runtime).into());
     if let Some(host) = host {
         let switches = filter.cosmetic_switches_for(host);
