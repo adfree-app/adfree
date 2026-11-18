@@ -773,6 +773,72 @@ class DesktopPrivilegesTest {
         )
     }
 
+    /**
+     * The regression this exists for: the app said "protected" while a browser
+     * that was open across the install kept its own path to every site, so a
+     * YouTube tab played an ad with no AdFree tag in it at all. New rules do
+     * not reach a connection the kernel has already decided about; only ending
+     * it does — so every successful install has to be followed by the reset,
+     * in that order, on the ports the rules claim.
+     */
+    @Test
+    fun everyInstalledRulesetEndsWithTheStaleConnectionReset() {
+        val ran = mutableListOf<List<String>>()
+        val privileges = DesktopPrivileges(
+            elevated = { true },
+            exec = { argv ->
+                ran += argv
+                PrivilegeOutcome.Ok
+            },
+        )
+
+        assertSame(PrivilegeOutcome.Ok, privileges.installRules(3129, 5300))
+
+        assertEquals("the old table goes first", listOf("nft", "delete", "table", "inet", "adfree"), ran[0])
+        assertEquals("then the file is applied", "-f", ran[1].getOrNull(1))
+        assertEquals(
+            "and only then is every stale connection ended",
+            staleFlowCommands("ss"),
+            ran.drop(2),
+        )
+    }
+
+    /**
+     * A ruleset that never landed must not cost anyone a connection: the reset
+     * is a repair for traffic the redirect could not see, not a step of the
+     * install, and a machine with no filter has nothing to repair.
+     */
+    @Test
+    fun aRulesetThatNeverLandedResetsNoConnections() {
+        val ran = mutableListOf<List<String>>()
+        val privileges = DesktopPrivileges(
+            elevated = { true },
+            exec = { argv ->
+                ran += argv
+                PrivilegeOutcome.Failed("nft: Operation not permitted")
+            },
+        )
+
+        assertTrue(privileges.installRules(3129, 5300) is PrivilegeOutcome.Failed)
+        assertTrue("nothing to reset", ran.none { it.first() == "ss" })
+    }
+
+    /** Without the capability there is no table and no reset, and no command runs at all. */
+    @Test
+    fun anUnprivilegedInstallTouchesNothing() {
+        val ran = mutableListOf<List<String>>()
+        val privileges = DesktopPrivileges(
+            elevated = { false },
+            exec = { argv ->
+                ran += argv
+                PrivilegeOutcome.Ok
+            },
+        )
+
+        assertTrue(privileges.installRules(3129, 5300) is PrivilegeOutcome.Denied)
+        assertTrue(ran.isEmpty())
+    }
+
     /** Comment and blank lines carry no meaning to nft, so they are not compared. */
     private fun significantLines(text: String): List<String> = text.lines()
         .map { it.trim() }

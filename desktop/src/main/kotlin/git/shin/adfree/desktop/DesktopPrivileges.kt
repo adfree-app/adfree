@@ -97,7 +97,18 @@ class DesktopPrivileges(
     private val caHelper: (List<String>) -> PrivilegeOutcome = ::caHelperInProcess,
     /** Whether this process holds the token; replaced in the tests. */
     private val elevated: (() -> Boolean)? = null,
+    /**
+     * How a privileged command runs: `pkexec` for the one-time helpers, a plain
+     * child process for `nft` and `ss`, because the unit already carries
+     * `CAP_NET_ADMIN` and so the rules cost no dialog. Replaced in the tests,
+     * which is the only way to read the order of those calls without asking a
+     * machine to change its own firewall.
+     */
+    private val exec: ((List<String>) -> PrivilegeOutcome)? = null,
 ) {
+
+    /** The executor itself: the test's recorder when there is one, a child of ours otherwise. */
+    private val runExec: (List<String>) -> PrivilegeOutcome = exec ?: { argv -> runCommand(argv) }
 
     /** True when this process may mark its own sockets, i.e. holds `CAP_NET_ADMIN`. */
     fun canSetFirewallMark(): Boolean {
@@ -448,7 +459,7 @@ class DesktopPrivileges(
             // a driver loop that reads its two ports once, at start.
             return startRedirect(tcpPort, dnsPort) ?: PrivilegeOutcome.Ok
         }
-        if (!canSetFirewallMark()) {
+        if (!isElevated()) {
             return PrivilegeOutcome.Denied(
                 "this process cannot mark its own sockets, so the redirect would loop its traffic",
             )
@@ -457,7 +468,7 @@ class DesktopPrivileges(
         val file = File.createTempFile("adfree-", ".nft")
         val outcome = try {
             file.writeText(ruleset(tcpPort, dnsPort, filterLocalhost))
-            run(nftBinary, "-f", file.absolutePath)
+            runExec(listOf(nftBinary, "-f", file.absolutePath))
         } finally {
             file.delete()
         }
@@ -494,7 +505,7 @@ class DesktopPrivileges(
     fun resetStaleConnections(): PrivilegeOutcome {
         if (isWindows) return PrivilegeOutcome.Ok
         for (command in staleFlowCommands(ssBinary)) {
-            val outcome = run(*command.toTypedArray())
+            val outcome = runExec(command)
             if (outcome !is PrivilegeOutcome.Ok) {
                 log("could not reset the connections opened before the redirect; a browser may keep showing ads until it restarts")
                 return outcome
@@ -508,7 +519,7 @@ class DesktopPrivileges(
             runCatching { git.shin.adfree.core.coreRedirectStop() }
             return PrivilegeOutcome.Ok
         }
-        return run(nftBinary, "delete", "table", "inet", "adfree")
+        return runExec(listOf(nftBinary, "delete", "table", "inet", "adfree"))
     }
 
     /** Whether the rules are live right now — read-only, so it needs no privilege. */
@@ -814,6 +825,9 @@ class DesktopPrivileges(
 
     /** A PowerShell single-quoted literal; see [WindowsElevation.quote]. */
     internal fun psQuote(text: String): String = WindowsElevation.quote(text)
+
+    /** A command as argv: the one place this class starts a child of its own. */
+    private fun runCommand(argv: List<String>): PrivilegeOutcome = run(*argv.toTypedArray())
 
     /**
      * `deniedExit` is the code that means "the person said no" rather than
