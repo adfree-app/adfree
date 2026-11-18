@@ -626,7 +626,7 @@
     <string name="ext_browser_bridge_missing_host">The native host binary is missing — build it with cargo build --release --bin adfree-native-host</string>
     <string name="ext_browser_bridge_no_browser">No browser with extension support found</string>
     <string name="own_ext_title">AdFree extension for your browser</string>
-    <string name="own_ext_subtitle">Chrome serves some pages from its service worker\'s cache, so they never reach this app. The extension asks the app what it would have injected and applies that to those pages. Filtering works without it — the extension only covers them.</string>
+    <string name="own_ext_subtitle">This extension handles pages a Service Worker cached.</string>
     <string name="own_ext_guide">Open the install guide</string>
     <string name="ext_create_title">New extension</string>
     <string name="ext_create_template">// ==UserScript==\n// @name         My extension\n// @match        *://*/*\n// @grant        none\n// ==/UserScript==\n\n</string>

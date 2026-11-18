@@ -626,7 +626,7 @@
     <string name="ext_browser_bridge_missing_host">缺少 native host 程序 — 用 cargo build --release --bin adfree-native-host 构建</string>
     <string name="ext_browser_bridge_no_browser">没找到支持扩展的浏览器</string>
     <string name="own_ext_title">浏览器用的 AdFree 扩展</string>
-    <string name="own_ext_subtitle">Chrome 有些页面由 Service Worker 从缓存直接返回，不会经过本应用。扩展会向应用询问应当注入什么，然后照着注入。不装扩展也能过滤，扩展只是补上这些页面。</string>
+    <string name="own_ext_subtitle">此扩展用于处理由 Service Worker 缓存的页面。</string>
     <string name="own_ext_guide">查看安装指南</string>
     <string name="ext_create_title">新建扩展</string>
     <string name="ext_create_template">// ==UserScript==\n// @name         My extension\n// @match        *://*/*\n// @grant        none\n// ==/UserScript==\n\n</string>
