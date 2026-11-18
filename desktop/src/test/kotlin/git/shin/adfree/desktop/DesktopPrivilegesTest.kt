@@ -752,6 +752,27 @@ class DesktopPrivilegesTest {
         assertTrue("no blank assignment", unit.lines().none { it.trim() == "WorkingDirectory=" })
     }
 
+    /**
+     * A connection the redirect never saw is only fixable by ending it, so the
+     * call that ends it has to name the ports the redirect claims — and both
+     * address families, because `ss` filters one at a time and an IPv6 socket
+     * to the same host is reachable traffic all the same.
+     */
+    @Test
+    fun theStaleConnectionResetCoversEveryRedirectedPortAndFamily() {
+        val commands = staleFlowCommands("ss")
+        assertEquals(DesktopPrivileges.STALE_FLOW_PORTS.size * 2, commands.size)
+        assertEquals(
+            listOf(
+                listOf("ss", "-K", "-f", "inet", "dport", "=", ":443"),
+                listOf("ss", "-K", "-f", "inet6", "dport", "=", ":443"),
+                listOf("ss", "-K", "-f", "inet", "dport", "=", ":80"),
+                listOf("ss", "-K", "-f", "inet6", "dport", "=", ":80"),
+            ),
+            commands,
+        )
+    }
+
     /** Comment and blank lines carry no meaning to nft, so they are not compared. */
     private fun significantLines(text: String): List<String> = text.lines()
         .map { it.trim() }

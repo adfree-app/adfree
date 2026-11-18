@@ -35,6 +35,7 @@ internal const val CA_REMOVE_MODE = "remove"
  */
 class DesktopPrivileges(
     private val nftBinary: String = "nft",
+    private val ssBinary: String = "ss",
     private val pkexec: String = "pkexec",
     private val systemctl: String = "systemctl",
     private val log: (String) -> Unit = { System.err.println("[desktop] $it") },
@@ -454,12 +455,52 @@ class DesktopPrivileges(
         }
         removeRules()
         val file = File.createTempFile("adfree-", ".nft")
-        return try {
+        val outcome = try {
             file.writeText(ruleset(tcpPort, dnsPort, filterLocalhost))
             run(nftBinary, "-f", file.absolutePath)
         } finally {
             file.delete()
         }
+        // A rule table only decides where a connection goes on its first
+        // packet: the kernel remembers that answer for the connection's whole
+        // life. Whatever was already open when the table went in keeps its
+        // direct path — a browser's HTTP/2 connection is hours old, and every
+        // page it loads over that socket reaches the filter untouched. See
+        // [resetStaleConnections] for why the fix is to end them.
+        if (outcome is PrivilegeOutcome.Ok) resetStaleConnections()
+        return outcome
+    }
+
+    /**
+     * Ends the connections the redirect could never reach, so their owners open
+     * new ones that it can.
+     *
+     * This is the difference between a browser that loads YouTube ad-free and
+     * one that shows the ad while the app says "protected": the sockets it
+     * opened before protection was on are not in the redirect, and a reload
+     * rides the same socket, so nothing the user does fixes it short of
+     * restarting the browser. `ss -K` sends the RST for us; every client —
+     * browsers above all — reconnects on its next request and that connection
+     * is captured by the rules that were installed a moment ago.
+     *
+     * Deliberately not limited to browsers: the filter has no idea which of the
+     * machine's connections are the ones that escaped, and a download broken
+     * here is a download that resumes through the filter. Windows has no such
+     * problem — its redirect reads every packet, not every connection — so this
+     * is a Linux-only repair, and a failure is reported rather than elevated
+     * into a protection failure: the rules are already right, this is a nudge
+     * for the traffic that was too early to see them.
+     */
+    fun resetStaleConnections(): PrivilegeOutcome {
+        if (isWindows) return PrivilegeOutcome.Ok
+        for (command in staleFlowCommands(ssBinary)) {
+            val outcome = run(*command.toTypedArray())
+            if (outcome !is PrivilegeOutcome.Ok) {
+                log("could not reset the connections opened before the redirect; a browser may keep showing ads until it restarts")
+                return outcome
+            }
+        }
+        return PrivilegeOutcome.Ok
     }
 
     fun removeRules(): PrivilegeOutcome {
@@ -855,11 +896,30 @@ class DesktopPrivileges(
         const val DEFAULT_DNS_PORT = 5300
         /** How long a probe waits for the local proxy to accept a connection. */
         const val LISTENER_PROBE_MS = 400
+        /** The ports the redirect claims, and so the ports a stale connection can be on. */
+        val STALE_FLOW_PORTS = listOf(443, 80)
         const val CA_INSTALL_MAIN = "git.shin.adfree.desktop.CaInstallKt"
     }
 }
 
 /** Whether this JVM is running on Windows, asked once per process. */
+/**
+ * The `ss -K` calls that close the connections the redirect never saw.
+ *
+ * One call per address family per port, because `ss` filters a single family
+ * at a time and a machine can hold an IPv4 connection and an IPv6 one to the
+ * same host. Written as argv rather than as a line: `dport = :443` is three
+ * arguments and a shell would be a second parser deciding what they mean.
+ */
+internal fun staleFlowCommands(
+    ssBinary: String,
+    ports: List<Int> = DesktopPrivileges.STALE_FLOW_PORTS,
+): List<List<String>> = ports.flatMap { port ->
+    listOf("inet", "inet6").map { family ->
+        listOf(ssBinary, "-K", "-f", family, "dport", "=", ":$port")
+    }
+}
+
 /**
  * `/proc/self/cmdline`, split into argv.
  *
