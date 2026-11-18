@@ -32,6 +32,23 @@ import kotlinx.coroutines.flow.StateFlow
 import git.shin.adfree.core.CoreEngine
 
 /**
+ * What the bundled extension is made of.
+ *
+ * Listed rather than walked: a jar's resources cannot be enumerated, and
+ * `extension/vite.config.js` emits exactly these files — `DesktopHostsTest`
+ * asserts that every name here is on the classpath, so a renamed entry point
+ * fails a test instead of an install.
+ */
+internal val OWN_EXTENSION_FILES = listOf(
+    "manifest.json",
+    "background.js",
+    "icons/icon-16.png",
+    "icons/icon-32.png",
+    "icons/icon-48.png",
+    "icons/icon-128.png",
+)
+
+/**
  * The desktop answers the UI can honour: toasts become in-app snackbars,
  * URLs open in the browser, and the OS-settings prompts report honestly that
  * Linux has nothing of the sort. Nothing throws; nothing pretends.
@@ -139,6 +156,45 @@ class DesktopPlatformHost(
         return null
     }
 
+    // The extension the app itself hands out: it ships inside this jar, because
+    // it is a client of this app and holds no rules of its own. Writing it to a
+    // folder the user owns is the whole install — a browser will not take an
+    // unpacked extension by command, so the last click is theirs.
+    override fun supportsOwnBrowserExtension(): Boolean = true
+
+    override fun ownBrowserExtensionFolder(): String = ownExtensionFolder().path
+
+    override fun installOwnBrowserExtension(): String? = installOwnExtensionInto(ownExtensionFolder())
+
+    /**
+     * Writes the bundled extension into [folder], replacing what was there.
+     *
+     * Separated from [installOwnBrowserExtension] only so a test can watch it
+     * write somewhere harmless: the folder this ends up in on a real machine is
+     * the user's data home, and a test has no business there.
+     */
+    internal fun installOwnExtensionInto(folder: File): String? = runCatching {
+        folder.deleteRecursively()
+        for (name in OWN_EXTENSION_FILES) {
+            val bytes = javaClass.getResourceAsStream("/extension/$name")?.use { it.readBytes() }
+                ?: error("this build carries no $name")
+            File(folder, name).also { it.parentFile.mkdirs() }.writeBytes(bytes)
+        }
+        null
+    }.getOrElse { failure ->
+        L10n.format(Strings.own_ext_failed, failure.message ?: failure.javaClass.simpleName)
+    }
+
+    /**
+     * The folder the extension is written to, under the same XDG data home the
+     * rest of the app keeps its state in, so it is cleaned up with the app and
+     * lives where a Linux user expects to find it.
+     */
+    private fun ownExtensionFolder(): File = File(
+        System.getenv("XDG_DATA_HOME")?.takeIf { it.isNotBlank() }
+            ?: (System.getProperty("user.home") + "/.local/share"),
+        "adfree/extension",
+    )
     // The listeners are this platform's own, so their ports are the user's to
     // move; Settings shows them where the Android host shows nothing at all.
     override fun supportsLocalProxyPorts(): Boolean = true

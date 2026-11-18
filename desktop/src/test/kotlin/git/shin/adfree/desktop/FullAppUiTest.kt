@@ -113,6 +113,20 @@ class FullAppUiTest {
             // reports the package-manager answer) and closes the menu again.
             onNodeWithText(L10n.get(Strings.header_check_updates)).performClick()
 
+            // Protection → Ad blocking → Extensions is where the app hands out
+            // its own browser extension. The card is desktop-only, and the
+            // install button writes a folder — no browser takes an unpacked
+            // extension by command — so what is asserted is that the bundle is
+            // on the classpath and the button produces the steps that finish it.
+            onNodeWithText(L10n.get(Strings.nav_protection)).performClick()
+            waitUntilAtLeastOneExists(hasText(L10n.get(Strings.home_module_adblock_title)), 30_000)
+            onNodeWithText(L10n.get(Strings.home_module_adblock_title)).performClick()
+            waitUntilAtLeastOneExists(hasText(L10n.get(Strings.hub_extensions_title)), 30_000)
+            onNodeWithText(L10n.get(Strings.hub_extensions_title)).performClick()
+            waitUntilAtLeastOneExists(hasText(L10n.get(Strings.own_ext_title)), 30_000)
+            onNodeWithText(L10n.get(Strings.own_ext_install)).performClick()
+            waitUntilAtLeastOneExists(hasText(L10n.get(Strings.own_ext_steps)), 30_000)
+
             // Statistics carries the counter reset AdGuard keeps in its menu.
             // Only the row is driven here: the confirmation it opens is an
             // AlertDialog, and on a desktop that is a separate OS window the

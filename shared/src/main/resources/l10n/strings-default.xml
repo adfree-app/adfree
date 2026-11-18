@@ -625,6 +625,13 @@
     <string name="ext_browser_bridge_done">Connected. Restart the browser so it picks up the extension</string>
     <string name="ext_browser_bridge_missing_host">The native host binary is missing — build it with cargo build --release --bin adfree-native-host</string>
     <string name="ext_browser_bridge_no_browser">No browser with extension support found</string>
+    <string name="own_ext_title">AdFree extension for your browser</string>
+    <string name="own_ext_subtitle">Chrome answers some pages from its service worker\'s cache, and those never reach this app. The extension asks the app what it would have injected and applies the answer. Filtering works without it — this closes the gap that is left.</string>
+    <string name="own_ext_install">Install for this browser</string>
+    <string name="own_ext_installed">Written to %1$s</string>
+    <string name="own_ext_steps">In the browser: chrome://extensions → turn on Developer mode → Load unpacked → paste that folder.</string>
+    <string name="own_ext_copied">Folder path copied. Paste it into the browser\'s file picker with Ctrl+V.</string>
+    <string name="own_ext_failed">Could not write the extension: %1$s</string>
     <string name="ext_create_title">New extension</string>
     <string name="ext_create_template">// ==UserScript==\n// @name         My extension\n// @match        *://*/*\n// @grant        none\n// ==/UserScript==\n\n</string>
     <string name="ext_create_confirm">Create</string>

@@ -625,6 +625,13 @@
     <string name="ext_browser_bridge_done">Đã kết nối. Khởi động lại trình duyệt để nó nhận tiện ích</string>
     <string name="ext_browser_bridge_missing_host">Thiếu tệp host — hãy build bằng cargo build --release --bin adfree-native-host</string>
     <string name="ext_browser_bridge_no_browser">Không tìm thấy trình duyệt nào hỗ trợ tiện ích</string>
+    <string name="own_ext_title">Tiện ích AdFree cho trình duyệt</string>
+    <string name="own_ext_subtitle">Chrome có những trang nó lấy từ cache của service worker, và những trang đó không đi qua ứng dụng này. Tiện ích hỏi ứng dụng xem cần chèn gì rồi chèn đúng như vậy. Không có nó vẫn lọc được — đây là chỗ cuối cùng còn hở.</string>
+    <string name="own_ext_install">Cài cho trình duyệt này</string>
+    <string name="own_ext_installed">Đã ghi vào %1$s</string>
+    <string name="own_ext_steps">Trong trình duyệt: chrome://extensions → bật Developer mode → Load unpacked → dán đường dẫn đó.</string>
+    <string name="own_ext_copied">Đã copy đường dẫn. Dán vào hộp chọn thư mục của trình duyệt bằng Ctrl+V.</string>
+    <string name="own_ext_failed">Không ghi được tiện ích: %1$s</string>
     <string name="ext_create_title">Tạo tiện ích mới</string>
     <string name="ext_create_template">// ==UserScript==\n// @name         Tiện ích của tôi\n// @match        *://*/*\n// @grant        none\n// ==/UserScript==\n\n</string>
     <string name="ext_create_confirm">Tạo</string>

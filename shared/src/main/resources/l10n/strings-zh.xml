@@ -625,6 +625,13 @@
     <string name="ext_browser_bridge_done">已连接。请重启浏览器，让它加载扩展</string>
     <string name="ext_browser_bridge_missing_host">缺少 native host 程序 — 用 cargo build --release --bin adfree-native-host 构建</string>
     <string name="ext_browser_bridge_no_browser">没找到支持扩展的浏览器</string>
+    <string name="own_ext_title">浏览器用的 AdFree 扩展</string>
+    <string name="own_ext_subtitle">Chrome 有些页面由 Service Worker 从缓存直接返回，这些页面不会经过本应用。扩展会向应用询问应当注入什么，然后照着注入。没有它也能过滤 —— 它补的是最后一道缺口。</string>
+    <string name="own_ext_install">安装到此浏览器</string>
+    <string name="own_ext_installed">已写入 %1$s</string>
+    <string name="own_ext_steps">在浏览器中打开 chrome://extensions → 开启开发者模式 → 加载已解压的扩展程序 → 粘贴该文件夹。</string>
+    <string name="own_ext_copied">已复制文件夹路径，在浏览器的文件选择框中按 Ctrl+V 粘贴。</string>
+    <string name="own_ext_failed">无法写入扩展：%1$s</string>
     <string name="ext_create_title">新建扩展</string>
     <string name="ext_create_template">// ==UserScript==\n// @name         My extension\n// @match        *://*/*\n// @grant        none\n// ==/UserScript==\n\n</string>
     <string name="ext_create_confirm">创建</string>

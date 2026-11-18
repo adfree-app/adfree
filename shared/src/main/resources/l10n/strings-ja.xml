@@ -625,6 +625,13 @@
     <string name="ext_browser_bridge_done">接続しました。拡張を読み込むためブラウザーを再起動してください</string>
     <string name="ext_browser_bridge_missing_host">ネイティブホストの実行ファイルがありません。cargo build --release --bin adfree-native-host でビルドしてください</string>
     <string name="ext_browser_bridge_no_browser">拡張に対応したブラウザーが見つかりません</string>
+    <string name="own_ext_title">ブラウザ用 AdFree 拡張機能</string>
+    <string name="own_ext_subtitle">Chrome はサービスワーカーのキャッシュから返すページがあり、そのページはこのアプリを通りません。拡張機能はアプリに何を挿入するかを問い合わせ、そのとおりに適用します。なくてもフィルタリングは動きます — これは最後に残った隙間を塞ぐものです。</string>
+    <string name="own_ext_install">このブラウザにインストール</string>
+    <string name="own_ext_installed">%1$s に書き出しました</string>
+    <string name="own_ext_steps">ブラウザで chrome://extensions → デベロッパーモードを有効 → パッケージ化されていない拡張機能を読み込む → そのフォルダーを貼り付け。</string>
+    <string name="own_ext_copied">フォルダーのパスをコピーしました。ブラウザのファイル選択で Ctrl+V を押して貼り付けてください。</string>
+    <string name="own_ext_failed">拡張機能を書き出せませんでした: %1$s</string>
     <string name="ext_create_title">新しい拡張</string>
     <string name="ext_create_template">// ==UserScript==\n// @name         My extension\n// @match        *://*/*\n// @grant        none\n// ==/UserScript==\n\n</string>
     <string name="ext_create_confirm">作成</string>

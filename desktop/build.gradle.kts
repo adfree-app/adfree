@@ -124,6 +124,28 @@ val stageNativeHost by tasks.registering(Copy::class) {
 sourceSets["main"].resources.srcDir(layout.buildDirectory.dir("coreResources"))
 tasks.named("processResources") { dependsOn(stageCoreLibrary, stageNativeHost) }
 
+/**
+ * The browser extension the app hands out, built by `bun run build` in
+ * `extension/`.
+ *
+ * Staged rather than vendored: the sources are the ones this repository builds
+ * and tests, and a copy checked into `src/main/resources` would be a second
+ * copy that goes stale the first time somebody edits `background.js`. Absent on
+ * a machine that never ran the bundler — an app without it is still a
+ * filtering app, and the Extensions screen says it could not write the folder.
+ */
+val extensionDist: File = rootProject.layout.projectDirectory.dir("extension/dist").asFile
+
+val stageBrowserExtension by tasks.registering(Copy::class) {
+    description = "Puts the browser extension into the app jar"
+    onlyIf { File(extensionDist, "manifest.json").isFile }
+    from(extensionDist)
+    into(layout.buildDirectory.dir("extensionResources/extension"))
+}
+
+sourceSets["main"].resources.srcDir(layout.buildDirectory.dir("extensionResources"))
+tasks.named("processResources") { dependsOn(stageBrowserExtension) }
+
 compose.desktop {
     application {
         mainClass = "git.shin.adfree.desktop.AdFreeDesktopKt"

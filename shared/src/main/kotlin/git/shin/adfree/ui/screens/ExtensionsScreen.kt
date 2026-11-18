@@ -27,9 +27,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import git.shin.adfree.model.UserScriptInfo
 import git.shin.adfree.ui.AdGuardIntent
 import git.shin.adfree.ui.AdGuardViewModel
@@ -76,6 +79,11 @@ fun ExtensionsScreen(
     // installed now; a browser added later is picked up on the next visit.
     var bridgeInstalled by remember { mutableStateOf(platform.browserExtensionBridgeInstalled()) }
     var bridgeMessage by remember { mutableStateOf<String?>(null) }
+    // Where this app wrote its own extension, and what the last write said. The
+    // folder is asked once: it is a fixed path under the user's data home.
+    val ownFolder = remember { platform.ownBrowserExtensionFolder() }
+    var ownMessage by remember { mutableStateOf<String?>(null) }
+    val clipboard = LocalClipboardManager.current
     var showCreateScript by remember { mutableStateOf(false) }
     var editScriptTarget by remember { mutableStateOf<UserScriptInfo?>(null) }
     var deleteScriptTarget by remember { mutableStateOf<UserScriptInfo?>(null) }
@@ -138,6 +146,23 @@ fun ExtensionsScreen(
                         bridgeMessage = platform.installBrowserExtensionBridge()
                             ?: L10n.get(Strings.ext_browser_bridge_done)
                         bridgeInstalled = platform.browserExtensionBridgeInstalled()
+                    },
+                )
+            }
+            if (platform.supportsOwnBrowserExtension()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                OwnExtensionRow(
+                    folder = ownFolder,
+                    message = ownMessage,
+                    onInstall = {
+                        val error = platform.installOwnBrowserExtension()
+                        ownMessage = error
+                            ?: L10n.format(Strings.own_ext_installed, ownFolder.orEmpty())
+                        // The folder is only useful if it is there, and the last
+                        // step is a file picker only the user can open — so the
+                        // button hands the path over in the one place they can
+                        // paste it from.
+                        if (error == null) clipboard.setText(AnnotatedString(ownFolder.orEmpty()))
                     },
                 )
             }
@@ -360,6 +385,82 @@ private fun AssistantInstallRow(installed: Boolean, onInstall: () -> Unit) {
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = AdGuardGreenPrimary,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The row that hands this app's own extension to a browser.
+ *
+ * It is the one piece of AdFree that runs inside the browser, and it holds no
+ * rules: it asks the app what it would have injected and applies the answer,
+ * which is why this row only has to write a folder. No browser accepts an
+ * unpacked extension from a command — no store listing, no policy, no API — so
+ * the honest shape of "install" here is: write it, copy the path, and say in
+ * both languages what to click. The subtitle says plainly that filtering works
+ * without it, because it does: the extension closes the pages a service worker
+ * answers from a cache the app never saw.
+ */
+@Composable
+private fun OwnExtensionRow(
+    folder: String?,
+    message: String?,
+    onInstall: () -> Unit,
+) {
+    SurfaceCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Text(
+                text = L10n.get(Strings.own_ext_title),
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = AdGuardTextPrimary,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = L10n.get(Strings.own_ext_subtitle),
+                fontSize = 11.5.sp,
+                lineHeight = 16.sp,
+                color = AdGuardTextMuted,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            TextButton(
+                onClick = onInstall,
+                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp),
+            ) {
+                Text(
+                    text = L10n.get(Strings.own_ext_install),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = AdGuardGreenPrimary,
+                )
+            }
+            if (message != null) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = message,
+                    fontSize = 11.5.sp,
+                    lineHeight = 16.sp,
+                    color = AdGuardTextSecondary,
+                )
+                Text(
+                    text = L10n.get(Strings.own_ext_steps),
+                    fontSize = 11.5.sp,
+                    lineHeight = 16.sp,
+                    color = AdGuardTextMuted,
+                )
+                // The path again, on its own line: the sentence above it is a
+                // step-by-step, and a step-by-step is not something to select
+                // text out of.
+                if (folder != null) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = folder,
+                        fontSize = 11.5.sp,
+                        color = AdGuardTextSecondary,
+                        fontFamily = FontFamily.Monospace,
                     )
                 }
             }

@@ -149,6 +149,25 @@ interface PlatformHost {
     fun installBrowserExtensionBridge(): String? = null
 
     /**
+     * The app's own extension, which is not AdGuard's and needs no manifest
+     * written for it: it is a few kilobytes of transport that asks this app
+     * what to inject. A browser cannot be told to install an unpacked
+     * extension — no store, no policy, no API — so "install" here means
+     * putting the folder somewhere the user can point their browser at.
+     */
+    fun supportsOwnBrowserExtension(): Boolean = false
+
+    /** Where [installOwnBrowserExtension] writes, for showing the user. */
+    fun ownBrowserExtensionFolder(): String? = null
+
+    /**
+     * Writes the extension for the user and returns the reason it could not be
+     * written, or null when it is on disk. The caller copies the folder path to
+     * the clipboard: the last step is a file picker only the user can open.
+     */
+    fun installOwnBrowserExtension(): String? = null
+
+    /**
      * Brings the app's own window to the front.
      *
      * A browser extension asks the app to *show* things — the filtering log,
