@@ -29,6 +29,15 @@
 (() => {
   'use strict';
 
+  // One runtime per page. The proxy injects this file through a tag; an
+  // extension also injects it, for the pages the proxy never sees (a service
+  // worker answers the navigation from its cache). A second copy would stack
+  // a second stylesheet and a second observer on the same document.
+  if (window.__adfree_runtime) {
+    return;
+  }
+  window.__adfree_runtime = 'page';
+
   // Where this runtime was served from, and the host whose rules it applies:
   // both travel in its own tag (`<script src="https://…/local/adfree-page.js?dmn=…">`),
   // the same way AdGuard's content script carries `dmn`. The base is the tag's
@@ -38,6 +47,11 @@
   let base = location.origin;
   let dmn = location.hostname;
   let nonce = '';
+  // An extension injects this file from its own bundle, so there is no tag to
+  // read the base from: it stamps the one it was built with on `window` first.
+  if (typeof window.__adfree_base === 'string' && window.__adfree_base) {
+    base = window.__adfree_base;
+  }
   try {
     const self = document.currentScript;
     const selfSrc = self?.src;
