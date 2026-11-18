@@ -1832,6 +1832,74 @@ fn the_live_rules_endpoint_answers_with_the_current_rules() {
     assert_eq!(&text[text.find("\r\n\r\n").expect("headers") + 4..], "{}");
 }
 
+/// A page a service worker answers from its cache never crosses the wire, so no
+/// HTML is ever rewritten and the proxy injects nothing. The extension asks
+/// what the proxy *would* have written and applies it itself; the answer is
+/// described as data, because the extension creates the elements rather than
+/// parsing a snippet.
+#[test]
+fn the_plan_endpoint_describes_what_the_proxy_would_have_injected() {
+    let engine = engine_with(
+        "plan",
+        "origin.example.com##.ad-slot\norigin.example.com#?#div:has(> .sponsor)\n",
+    );
+    let mut buffer =
+        b"GET /adfree-plan.json?dmn=origin.example.com HTTP/1.1\r\nHost: 192.0.2.1\r\n\r\n"
+            .to_vec();
+    let response = take_local_request(
+        "/adfree-user.js",
+        "/* the user scripts */",
+        Some(&engine),
+        Some("origin.example.com"),
+        &mut buffer,
+    )
+    .expect("the endpoint answers");
+    let text = String::from_utf8_lossy(&response).to_string();
+    assert!(
+        text.contains("no-store"),
+        "the plan is the current rules, never a cached copy: {text}"
+    );
+    let body_start = text.find("\r\n\r\n").expect("headers") + 4;
+    let plan: serde_json::Value = serde_json::from_str(&text[body_start..]).expect("json plan");
+
+    let runtime = plan["runtime"].as_str().expect("runtime");
+    assert!(
+        runtime.contains("adfree-page.js?dmn=origin.example.com"),
+        "{runtime}"
+    );
+    let css = plan["css"].as_str().expect("css");
+    assert!(
+        css.contains("adfree-hide.css?dmn=origin.example.com"),
+        "{css}"
+    );
+    let hide = plan["cosmetics"]["hide"].as_array().expect("hide list");
+    assert!(hide.iter().any(|v| v == ".ad-slot"), "{plan}");
+
+    let scripts = plan["scripts"].as_array().expect("scripts");
+    assert_eq!(scripts.len(), 1, "{plan}");
+    let script = scripts[0].as_str().expect("script url");
+    assert!(script.contains("/local/adfree-user.js?h="), "{script}");
+
+    // A host the lists do not cover still gets the runtime — it is what looks
+    // rules up for tokens the proxy never saw — but no cosmetic part.
+    let mut buffer =
+        b"GET /adfree-plan.json?dmn=quiet.test HTTP/1.1\r\nHost: 192.0.2.1\r\n\r\n".to_vec();
+    let response = take_local_request("", "", Some(&engine), Some("quiet.test"), &mut buffer)
+        .expect("answered");
+    let text = String::from_utf8_lossy(&response).to_string();
+    let plan: serde_json::Value =
+        serde_json::from_str(&text[text.find("\r\n\r\n").expect("headers") + 4..])
+            .expect("json plan");
+    assert!(plan["runtime"]
+        .as_str()
+        .is_some_and(|r| r.contains("adfree-page.js")));
+    assert!(plan.get("css").is_none(), "nothing to hide: {plan}");
+    assert!(
+        plan.get("scripts").is_none(),
+        "no scripts installed: {plan}"
+    );
+}
+
 /// The hiding selectors are the bulk of the per-page payload, and they repeat
 /// on every page of a site: they are served as a stylesheet whose URL carries
 /// their content hash, so the browser fetches them once and keeps them.

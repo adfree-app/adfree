@@ -864,6 +864,10 @@ impl ScriptSet {
         let mut out = String::with_capacity(256);
         out.push_str("/* AdFree user scripts */\n");
         out.push_str("(function(){'use strict';\n");
+        // One run per page. The extension serves this same body to a page the
+        // proxy never saw (a service worker answered the navigation from its
+        // cache), and a page that went through the proxy can carry both tags.
+        out.push_str("if(window.__adfree_scripts_ran){return;}window.__adfree_scripts_ran=1;\n");
         out.push_str(advanced_runtime_js());
         for script in self.scripts.iter().filter(|s| s.enabled) {
             out.push_str(&script.wrapped_js());

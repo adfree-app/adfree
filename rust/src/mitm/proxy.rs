@@ -79,6 +79,17 @@ pub const HIDE_PATH: &str = "/adfree-hide.css";
 /// the runtime re-reads on every load.
 pub const COSMETIC_PATH: &str = "/adfree-cosmetics.json";
 
+/// What the proxy would have written into a page's `<head>`, as data.
+///
+/// A page a service worker answers from its cache never crosses the wire, so
+/// the proxy never sees its HTML and nothing is injected into it. The browser
+/// extension asks here instead — for the same page, the same host — and applies
+/// the answer itself. Every tag is the one the snippet would have carried: the
+/// hiding stylesheet, the cosmetic payload, the runtime and the user script.
+/// Nothing here decides anything; the engine that answers is the one that
+/// would have injected.
+pub const PLAN_PATH: &str = "/adfree-plan.json";
+
 /// Cache policy for the local answers whose URL carries a content hash: the
 /// bytes behind a given URL can never change, so the browser need not ask
 /// again. (A filter update changes the hash, which changes the URL.)
@@ -3073,6 +3084,19 @@ pub fn take_local_request(
             true,
         ));
     }
+    if target == PLAN_PATH {
+        buffer.drain(..head);
+        let body = plan_answer(filter, host.as_deref(), serve_path, script_body);
+        // `no-store`: the plan is the current rules and the current script
+        // list, and a cached copy of it is the bug this endpoint exists to fix.
+        return Some(local_response(
+            "application/json; charset=utf-8",
+            "no-store",
+            body.as_bytes(),
+            gzip,
+            true,
+        ));
+    }
     if target == HIDE_PATH {
         buffer.drain(..head);
         // Only the bytes matter here; the hash in the URL was computed over
@@ -3923,6 +3947,51 @@ pub(super) fn versioned_path(path: &str, hash: u64) -> String {
 /// writes the link and whoever answers it build the same string. The host
 /// travels in the URL (`dmn=`) because the answer comes from the app's own
 /// origin, where the session's SNI is not the page's hostname.
+/// The injection plan for one page, as the extension applies it.
+///
+/// The same pieces [`crate::mitm::decide::Injector::snippet`] writes into a
+/// document, except that the extension cannot be handed HTML: it has to create
+/// the elements itself, so each part travels as the URL or the data it would
+/// have carried, and the answer is only ever what the engine already says.
+///
+/// A page the lists unblocked (`$document`, or `$elemhide` with `$jsinject`)
+/// carries no cosmetic part, exactly as its snippet would not.
+pub(crate) fn plan_answer(
+    filter: &FilterEngine,
+    host: Option<&str>,
+    serve_path: &str,
+    script_body: &str,
+) -> String {
+    let runtime = match host {
+        Some(host) => versioned_path(
+            &format!("{PAGE_SCRIPT_PATH}?dmn={host}"),
+            content_hash(PAGE_RUNTIME.as_bytes()),
+        ),
+        None => versioned_path(PAGE_SCRIPT_PATH, content_hash(PAGE_RUNTIME.as_bytes())),
+    };
+    let mut obj = serde_json::Map::new();
+    obj.insert("runtime".into(), local_asset(&runtime).into());
+    if let Some(host) = host {
+        let switches = filter.cosmetic_switches_for(host);
+        if !(switches.elemhide && switches.jsinject) {
+            if let Some((href, _)) = hide_stylesheet(filter, host) {
+                obj.insert("css".into(), local_asset(&href).into());
+            }
+            let cosmetics = live_cosmetic_json(filter, host);
+            if cosmetics != "{}" {
+                if let Ok(value) = serde_json::from_str(&cosmetics) {
+                    obj.insert("cosmetics".into(), value);
+                }
+            }
+        }
+    }
+    let script_src = script_tag_src(serve_path, script_body);
+    if !script_src.is_empty() {
+        obj.insert("scripts".into(), serde_json::json!([script_src]));
+    }
+    serde_json::Value::Object(obj).to_string()
+}
+
 /// The cosmetic rules `host` has right now, in the shape the page runtime
 /// already understands (`hide`, `style`, `procedural`, `dynamic`).
 pub(crate) fn live_cosmetic_json(filter: &FilterEngine, host: &str) -> String {
