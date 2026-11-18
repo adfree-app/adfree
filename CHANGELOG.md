@@ -1,3 +1,9 @@
+# [1.17.0](https://github.com/yuuki-kagura/adfree/compare/v1.16.0...v1.17.0) (2026-11-18)
+
+### Features
+
+* **l10n:** Japanese and Chinese for the app and the site ([1e933e3](https://github.com/yuuki-kagura/adfree/commit/1e933e36618b5ec8c6000f8ed061263436285018))
+
 # [1.16.0](https://github.com/yuuki-kagura/adfree/compare/v1.15.1...v1.16.0) (2026-11-18)
 
 ### Features
