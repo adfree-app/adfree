@@ -151,6 +151,15 @@ pub(crate) fn script_tag_src(serve_path: &str, body: &str) -> String {
     local_asset(&versioned_path(serve_path, content_hash(body.as_bytes())))
 }
 
+/// Where a live session reads the app's *current* script list from.
+///
+/// A connection outlives the setting that opened it: a browser keeps an HTTP/2
+/// connection to an origin for minutes, and a userscript switched off in the
+/// app has to stop being injected on the next page load, not on the next
+/// connection. The session asks the engine again before it injects a tag or
+/// serves a body, instead of holding the copy it handshook with.
+pub type ScriptSource = Arc<dyn Fn() -> (String, Arc<str>) + Send + Sync>;
+
 /// [`LOCAL_ORIGIN`] as an address, for matching packets in the engine.
 pub fn local_origin_addr() -> std::net::IpAddr {
     std::net::IpAddr::V4(std::net::Ipv4Addr::from(LOCAL_ORIGIN_V4))
@@ -321,6 +330,10 @@ pub struct ProxySession {
     /// Combined JS served back for requests to `script_src` (empty = nothing
     /// to serve, and the request is forwarded like any other).
     pub script_body: Arc<str>,
+    /// The live script list, when an engine owns this session. `None` in tests
+    /// and for a session built without one: the fields above then stay as they
+    /// were constructed. See [`ScriptSource`].
+    script_source: Option<ScriptSource>,
     /// Cosmetic filtering: rules are computed per page when set.
     pub cosmetic: Option<Arc<FilterEngine>>,
     /// The page URL of the response being rewritten, when the loaded lists
@@ -727,6 +740,7 @@ impl ProxySession {
             script_src,
             script_tag_src,
             script_body,
+            script_source: None,
             cosmetic: None,
             page_url: None,
             stats: None,
@@ -784,6 +798,7 @@ impl ProxySession {
             script_src,
             script_tag_src,
             script_body,
+            script_source: None,
             cosmetic: None,
             page_url: None,
             stats: None,
@@ -811,6 +826,32 @@ impl ProxySession {
     /// computed from `filter` and injected alongside the user scripts.
     pub fn set_cosmetic(&mut self, filter: Arc<FilterEngine>) {
         self.cosmetic = Some(filter);
+    }
+
+    /// Follows the app's script list for the life of this connection.
+    ///
+    /// Without this the session keeps the combined body it handshook with, so
+    /// a userscript switched off in the app goes on being injected until the
+    /// browser happens to open a new connection — the setting looks ignored.
+    pub fn track_scripts(&mut self, source: ScriptSource) {
+        self.script_source = Some(source);
+        self.sync_scripts();
+    }
+
+    /// Re-reads the script list when one is tracked. Called before anything
+    /// reads [`Self::script_tag_src`] or serves [`Self::script_body`]: the ask
+    /// is a read lock and an `Arc` compare, so the unchanged case is cheap.
+    fn sync_scripts(&mut self) {
+        let Some(source) = self.script_source.as_ref() else {
+            return;
+        };
+        let (serve_path, body) = source();
+        if serve_path == self.script_src && Arc::ptr_eq(&body, &self.script_body) {
+            return;
+        }
+        self.script_src = serve_path;
+        self.script_body = body;
+        self.script_tag_src = script_tag_src(&self.script_src, &self.script_body);
     }
 
     /// Enables the stealth request edits for this flow. Decided once, when
@@ -854,6 +895,7 @@ impl ProxySession {
             script_src,
             script_tag_src,
             script_body,
+            script_source: None,
             cosmetic: None,
             page_url: None,
             stats: None,
@@ -1075,6 +1117,7 @@ impl ProxySession {
     }
 
     fn step_client_payload(&mut self, payload: &[u8]) -> Result<Outcome, String> {
+        self.sync_scripts();
         match &mut self.state {
             // Not TLS: the relay degrades to a transparent splice.
             ProxyState::Plain => Ok(Outcome {
@@ -1416,6 +1459,7 @@ impl ProxySession {
 
     /// Everything that follows a client feed once both halves are up.
     fn after_client_feed(&mut self, plain: Vec<u8>) -> Result<Outcome, String> {
+        self.sync_scripts();
         let ProxyState::Active(session) = &mut self.state else {
             return Ok(Outcome::default());
         };
@@ -2082,6 +2126,7 @@ impl ProxySession {
 
     /// Everything that follows a peer feed once both halves are up.
     fn after_peer_wire(&mut self, plain: Vec<u8>) -> Result<Outcome, String> {
+        self.sync_scripts();
         let mut outcome = Outcome::default();
         {
             let ProxyState::Active(session) = &mut self.state else {
@@ -2220,6 +2265,7 @@ impl ProxySession {
     /// Returns the bytes to hand to the client and how many bytes the rewrite
     /// added. Split out so it can be tested without a live TLS handshake.
     pub fn rewrite_response(&mut self, plain: &[u8]) -> (Vec<u8>, usize) {
+        self.sync_scripts();
         // Nothing to hide, no header or body to edit and no answer for the log
         // to name: the connection bypasses the rewriter entirely. Header edits
         // alone still need it — they are what `$csp`, `$permissions`,

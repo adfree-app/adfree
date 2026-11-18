@@ -848,7 +848,7 @@ pub struct Core {
     /// first load must not read as a change.
     mitm_ca_loaded: std::sync::atomic::AtomicBool,
     /// User scripts injected into HTML responses.
-    pub mitm_scripts: RwLock<crate::mitm::script::ScriptSet>,
+    pub mitm_scripts: Arc<RwLock<crate::mitm::script::ScriptSet>>,
     /// Shared per-SNI leaf resolver for the TLS termination.
     pub mitm_resolver: RwLock<Option<Arc<crate::mitm::tls::SniCertResolver>>>,
     /// Live intercepted connections.
@@ -1142,7 +1142,7 @@ impl Core {
                 "not initialised",
             ))),
             mitm_ca_loaded: std::sync::atomic::AtomicBool::new(false),
-            mitm_scripts: RwLock::new(crate::mitm::script::ScriptSet::new()),
+            mitm_scripts: Arc::new(RwLock::new(crate::mitm::script::ScriptSet::new())),
             mitm_resolver: RwLock::new(None),
             relays: Mutex::new(crate::mitm::relay::RelayTable::new()),
             udp_nat: Mutex::new(UdpNat::new()),
@@ -1852,6 +1852,20 @@ impl Core {
 
     pub fn filter_engine(&self) -> Arc<FilterEngine> {
         Arc::clone(&self.filter)
+    }
+
+    /// A handle a live proxy session follows the script list with.
+    ///
+    /// Sessions outlive a settings change — a browser holds one HTTP/2
+    /// connection to an origin for minutes — so they re-read the list here
+    /// instead of keeping the copy they handshook with. See
+    /// [`crate::mitm::proxy::ScriptSource`].
+    pub fn script_source(&self) -> crate::mitm::proxy::ScriptSource {
+        let set = Arc::clone(&self.mitm_scripts);
+        Arc::new(move || {
+            let guard = set.read().unwrap();
+            (guard.serve_path().to_string(), guard.combined_arc())
+        })
     }
 
     /// Lists whose body the last filter build could not read.
@@ -2622,7 +2636,6 @@ impl Core {
             let scripts = self.mitm_scripts.read().unwrap();
             (scripts.serve_path().to_string(), scripts.combined_arc())
         };
-        let script_tag_src = crate::mitm::proxy::script_tag_src(&serve_path, &script_body);
         bridge::FlowInfo {
             local: SocketAddr::new(key.server.as_ip(), key.server_port),
             apps,
@@ -2633,7 +2646,7 @@ impl Core {
             upstream: self.upstream_tls_config(),
             serve_path,
             script_body,
-            script_tag_src,
+            script_source: Some(self.script_source()),
             sink: Some(log_http3_block),
         }
     }
@@ -3289,6 +3302,7 @@ impl Core {
                         proxy.set_cosmetic(self.filter.clone());
                     }
                     proxy.set_stats(Arc::clone(&self.stats));
+                    proxy.track_scripts(self.script_source());
                     Some(proxy)
                 }
                 Err(e) => {
@@ -3315,6 +3329,9 @@ impl Core {
                     if cfg.cosmetic_filtering {
                         proxy.set_cosmetic(self.filter.clone());
                     }
+                    // A script switched off in the app stops being injected on
+                    // this connection's next page, not on the next connection.
+                    proxy.track_scripts(self.script_source());
                     // Stealth request edits (UTM, cookies, user agent) are
                     // decided per flow, like cosmetics.
                     proxy.set_stealth(cfg.stealth);
@@ -6709,8 +6726,10 @@ mod tests {
         // opened the flow, which is what lets a client whose own roots refuse
         // the CA keep working without its host being terminated (see
         // `mitm::untrusted`). Two words, on the one structure that is per
-        // connection.
-        assert!(relay <= 1088, "a TCP relay is {relay} B");
+        // connection. 1104 adds the handle the session follows the script list
+        // with, so a userscript switched off in the app stops being injected
+        // on the connections that are already open (`track_scripts`).
+        assert!(relay <= 1104, "a TCP relay is {relay} B");
         assert!(udp <= 192, "a datagram mapping is {udp} B");
         assert!(h3 <= 112, "a terminated QUIC flow is {h3} B");
         // The worst case for both datagram tables at the caps the engine

@@ -58,12 +58,15 @@ pub struct HubConfig {
     /// The connection belongs to the local injection origin: every request is
     /// answered here and no peer is dialed.
     pub local: bool,
-    /// Path the user script is served from; empty when none is installed.
-    pub serve_path: String,
-    pub script_body: Arc<str>,
-    /// The origin-absolute URL the user-script tag carries (the versioned
-    /// local asset, the same one the HTTP/1.1 splice injects).
-    pub script_tag_src: String,
+    /// The scripts this connection injects, and the versioned tag the browser
+    /// sees. Seeded when the connection opened and re-read from the app's live
+    /// list per request ([`HubConfig::scripts`]); a script switched off in the
+    /// app therefore stops being injected on this connection's next request,
+    /// the same way the HTTP/1.1 splice behaves.
+    pub scripts: std::sync::Mutex<Scripts>,
+    /// The app's live script list, when an engine owns the flow; `None` in
+    /// tests and for the synthetic configs that only inject a fixed body.
+    pub script_source: Option<crate::mitm::proxy::ScriptSource>,
     /// The engine cosmetic rules are read from, when the user enabled element
     /// hiding; `None` leaves the snippet to the user script and the runtime.
     pub cosmetic: Option<Arc<FilterEngine>>,
@@ -76,12 +79,59 @@ pub struct HubConfig {
     pub sink: Option<MitmSink>,
 }
 
+/// The combined user-script body one connection serves, plus the
+/// origin-absolute tag that names it.
+#[derive(Clone, Debug)]
+pub struct Scripts {
+    /// Path the script is served from; empty when nothing is installed.
+    pub serve_path: String,
+    pub body: Arc<str>,
+    /// The versioned local asset the `<script src>` carries, the same one the
+    /// HTTP/1.1 splice injects. Empty when `serve_path` is.
+    pub tag_src: String,
+}
+
+impl Scripts {
+    pub fn new(serve_path: String, body: Arc<str>) -> Self {
+        let tag_src = crate::mitm::proxy::script_tag_src(&serve_path, &body);
+        Scripts {
+            serve_path,
+            body,
+            tag_src,
+        }
+    }
+
+    /// True when both name the same body; a pointer compare, not a string one.
+    fn same_as(&self, serve_path: &str, body: &Arc<str>) -> bool {
+        self.serve_path == serve_path && Arc::ptr_eq(&self.body, body)
+    }
+}
+
 impl HubConfig {
+    /// The list this request should use.
+    ///
+    /// A connection outlives a settings change, so the app is asked again and
+    /// the cached copy is only rebuilt when the body actually changed: the
+    /// steady state is a lock, a clone of an `Arc` and a compare.
+    fn scripts(&self) -> Scripts {
+        let mut current = self
+            .scripts
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        if let Some(source) = self.script_source.as_ref() {
+            let (serve_path, body) = source();
+            if !current.same_as(&serve_path, &body) {
+                *current = Scripts::new(serve_path, body);
+            }
+        }
+        current.clone()
+    }
+
     /// The per-session inputs the shared snippet builder reads.
-    fn injector<'a>(&'a self, page_url: Option<&'a str>) -> Injector<'a> {
+    fn injector<'a>(&'a self, scripts: &'a Scripts, page_url: Option<&'a str>) -> Injector<'a> {
         Injector {
-            script_src: &self.serve_path,
-            script_tag_src: &self.script_tag_src,
+            script_src: &scripts.serve_path,
+            script_tag_src: &scripts.tag_src,
             cosmetic: self.cosmetic.as_deref(),
             host: Some(&self.server_name),
             page_url,
@@ -219,9 +269,10 @@ async fn handle_request(
     };
 
     if config.local {
+        let scripts = config.scripts();
         let response = take_local_request(
-            &config.serve_path,
-            &config.script_body,
+            &scripts.serve_path,
+            &scripts.body,
             Some(&config.filter),
             Some(authority.as_str()),
             &mut head,
@@ -536,7 +587,8 @@ async fn relay_response(
     // and nothing a list rewrites there. `$$` reads only a document that
     // arrived whole; the other body edits read any text.
     let renderable = !(300..400).contains(&status.as_u16());
-    let injector = config.injector(plan.page_url.as_deref());
+    let scripts = config.scripts();
+    let injector = config.injector(&scripts, plan.page_url.as_deref());
     let inject = injector.active() && info.html && renderable && !info.bodyless();
     let text = info.text;
     let plans = ResponsePlans {
@@ -865,7 +917,6 @@ fn strip_hop_by_hop(headers: &mut HeaderMap) {
 mod tests {
     use super::*;
     use crate::mitm::ca::CertificateAuthority;
-    use crate::mitm::proxy::{content_hash, local_asset, versioned_path};
     use crate::mitm::quic::socket::{Datagram, OutDatagram, TunUdpSocket};
     use crate::mitm::tls::{self, SniCertResolver, UpstreamTls};
     use quinn::{Endpoint, EndpointConfig, TokioRuntime};
@@ -1081,12 +1132,11 @@ mod tests {
             server_name: "filtered.test".to_string(),
             origin: origin_addr,
             local,
-            serve_path: serve_path.to_string(),
-            script_body: Arc::from(script_body),
-            script_tag_src: local_asset(&versioned_path(
-                serve_path,
-                content_hash(script_body.as_bytes()),
+            scripts: std::sync::Mutex::new(Scripts::new(
+                serve_path.to_string(),
+                Arc::from(script_body),
             )),
+            script_source: None,
             cosmetic: Some(filter),
             stealth: StealthConfig::default(),
             upstream: UpstreamTls::with_roots(roots),

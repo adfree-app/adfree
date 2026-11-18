@@ -74,7 +74,9 @@ pub struct FlowInfo {
     pub upstream: Arc<UpstreamTls>,
     pub serve_path: String,
     pub script_body: Arc<str>,
-    pub script_tag_src: String,
+    /// The app's live script list, so a terminated QUIC connection follows a
+    /// settings change instead of keeping what it handshook with.
+    pub script_source: Option<crate::mitm::proxy::ScriptSource>,
     pub sink: Option<MitmSink>,
 }
 
@@ -409,9 +411,11 @@ async fn serve(
         server_name: server_name.clone(),
         origin: info.local,
         local: false,
-        serve_path: info.serve_path.clone(),
-        script_body: Arc::clone(&info.script_body),
-        script_tag_src: info.script_tag_src.clone(),
+        scripts: std::sync::Mutex::new(hub::Scripts::new(
+            info.serve_path.clone(),
+            Arc::clone(&info.script_body),
+        )),
+        script_source: info.script_source.clone(),
         cosmetic: info.cosmetic.clone(),
         stealth: info.stealth,
         upstream: Arc::clone(&info.upstream),

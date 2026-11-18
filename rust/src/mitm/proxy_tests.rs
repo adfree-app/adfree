@@ -437,6 +437,76 @@ fn empty_script_url_disables_the_rewriter() {
     assert_eq!(out, html_response(body));
 }
 
+/// A connection outlives the setting that opened it.
+///
+/// A browser holds one HTTP/2 connection to an origin for minutes, so a
+/// userscript switched off in the app used to go on being injected — with the
+/// body it handshook with — until the browser happened to open a new
+/// connection. Seen for real: a deleted script kept hiding every `<video>` on
+/// a YouTube tab that was already open, and the app looked like it ignored the
+/// setting.
+#[test]
+fn a_script_switched_off_stops_being_injected_on_the_same_connection() {
+    let ca = CertificateAuthority::generate().expect("ca");
+    let set = Arc::new(std::sync::RwLock::new(crate::mitm::script::ScriptSet::new()));
+    {
+        let mut guard = set.write().expect("lock");
+        guard.replace_all(vec![crate::mitm::script::UserScript {
+            id: "store-one".into(),
+            name: "store-one".into(),
+            body: "let hiding = 1;".into(),
+            enabled: true,
+        }]);
+        guard.set_enabled(true);
+    }
+    let source = {
+        let set = Arc::clone(&set);
+        Arc::new(move || {
+            let guard = set.read().expect("lock");
+            (guard.serve_path().to_string(), guard.combined_arc())
+        })
+    };
+    let mut proxy = build_proxy(&ca, "/adfree-user.js");
+    proxy.track_scripts(source);
+
+    // While it is on, the page gets a tag whose hash names the body we serve.
+    let page = html_response("<html><head></head><body>one</body></html>");
+    let (out, injected) = proxy.rewrite_response(&page);
+    let text = String::from_utf8(out).expect("utf8");
+    assert!(injected > 0, "the enabled script is injected");
+    assert!(
+        text.contains(&format!(
+            "?h={:016x}",
+            content_hash(proxy.script_body.as_bytes())
+        )),
+        "the tag names the body that is served: {text}"
+    );
+
+    // Switched off in the app: the second page on the same connection must
+    // arrive with nothing injected, and the local answer must be empty too.
+    {
+        let mut guard = set.write().expect("lock");
+        guard.replace_all(Vec::new());
+    }
+    let page = html_response("<html><head></head><body>two</body></html>");
+    let (out, injected) = proxy.rewrite_response(&page);
+    assert_eq!(injected, 0, "nothing to inject once the list is empty");
+    assert_eq!(out, page, "the page arrives unchanged");
+    assert_eq!(proxy.script_body, Arc::<str>::from(""));
+    let mut request = b"GET /adfree-user.js HTTP/1.1\r\nHost: x\r\n\r\n".to_vec();
+    assert!(
+        take_local_request(
+            &proxy.script_src,
+            &proxy.script_body,
+            None,
+            None,
+            &mut request
+        )
+        .is_none(),
+        "an empty body is forwarded, not answered with the old one"
+    );
+}
+
 /// A body that is not a page is left alone, however big it is: size is not a
 /// reason to skip an injection, but there is nothing to inject into a stream of
 /// `a`s.
