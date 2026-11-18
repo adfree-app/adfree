@@ -178,11 +178,15 @@ interface PlatformHost {
      * @property automatic true when a browser will pick the extension up at its
      * next start with no clicks from the user.
      * @property note why the automatic half did not happen, or null.
+     * @property command the one line that finishes the install as root, when the
+     * app could not run it itself — this is what lands on the clipboard in that
+     * case, because the user's next step is a terminal, not a file picker.
      */
     data class OwnExtensionInstallation(
         val folder: String,
         val automatic: Boolean,
         val note: String? = null,
+        val command: String? = null,
     )
 
     /**

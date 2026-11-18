@@ -1290,4 +1290,5 @@
     <string name="stats_clear_confirm">Clear</string>
     <string name="stats_cleared">Statistics cleared</string>
     <string name="own_ext_note">Automatic install did not happen: %1$s</string>
+    <string name="own_ext_cmd">Or run this one line in a terminal:</string>
 </resources>

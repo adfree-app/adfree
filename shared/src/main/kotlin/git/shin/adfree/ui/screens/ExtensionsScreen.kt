@@ -158,12 +158,14 @@ fun ExtensionsScreen(
                     onInstall = {
                         val result = platform.installOwnBrowserExtension()
                         ownResult = result
-                        // A refusal somewhere in the chain still leaves the
-                        // folder, and the last step — pointing a browser at it —
-                        // is a file picker only the user can open. The button
-                        // therefore always hands the path over, in the one place
-                        // they can paste it from.
-                        if (result != null) clipboard.setText(AnnotatedString(result.folder))
+                        // Whatever is left to do, it is a path: the folder for
+                        // the browser that has to be pointed at it, or the script
+                        // that finishes the install when the app could not become
+                        // root. The clipboard is where a paste comes from, and
+                        // both of them are typed into a box the app cannot reach.
+                        if (result != null) {
+                            clipboard.setText(AnnotatedString(result.command ?: result.folder))
+                        }
                     },
                 )
             }
@@ -483,6 +485,24 @@ private fun OwnExtensionRow(
                     color = AdGuardTextSecondary,
                     fontFamily = FontFamily.Monospace,
                 )
+                // When the app could not become root itself, the folder is not
+                // the last thing to paste — the script is, and it is one line in
+                // a terminal away from a browser that installs this on its own.
+                result.command?.let { command ->
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = L10n.get(Strings.own_ext_cmd),
+                        fontSize = 11.5.sp,
+                        lineHeight = 16.sp,
+                        color = AdGuardTextMuted,
+                    )
+                    Text(
+                        text = command,
+                        fontSize = 11.5.sp,
+                        color = AdGuardTextSecondary,
+                        fontFamily = FontFamily.Monospace,
+                    )
+                }
             }
         }
     }

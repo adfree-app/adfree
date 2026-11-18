@@ -942,6 +942,32 @@ class DesktopPrivilegesTest {
         )
     }
 
+    /**
+     * The failure that started this: a window started by a service has no
+     * logind session, so polkit says "No authentication agent found" — which
+     * reads like a refusal but is only a missing place to ask. The remaining
+     * routes are tried, and the last one is what the card reports.
+     */
+    @Test
+    fun aWindowWithNoAgentStillTriesTheRouteThatNeedsNone() {
+        val ran = mutableListOf<List<String>>()
+        val privileges = DesktopPrivileges(
+            exec = { argv ->
+                ran += argv
+                PrivilegeOutcome.Denied("Error creating textual authentication agent: no /dev/tty")
+            },
+        )
+
+        val outcome = privileges.installBrowserExtensionPolicy(
+            java.io.File("/tmp/policy.json"),
+            listOf("/etc/opt/chrome/policies/managed"),
+        )
+
+        assertTrue("${outcome}", outcome is PrivilegeOutcome.Denied)
+        assertEquals("every route was tried", 3, ran.size)
+        assertEquals("the last one needs no agent", "--disable-internal-agent", ran[2][1])
+    }
+
     /** A dismissal is an answer: asking three ways after a "no" would nag. */
     @Test
     fun aDismissedPolicyWriteIsNotAskedAgain() {

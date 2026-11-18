@@ -255,6 +255,32 @@ AdFree reads whichever trust store this machine actually has (Debian, Arch and
 Fedora disagree), so a certificate installed by hand is recognised rather than
 reported missing.
 
+### The browser extension
+
+Packages and proxy redirects cover everything that goes through the network,
+and one case slips past both: a page a browser's service worker hands over from
+its own cache never crosses the wire, so there is nothing to rewrite. A small
+extension stands in for that, and it holds no rules of its own — it asks the
+app what it would have injected and applies the answer, so both paths block the
+same things.
+
+**Protection → Ad blocking → Extensions → Install for this browser** does the
+whole install: it mints a signing key for this machine, builds and signs a CRX,
+writes the unpacked copy, and serves both files from the local origin. The last
+step is the browser's own managed policy, and it is the only one that needs
+root.
+
+That step is where a window opened by `adfree-desktop.service` differs from one
+opened in a terminal: polkit routes the password dialog through the caller's
+logind session, and a process started by systemd is in none, so every
+escalation ends in *No authentication agent found*. Nothing is broken and
+nothing was refused — there is simply nowhere to put the question. The app does
+not pretend otherwise: it writes `install-policy.sh` next to the bundle, puts
+its path on the clipboard and says so. Running it once in a terminal finishes
+the install, and every browser that reads these policies —
+Chrome, Chromium, Brave, Edge, Opera, Vivaldi — picks the extension up at its
+next start with no developer mode and no folder to load.
+
 ## Limitations
 
 - Android is the only shipping shell today. Linux runs the whole UI and filters

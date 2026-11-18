@@ -1290,4 +1290,5 @@
     <string name="stats_clear_confirm">清除</string>
     <string name="stats_cleared">统计已清除</string>
     <string name="own_ext_note">未能自动安装：%1$s</string>
+    <string name="own_ext_cmd">或者在终端里执行这一行：</string>
 </resources>

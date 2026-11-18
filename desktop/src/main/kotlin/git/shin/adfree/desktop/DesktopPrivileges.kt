@@ -424,8 +424,15 @@ class DesktopPrivileges(
                 run(*attempt.toTypedArray(), deniedExit = PKEXEC_DENIED, environment = environment)
             }
             if (outcome is PrivilegeOutcome.Ok) return outcome
-            // A dismissal is an answer: do not ask a second way.
-            if (outcome is PrivilegeOutcome.Denied) return outcome
+            // A window that cannot reach an agent has not been refused: there is
+            // nobody to put the question to, and the next route may not need one.
+            // polkit's own words for it, which is why they are matched here and
+            // nowhere else — `run` reads "authentication" as a dismissal, and for
+            // a dialog that was dismissed it is right.
+            val noAgent = outcome is PrivilegeOutcome.Denied &&
+                outcome.reason.contains("agent", ignoreCase = true)
+            // Any other dismissal is an answer: do not ask a second way.
+            if (outcome is PrivilegeOutcome.Denied && !noAgent) return outcome
             last = outcome
         }
         return last

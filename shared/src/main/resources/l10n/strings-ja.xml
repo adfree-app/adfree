@@ -1290,4 +1290,5 @@
     <string name="stats_clear_confirm">消す</string>
     <string name="stats_cleared">統計を消しました</string>
     <string name="own_ext_note">自動インストールは行われませんでした：%1$s</string>
+    <string name="own_ext_cmd">または、この一行をターミナルで実行してください：</string>
 </resources>

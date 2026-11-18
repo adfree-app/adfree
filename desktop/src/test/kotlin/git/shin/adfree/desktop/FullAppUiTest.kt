@@ -115,9 +115,11 @@ class FullAppUiTest {
 
             // Protection → Ad blocking → Extensions is where the app hands out
             // its own browser extension. The card is desktop-only, and the
-            // install button writes a folder — no browser takes an unpacked
-            // extension by command — so what is asserted is that the bundle is
-            // on the classpath and the button produces the steps that finish it.
+            // install button signs a CRX, writes the unpacked folder and — where
+            // it may — the policy each browser reads at start. This host has no
+            // privileges to ask, so the escalation is skipped and what is
+            // asserted is the part that always happens: the button produces the
+            // steps and the folder they point at.
             onNodeWithText(L10n.get(Strings.nav_protection)).performClick()
             waitUntilAtLeastOneExists(hasText(L10n.get(Strings.home_module_adblock_title)), 30_000)
             onNodeWithText(L10n.get(Strings.home_module_adblock_title)).performClick()

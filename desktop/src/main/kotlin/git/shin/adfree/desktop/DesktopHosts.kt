@@ -224,9 +224,13 @@ class DesktopPlatformHost(
                 // user who is looking at a card that says so.
                 null -> "this build has no privileged helper"
                 is PrivilegeOutcome.Ok -> null
-                is PrivilegeOutcome.Denied -> "${outcome.reason} — run $script once"
-                is PrivilegeOutcome.Failed -> "${outcome.reason} — run $script once"
+                is PrivilegeOutcome.Denied -> outcome.reason
+                is PrivilegeOutcome.Failed -> outcome.reason
             },
+            // Only while something is left to do: a path on the clipboard is a
+            // paste waiting to happen, and after a successful install the only
+            // thing to paste would be a script that is already done.
+            command = if (automatic) null else script,
         )
     }
 
