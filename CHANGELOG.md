@@ -1,3 +1,9 @@
+# [1.19.0](https://github.com/adfree-app/adfree/compare/v1.18.0...v1.19.0) (2026-11-18)
+
+### Features
+
+* **desktop:** the check button answers, and a window shows the exchange ([5008c7d](https://github.com/adfree-app/adfree/commit/5008c7db1e6ca738bb25bbdb807e77077d37f9f6))
+
 # [1.18.0](https://github.com/adfree-app/adfree/compare/v1.17.0...v1.18.0) (2026-11-18)
 
 ### Bug Fixes
