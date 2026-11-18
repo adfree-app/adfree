@@ -19,9 +19,11 @@ type Platform = {
   note: string
 }
 
-// Every screen here is a capture of a real build, in the language the app
-// ships in by default: the phone app, the Windows window and the Linux package
-// render the same Compose screens over the same Rust core.
+// Every screen here is a capture of a real build, in English: the phone app,
+// the Windows window and the Linux package render the same Compose screens over
+// the same Rust core. The two desktop builds are one set of captures — the same
+// screens down to the pixel — because the only thing that differs is the window
+// manager around them.
 const platforms: Platform[] = [
   {
     id: 'android',
@@ -44,8 +46,11 @@ const platforms: Platform[] = [
     icon: 'i-simple-icons-windows',
     note: 'The same UI as a desktop window, with DNS redirects installed per adapter and a tray that survives the window.',
     shots: [
-      { src: '/shots/windows-home.png', alt: 'AdFree on Windows: Home, protection on', kind: 'window', title: 'AdFree' },
-      { src: '/shots/windows-home-off.png', alt: 'AdFree on Windows: Home, filtering off', kind: 'window', title: 'AdFree' },
+      { src: '/shots/desktop-home.png', alt: 'AdFree on Windows: Home, protection on', kind: 'window', title: 'AdFree' },
+      { src: '/shots/desktop-protection.png', alt: 'AdFree on Windows: the Protection screen', kind: 'window', title: 'AdFree' },
+      { src: '/shots/desktop-activity.png', alt: 'AdFree on Windows: the request log', kind: 'window', title: 'AdFree' },
+      { src: '/shots/desktop-statistics.png', alt: 'AdFree on Windows: Statistics', kind: 'window', title: 'AdFree' },
+      { src: '/shots/desktop-settings.png', alt: 'AdFree on Windows: Settings', kind: 'window', title: 'AdFree' },
     ],
   },
   {
@@ -54,11 +59,11 @@ const platforms: Platform[] = [
     icon: 'i-simple-icons-linux',
     note: 'A deb or an rpm, the whole UI on the host JVM, and the CA installed into the distro’s own trust store with your consent.',
     shots: [
-      { src: '/shots/linux-home.png', alt: 'AdFree on Linux: Home, protection on', kind: 'window', title: 'AdFree' },
-      { src: '/shots/linux-protection.png', alt: 'AdFree on Linux: the Protection screen', kind: 'window', title: 'AdFree' },
-      { src: '/shots/linux-activity.png', alt: 'AdFree on Linux: the request log', kind: 'window', title: 'AdFree' },
-      { src: '/shots/linux-statistics.png', alt: 'AdFree on Linux: Statistics', kind: 'window', title: 'AdFree' },
-      { src: '/shots/linux-settings.png', alt: 'AdFree on Linux: Settings', kind: 'window', title: 'AdFree' },
+      { src: '/shots/desktop-home.png', alt: 'AdFree on Linux: Home, protection on', kind: 'window', title: 'AdFree' },
+      { src: '/shots/desktop-protection.png', alt: 'AdFree on Linux: the Protection screen', kind: 'window', title: 'AdFree' },
+      { src: '/shots/desktop-activity.png', alt: 'AdFree on Linux: the request log', kind: 'window', title: 'AdFree' },
+      { src: '/shots/desktop-statistics.png', alt: 'AdFree on Linux: Statistics', kind: 'window', title: 'AdFree' },
+      { src: '/shots/desktop-settings.png', alt: 'AdFree on Linux: Settings', kind: 'window', title: 'AdFree' },
     ],
   },
 ]

@@ -216,8 +216,8 @@ const faq = [
 
           <div class="relative pb-16 sm:pb-20">
             <WindowFrame
-              src="/shots/windows-home.png"
-              alt="AdFree on Windows: Home with protection on"
+              src="/shots/desktop-home.png"
+              alt="AdFree on the desktop: Home with protection on"
               title="AdFree"
             />
             <div class="absolute -bottom-2 left-2 w-36 sm:-bottom-6 sm:left-0 sm:w-44">
