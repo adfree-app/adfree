@@ -628,8 +628,9 @@
     <string name="own_ext_title">Tiện ích AdFree cho trình duyệt</string>
     <string name="own_ext_subtitle">Chrome có những trang nó lấy từ cache của service worker, và những trang đó không đi qua ứng dụng này. Tiện ích hỏi ứng dụng xem cần chèn gì rồi chèn đúng như vậy. Không có nó vẫn lọc được — đây là chỗ cuối cùng còn hở.</string>
     <string name="own_ext_install">Cài cho trình duyệt này</string>
+    <string name="own_ext_inst_auto">Đã cài. Đóng hẳn trình duyệt rồi mở lại — nó tự cài lúc khởi động, không cần developer mode.</string>
     <string name="own_ext_installed">Đã ghi vào %1$s</string>
-    <string name="own_ext_steps">Trong trình duyệt: chrome://extensions → bật Developer mode → Load unpacked → dán đường dẫn đó.</string>
+    <string name="own_ext_steps">Nếu sau khi khởi động lại vẫn chưa thấy: chrome://extensions → bật Developer mode → Load unpacked → dán thư mục ở trên.</string>
     <string name="own_ext_copied">Đã copy đường dẫn. Dán vào hộp chọn thư mục của trình duyệt bằng Ctrl+V.</string>
     <string name="own_ext_failed">Không ghi được tiện ích: %1$s</string>
     <string name="ext_create_title">Tạo tiện ích mới</string>
@@ -1285,4 +1286,5 @@
     <string name="stats_clear_body">Số lượt chặn, thống kê theo ứng dụng và nhật ký lọc sẽ bắt đầu từ 0. Bộ lọc, quy tắc và cấu hình vẫn giữ nguyên.</string>
     <string name="stats_clear_confirm">Xóa</string>
     <string name="stats_cleared">Đã xóa thống kê</string>
+    <string name="own_ext_note">Không cài tự động được: %1$s</string>
 </resources>

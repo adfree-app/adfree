@@ -151,21 +151,39 @@ interface PlatformHost {
     /**
      * The app's own extension, which is not AdGuard's and needs no manifest
      * written for it: it is a few kilobytes of transport that asks this app
-     * what to inject. A browser cannot be told to install an unpacked
-     * extension — no store, no policy, no API — so "install" here means
-     * putting the folder somewhere the user can point their browser at.
+     * what to inject.
      */
     fun supportsOwnBrowserExtension(): Boolean = false
 
-    /** Where [installOwnBrowserExtension] writes, for showing the user. */
+    /** Where the unpacked copy of it lives, for showing the user. */
     fun ownBrowserExtensionFolder(): String? = null
 
     /**
-     * Writes the extension for the user and returns the reason it could not be
-     * written, or null when it is on disk. The caller copies the folder path to
-     * the clipboard: the last step is a file picker only the user can open.
+     * Installs it: writes the unpacked copy, signs a CRX for this machine, and
+     * — where the platform allows it — writes the managed policy that makes
+     * each browser install it at its next start.
+     *
+     * Returns null when nothing could be written at all. A non-null result with
+     * [OwnExtensionInstallation.automatic] false is a real outcome too: the
+     * extension is on disk and the browser still needs the user to point at it,
+     * which is what [OwnExtensionInstallation.note] explains.
      */
-    fun installOwnBrowserExtension(): String? = null
+    fun installOwnBrowserExtension(): OwnExtensionInstallation? = null
+
+    /**
+     * What an install left behind.
+     *
+     * @property folder the unpacked copy, which is also what lands on the
+     * clipboard for a browser that refuses automatic installs.
+     * @property automatic true when a browser will pick the extension up at its
+     * next start with no clicks from the user.
+     * @property note why the automatic half did not happen, or null.
+     */
+    data class OwnExtensionInstallation(
+        val folder: String,
+        val automatic: Boolean,
+        val note: String? = null,
+    )
 
     /**
      * Brings the app's own window to the front.

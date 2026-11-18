@@ -113,8 +113,15 @@ fn build_proxy(ca: &CertificateAuthority, script: &str) -> ProxySession {
 #[test]
 fn script_request_is_answered_locally() {
     let mut buffer = b"GET /adfree-user.js HTTP/1.1\r\nHost: origin.example.com\r\n\r\n".to_vec();
-    let response = take_local_request("/adfree-user.js", "let x = 1;", None, None, &mut buffer)
-        .expect("served");
+    let response = take_local_request(
+        "/adfree-user.js",
+        "let x = 1;",
+        None,
+        None,
+        None,
+        &mut buffer,
+    )
+    .expect("served");
     assert!(buffer.is_empty(), "the request is consumed");
     let text = String::from_utf8(response).expect("utf8");
     assert!(text.starts_with("HTTP/1.1 200 OK\r\n"));
@@ -126,22 +133,46 @@ fn script_request_is_answered_locally() {
 #[test]
 fn script_request_ignores_other_requests() {
     let mut buffer = b"GET /index.html HTTP/1.1\r\nHost: x\r\n\r\n".to_vec();
-    assert!(take_local_request("/adfree-user.js", "let x = 1;", None, None, &mut buffer).is_none());
+    assert!(take_local_request(
+        "/adfree-user.js",
+        "let x = 1;",
+        None,
+        None,
+        None,
+        &mut buffer
+    )
+    .is_none());
     assert!(!buffer.is_empty(), "untouched");
 }
 
 #[test]
 fn script_request_waits_for_the_full_head() {
     let mut buffer = b"GET /adfree-user.js HTTP/1.1\r\nHost: x\r\n".to_vec();
-    assert!(take_local_request("/adfree-user.js", "let x = 1;", None, None, &mut buffer).is_none());
+    assert!(take_local_request(
+        "/adfree-user.js",
+        "let x = 1;",
+        None,
+        None,
+        None,
+        &mut buffer
+    )
+    .is_none());
     buffer.extend_from_slice(b"\r\n");
-    assert!(take_local_request("/adfree-user.js", "let x = 1;", None, None, &mut buffer).is_some());
+    assert!(take_local_request(
+        "/adfree-user.js",
+        "let x = 1;",
+        None,
+        None,
+        None,
+        &mut buffer
+    )
+    .is_some());
 }
 
 #[test]
 fn script_request_serves_only_when_enabled() {
     let mut buffer = b"GET /adfree-user.js HTTP/1.1\r\n\r\n".to_vec();
-    assert!(take_local_request("/adfree-user.js", "", None, None, &mut buffer).is_none());
+    assert!(take_local_request("/adfree-user.js", "", None, None, None, &mut buffer).is_none());
     assert!(!buffer.is_empty());
 }
 
@@ -151,8 +182,15 @@ fn assistant_bridge_answers_with_json() {
     let mut buffer =
         b"GET /adfree-assistant.json?act=state&dmn=example.com HTTP/1.1\r\nHost: example.com\r\n\r\n"
             .to_vec();
-    let response = take_local_request("/adfree-user.js", "let x = 1;", None, None, &mut buffer)
-        .expect("served");
+    let response = take_local_request(
+        "/adfree-user.js",
+        "let x = 1;",
+        None,
+        None,
+        None,
+        &mut buffer,
+    )
+    .expect("served");
     assert!(buffer.is_empty(), "the request is consumed");
     let text = String::from_utf8(response).expect("utf8");
     assert!(text.starts_with("HTTP/1.1 200 OK\r\n"));
@@ -168,8 +206,15 @@ fn assistant_bridge_answers_every_verb() {
             "GET /adfree-assistant.json?act={act}&rule=%23%23.banner&dmn=example.com&on=1 HTTP/1.1\r\n\r\n"
         );
         let mut buffer = request.into_bytes();
-        let response = take_local_request("/adfree-user.js", "let x = 1;", None, None, &mut buffer)
-            .unwrap_or_else(|| panic!("{act} answered"));
+        let response = take_local_request(
+            "/adfree-user.js",
+            "let x = 1;",
+            None,
+            None,
+            None,
+            &mut buffer,
+        )
+        .unwrap_or_else(|| panic!("{act} answered"));
         let text = String::from_utf8(response).expect("utf8");
         assert!(text.contains("{\"ok\":"), "{act}: {text}");
     }
@@ -498,6 +543,7 @@ fn a_script_switched_off_stops_being_injected_on_the_same_connection() {
         take_local_request(
             &proxy.script_src,
             &proxy.script_body,
+            None,
             None,
             None,
             &mut request
@@ -1802,6 +1848,7 @@ fn the_live_rules_endpoint_answers_with_the_current_rules() {
     let response = take_local_request(
         "",
         "",
+        None,
         Some(&engine),
         Some("origin.example.com"),
         &mut buffer,
@@ -1826,7 +1873,7 @@ fn the_live_rules_endpoint_answers_with_the_current_rules() {
     // A host nothing covers still answers, with an empty rule set.
     let mut buffer =
         b"GET /adfree-cosmetics.json?dmn=quiet.test HTTP/1.1\r\nHost: 192.0.2.1\r\n\r\n".to_vec();
-    let response = take_local_request("", "", Some(&engine), Some("quiet.test"), &mut buffer)
+    let response = take_local_request("", "", None, Some(&engine), Some("quiet.test"), &mut buffer)
         .expect("answered");
     let text = String::from_utf8_lossy(&response).to_string();
     assert_eq!(&text[text.find("\r\n\r\n").expect("headers") + 4..], "{}");
@@ -1849,6 +1896,7 @@ fn the_plan_endpoint_describes_what_the_proxy_would_have_injected() {
     let response = take_local_request(
         "/adfree-user.js",
         "/* the user scripts */",
+        None,
         Some(&engine),
         Some("origin.example.com"),
         &mut buffer,
@@ -1889,7 +1937,7 @@ fn the_plan_endpoint_describes_what_the_proxy_would_have_injected() {
     // rules up for tokens the proxy never saw — but no cosmetic part.
     let mut buffer =
         b"GET /adfree-plan.json?dmn=quiet.test HTTP/1.1\r\nHost: 192.0.2.1\r\n\r\n".to_vec();
-    let response = take_local_request("", "", Some(&engine), Some("quiet.test"), &mut buffer)
+    let response = take_local_request("", "", None, Some(&engine), Some("quiet.test"), &mut buffer)
         .expect("answered");
     let text = String::from_utf8_lossy(&response).to_string();
     let plan: serde_json::Value =
@@ -1941,6 +1989,7 @@ fn answering_the_stylesheet_request_repeats_the_bytes_the_link_hashed() {
     let response = take_local_request(
         "/adfree-user.js",
         "",
+        None,
         Some(engine.as_ref()),
         Some("origin.example.com"),
         &mut buffer,
@@ -1978,6 +2027,7 @@ fn the_hiding_stylesheet_travels_plain_when_gzip_is_not_accepted() {
     let response = take_local_request(
         "/adfree-user.js",
         "",
+        None,
         Some(engine.as_ref()),
         Some("origin.example.com"),
         &mut buffer,
@@ -2008,6 +2058,7 @@ fn the_runtime_is_served_from_a_content_addressed_url() {
     let response = take_local_request(
         "/adfree-user.js",
         "",
+        None,
         Some(engine.as_ref()),
         Some("origin.example.com"),
         &mut buffer,
@@ -2032,8 +2083,8 @@ fn the_user_script_is_served_from_a_content_addressed_url() {
     let mut buffer =
         format!("GET {href} HTTP/1.1\r\nHost: origin.example.com\r\nAccept-Encoding: gzip\r\n\r\n")
             .into_bytes();
-    let response =
-        take_local_request("/adfree-user.js", script, None, None, &mut buffer).expect("served");
+    let response = take_local_request("/adfree-user.js", script, None, None, None, &mut buffer)
+        .expect("served");
     let (head, compressed) = split_local(&response);
     assert!(
         head.contains("Cache-Control: max-age=31536000, immutable"),
@@ -2449,4 +2500,98 @@ fn an_error_page_is_not_a_document_to_inject_into() {
         let renderable = status < 300 || (400..500).contains(&status);
         assert_eq!(renderable, injected, "status {status}");
     }
+}
+
+/// The extension installs itself: the policy a browser reads names this update
+/// manifest, the manifest names this CRX. Both are files the app wrote into its
+/// data directory, and both are read per request — an extension rebuilt today
+/// must be what the browser's next check installs, not what this connection
+/// handshook with.
+#[test]
+fn the_extension_bundle_is_served_from_the_local_origin() {
+    let dir = std::env::temp_dir().join(format!("adfree-extension-serve-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let crx = b"Cr24\x03\x00\x00\x00not-a-real-crx".to_vec();
+    let xml = b"<gupdate><app appid=\"x\"/></gupdate>".to_vec();
+    std::fs::write(dir.join("adfree-extension.crx"), &crx).expect("crx");
+    std::fs::write(dir.join("adfree-extension-update.xml"), &xml).expect("xml");
+    let root = dir.clone();
+    let source: super::proxy::ExtensionSource = Arc::new(move |path: &str| {
+        let name = path.rsplit('/').next().unwrap_or_default();
+        std::fs::read(root.join(name)).ok()
+    });
+
+    let ask = |path: &str| {
+        let mut buffer =
+            format!("GET {path} HTTP/1.1\r\nHost: yuuki-kagura.github.io\r\n\r\n").into_bytes();
+        take_local_request(
+            "/adfree-user.js",
+            "let x = 1;",
+            Some(&source),
+            None,
+            None,
+            &mut buffer,
+        )
+    };
+
+    let response = ask("/local/adfree-extension.crx").expect("the CRX is served");
+    let text = String::from_utf8_lossy(&response).to_string();
+    assert!(
+        text.contains("Content-Type: application/x-chrome-extension"),
+        "{text}"
+    );
+    assert!(
+        text.contains("Cache-Control: no-store"),
+        "a rebuilt extension changes no URL, so nothing here may be cached: {text}"
+    );
+    assert!(response.ends_with(&crx), "the bytes are the file's own");
+
+    let response = ask("/local/adfree-extension-update.xml").expect("the manifest is served");
+    let text = String::from_utf8_lossy(&response).to_string();
+    assert!(
+        text.contains("Content-Type: text/xml; charset=utf-8"),
+        "{text}"
+    );
+    assert!(response.ends_with(&xml));
+
+    // Anything else on the origin is still somebody else's business, including
+    // the two paths under the wrong name.
+    assert!(ask("/local/adfree-extension.png").is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A browser's update check must not read an HTML error page as XML when the
+/// bundle is missing — it is told 404, which is a failure it can report.
+#[test]
+fn the_extension_bundle_missing_says_404_rather_than_a_page() {
+    let source: super::proxy::ExtensionSource = Arc::new(|_: &str| None);
+    let mut buffer = b"GET /local/adfree-extension.crx HTTP/1.1\r\nHost: h\r\n\r\n".to_vec();
+    let response = take_local_request(
+        "/adfree-user.js",
+        "let x = 1;",
+        Some(&source),
+        None,
+        None,
+        &mut buffer,
+    )
+    .expect("answered");
+    let text = String::from_utf8_lossy(&response).to_string();
+    assert!(text.starts_with("HTTP/1.1 404"), "{text}");
+    assert!(!text.contains("<html"), "{text}");
+}
+
+/// No source, no endpoint: a session built without an engine (the tests, and
+/// every non-MITM path) does not grow an extension-download surface.
+#[test]
+fn without_an_extension_source_the_paths_are_not_ours() {
+    let mut buffer = b"GET /local/adfree-extension.crx HTTP/1.1\r\nHost: h\r\n\r\n".to_vec();
+    assert!(take_local_request(
+        "/adfree-user.js",
+        "let x = 1;",
+        None,
+        None,
+        None,
+        &mut buffer,
+    )
+    .is_none());
 }

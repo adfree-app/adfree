@@ -3,6 +3,7 @@ package git.shin.adfree.ui.screens
 import git.shin.adfree.l10n.Strings
 import git.shin.adfree.l10n.L10n
 import git.shin.adfree.platform.currentFileHost
+import git.shin.adfree.platform.PlatformHost
 import git.shin.adfree.platform.currentPlatformHost
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
@@ -82,7 +83,7 @@ fun ExtensionsScreen(
     // Where this app wrote its own extension, and what the last write said. The
     // folder is asked once: it is a fixed path under the user's data home.
     val ownFolder = remember { platform.ownBrowserExtensionFolder() }
-    var ownMessage by remember { mutableStateOf<String?>(null) }
+    var ownResult by remember { mutableStateOf<PlatformHost.OwnExtensionInstallation?>(null) }
     val clipboard = LocalClipboardManager.current
     var showCreateScript by remember { mutableStateOf(false) }
     var editScriptTarget by remember { mutableStateOf<UserScriptInfo?>(null) }
@@ -153,16 +154,16 @@ fun ExtensionsScreen(
                 Spacer(modifier = Modifier.height(10.dp))
                 OwnExtensionRow(
                     folder = ownFolder,
-                    message = ownMessage,
+                    result = ownResult,
                     onInstall = {
-                        val error = platform.installOwnBrowserExtension()
-                        ownMessage = error
-                            ?: L10n.format(Strings.own_ext_installed, ownFolder.orEmpty())
-                        // The folder is only useful if it is there, and the last
-                        // step is a file picker only the user can open — so the
-                        // button hands the path over in the one place they can
-                        // paste it from.
-                        if (error == null) clipboard.setText(AnnotatedString(ownFolder.orEmpty()))
+                        val result = platform.installOwnBrowserExtension()
+                        ownResult = result
+                        // A refusal somewhere in the chain still leaves the
+                        // folder, and the last step — pointing a browser at it —
+                        // is a file picker only the user can open. The button
+                        // therefore always hands the path over, in the one place
+                        // they can paste it from.
+                        if (result != null) clipboard.setText(AnnotatedString(result.folder))
                     },
                 )
             }
@@ -407,7 +408,7 @@ private fun AssistantInstallRow(installed: Boolean, onInstall: () -> Unit) {
 @Composable
 private fun OwnExtensionRow(
     folder: String?,
-    message: String?,
+    result: PlatformHost.OwnExtensionInstallation?,
     onInstall: () -> Unit,
 ) {
     SurfaceCard(modifier = Modifier.fillMaxWidth()) {
@@ -437,32 +438,51 @@ private fun OwnExtensionRow(
                     color = AdGuardGreenPrimary,
                 )
             }
-            if (message != null) {
+            if (result != null) {
                 Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = message,
-                    fontSize = 11.5.sp,
-                    lineHeight = 16.sp,
-                    color = AdGuardTextSecondary,
-                )
+                if (result.automatic) {
+                    // The browser installs it at its next start on its own: the
+                    // only thing left is the restart, and saying "installed"
+                    // without it would send the user looking for a button that
+                    // is not there.
+                    Text(
+                        text = L10n.get(Strings.own_ext_inst_auto),
+                        fontSize = 11.5.sp,
+                        lineHeight = 16.sp,
+                        color = AdGuardGreenPrimary,
+                    )
+                } else {
+                    result.note?.let { reason ->
+                        Text(
+                            text = L10n.format(Strings.own_ext_note, reason),
+                            fontSize = 11.5.sp,
+                            lineHeight = 16.sp,
+                            color = AdGuardTextSecondary,
+                        )
+                    }
+                }
                 Text(
                     text = L10n.get(Strings.own_ext_steps),
                     fontSize = 11.5.sp,
                     lineHeight = 16.sp,
                     color = AdGuardTextMuted,
                 )
+                Text(
+                    text = L10n.format(Strings.own_ext_installed, result.folder),
+                    fontSize = 11.5.sp,
+                    lineHeight = 16.sp,
+                    color = AdGuardTextSecondary,
+                )
                 // The path again, on its own line: the sentence above it is a
                 // step-by-step, and a step-by-step is not something to select
                 // text out of.
-                if (folder != null) {
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = folder,
-                        fontSize = 11.5.sp,
-                        color = AdGuardTextSecondary,
-                        fontFamily = FontFamily.Monospace,
-                    )
-                }
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = result.folder,
+                    fontSize = 11.5.sp,
+                    color = AdGuardTextSecondary,
+                    fontFamily = FontFamily.Monospace,
+                )
             }
         }
     }

@@ -13,8 +13,9 @@ import kotlin.system.exitProcess
  * systemd and enables or removes the unit. Nothing else, because anything else
  * would be a root shell behind a dialog.
  *
- * Arguments: `install <unitSource> <unitPath> <polkitSource> <polkitPath> [enable]`
- * or `remove <unitPath> <polkitPath>`.
+ * Arguments: `install <unitSource> <unitPath> <polkitSource> <polkitPath> [enable]`,
+ * `remove <unitPath> <polkitPath>`, or
+ * `browser-policy <policySource> <directory>...`.
  *
  * Exit status is the whole report; stderr carries the detail.
  */
@@ -23,6 +24,7 @@ fun main(args: Array<String>) {
     when (mode) {
         "install" -> install(args)
         "remove" -> remove(args)
+        "browser-policy" -> browserPolicy(args)
         else -> fail("adfree-setup: expected install or remove, got '$mode'")
     }
 }
@@ -49,6 +51,35 @@ private fun install(args: Array<String>) {
     if (enable) step("systemctl", "enable", File(unitPath).name)
     println("adfree-setup: installed ${File(unitPath).name}")
 }
+
+/**
+ * Copies one policy file into each browser's managed directory, as root.
+ *
+ * Browsers read managed policy from `/etc`, so this is the one part of the
+ * automatic extension install that needs authority the user has not delegated
+ * yet — and the only thing this mode does with it: a fixed file, copied to
+ * directories the caller names, nothing executed. The name is fixed so the
+ * user can find, read and delete exactly one file per browser afterwards.
+ */
+private fun browserPolicy(args: Array<String>) {
+    val source = File(args.getOrNull(1).orEmpty())
+    if (!source.isFile) fail("adfree-setup: no policy at ${source.path}")
+    val dirs = args.drop(2).filter { it.isNotBlank() }
+    if (dirs.isEmpty()) fail("adfree-setup: no browser policy directory given")
+    val body = source.readText()
+    for (dir in dirs) {
+        val target = File(dir, POLICY_NAME)
+        target.parentFile?.mkdirs()
+        target.writeText(body)
+        // Readable, not writable: the policy names an update URL only a
+        // privileged write can change, which is the point of a managed policy.
+        target.setReadable(true, false)
+        target.setWritable(false, false)
+    }
+    println("adfree-setup: browser policy written to ${dirs.size} directories")
+}
+
+private const val POLICY_NAME = "adfree-extension.json"
 
 private fun remove(args: Array<String>) {
     val unitPath = args.getOrNull(1).orEmpty()

@@ -1868,6 +1868,32 @@ impl Core {
         })
     }
 
+    /// A handle a live session serves the extension bundle with.
+    ///
+    /// The bundle is written by the platform when the user installs the
+    /// extension — the CRX and the update manifest a browser's managed policy
+    /// points at. It is read per request rather than snapshotted: installing
+    /// again, or shipping a new extension, must be what the browser's next
+    /// update check sees. `None` without a store, and then the endpoints answer
+    /// 404 like any other unknown path.
+    pub fn extension_source(&self) -> crate::mitm::proxy::ExtensionSource {
+        let root = self
+            .store
+            .get()
+            .map(|store| store.root().join("extension"))
+            .unwrap_or_default();
+        Arc::new(move |path: &str| {
+            // Only the two names the proxy answers for; the URL's last segment
+            // *is* the file name, which is the one thing both sides must agree
+            // on and the reason the names carry no dates or hashes.
+            let name = path.rsplit('/').next().unwrap_or_default();
+            if name.is_empty() || name.contains("..") {
+                return None;
+            }
+            std::fs::read(root.join(name)).ok()
+        })
+    }
+
     /// Lists whose body the last filter build could not read.
     pub fn filter_build_errors(&self) -> Vec<(u16, String)> {
         self.filter.build_errors()
@@ -2647,6 +2673,7 @@ impl Core {
             serve_path,
             script_body,
             script_source: Some(self.script_source()),
+            extension_source: Some(self.extension_source()),
             sink: Some(log_http3_block),
         }
     }
@@ -3303,6 +3330,7 @@ impl Core {
                     }
                     proxy.set_stats(Arc::clone(&self.stats));
                     proxy.track_scripts(self.script_source());
+                    proxy.track_extension(self.extension_source());
                     Some(proxy)
                 }
                 Err(e) => {
@@ -3332,6 +3360,7 @@ impl Core {
                     // A script switched off in the app stops being injected on
                     // this connection's next page, not on the next connection.
                     proxy.track_scripts(self.script_source());
+                    proxy.track_extension(self.extension_source());
                     // Stealth request edits (UTM, cookies, user agent) are
                     // decided per flow, like cosmetics.
                     proxy.set_stealth(cfg.stealth);
@@ -6728,8 +6757,11 @@ mod tests {
         // `mitm::untrusted`). Two words, on the one structure that is per
         // connection. 1104 adds the handle the session follows the script list
         // with, so a userscript switched off in the app stops being injected
-        // on the connections that are already open (`track_scripts`).
-        assert!(relay <= 1104, "a TCP relay is {relay} B");
+        // on the connections that are already open (`track_scripts`). 1120 is
+        // the second such handle: the extension bundle, which a browser
+        // installs itself from (`track_extension`). Two pointers each, both
+        // per connection, neither optional in a session an engine owns.
+        assert!(relay <= 1120, "a TCP relay is {relay} B");
         assert!(udp <= 192, "a datagram mapping is {udp} B");
         assert!(h3 <= 112, "a terminated QUIC flow is {h3} B");
         // The worst case for both datagram tables at the caps the engine

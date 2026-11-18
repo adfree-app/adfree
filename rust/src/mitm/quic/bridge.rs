@@ -77,6 +77,8 @@ pub struct FlowInfo {
     /// The app's live script list, so a terminated QUIC connection follows a
     /// settings change instead of keeping what it handshook with.
     pub script_source: Option<crate::mitm::proxy::ScriptSource>,
+    /// The extension bundle, when the app can serve one.
+    pub extension_source: Option<crate::mitm::proxy::ExtensionSource>,
     pub sink: Option<MitmSink>,
 }
 
@@ -140,7 +142,10 @@ impl Host for CoreHost {
 enum Job {
     Open {
         key: UdpKey,
-        info: FlowInfo,
+        /// Boxed: a queued open carries the whole flow configuration, and two
+        /// of these fit in a channel slot; the close jobs that share this queue
+        /// are address-sized and must not pay for it.
+        info: Box<FlowInfo>,
         socket: Arc<TunUdpSocket>,
     },
     Close {
@@ -199,7 +204,7 @@ impl Bridge {
         );
         let job = Job::Open {
             key,
-            info,
+            info: Box::new(info),
             socket: Arc::clone(&socket),
         };
         self.jobs.send(job).ok()?;
@@ -251,6 +256,7 @@ fn run(mut jobs: UnboundedReceiver<Job>, host: Arc<dyn Host>) {
         while let Some(job) = jobs.recv().await {
             match job {
                 Job::Open { key, info, socket } => {
+                    let info = *info;
                     if flows.len() >= MAX_FLOWS {
                         host.abandon(key);
                         continue;
@@ -416,6 +422,7 @@ async fn serve(
             Arc::clone(&info.script_body),
         )),
         script_source: info.script_source.clone(),
+        extension_source: info.extension_source.clone(),
         cosmetic: info.cosmetic.clone(),
         stealth: info.stealth,
         upstream: Arc::clone(&info.upstream),

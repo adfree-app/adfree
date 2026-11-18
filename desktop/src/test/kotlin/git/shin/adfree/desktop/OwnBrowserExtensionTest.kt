@@ -76,6 +76,22 @@ class OwnBrowserExtensionTest {
         val folder = DesktopPlatformHost().ownBrowserExtensionFolder()
 
         assertTrue("an absolute path", folder.startsWith("/"))
-        assertTrue(folder, folder.endsWith("/adfree/extension"))
+        assertTrue(folder, folder.endsWith("/adfree/extension/unpacked"))
+    }
+
+    /**
+     * The bundle the proxy serves and the folder a user points at are two
+     * different things under one directory, and the browser's update check reads
+     * the first: `<data>/adfree/extension/<name>`, which is the core's
+     * `extension/` under its data root.
+     */
+    @Test
+    fun theSignedBundleSitsAboveTheUnpackedCopy() {
+        val host = DesktopPlatformHost()
+        val bundle = host.ownExtensionBundleFolder()
+        val unpacked = File(host.ownBrowserExtensionFolder()!!)
+
+        assertEquals(bundle, unpacked.parentFile)
+        assertTrue(bundle.path, bundle.path.endsWith("/adfree/extension"))
     }
 }

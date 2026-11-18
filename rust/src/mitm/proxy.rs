@@ -90,6 +90,17 @@ pub const COSMETIC_PATH: &str = "/adfree-cosmetics.json";
 /// would have injected.
 pub const PLAN_PATH: &str = "/adfree-plan.json";
 
+/// The browser extension itself, so a browser that has never seen an unpacked
+/// folder can install it on its own: the policy a browser reads for a managed
+/// machine gives it this update manifest, the manifest names this CRX, and the
+/// CRX is signed with a key only this machine has.
+///
+/// The two files sit in the app's data directory under these names. Nothing is
+/// cached here — the bytes are read per request, so rebuilding the extension
+/// replaces what the next browser start installs.
+pub const EXT_UPDATE_PATH: &str = "/adfree-extension-update.xml";
+pub const EXT_CRX_PATH: &str = "/adfree-extension.crx";
+
 /// Cache policy for the local answers whose URL carries a content hash: the
 /// bytes behind a given URL can never change, so the browser need not ask
 /// again. (A filter update changes the hash, which changes the URL.)
@@ -170,6 +181,12 @@ pub(crate) fn script_tag_src(serve_path: &str, body: &str) -> String {
 /// connection. The session asks the engine again before it injects a tag or
 /// serves a body, instead of holding the copy it handshook with.
 pub type ScriptSource = Arc<dyn Fn() -> (String, Arc<str>) + Send + Sync>;
+
+/// Where a session reads the extension bundle from, by local path.
+///
+/// Unlike [`ScriptSource`] this takes the path: the session serves two files
+/// out of the same directory and has no business knowing their names.
+pub type ExtensionSource = Arc<dyn Fn(&str) -> Option<Vec<u8>> + Send + Sync>;
 
 /// [`LOCAL_ORIGIN`] as an address, for matching packets in the engine.
 pub fn local_origin_addr() -> std::net::IpAddr {
@@ -345,6 +362,10 @@ pub struct ProxySession {
     /// and for a session built without one: the fields above then stay as they
     /// were constructed. See [`ScriptSource`].
     script_source: Option<ScriptSource>,
+    /// Where the extension bundle is read from, for the two endpoints a browser
+    /// installing the extension asks for. `None` in tests and for a session
+    /// built without an engine: the endpoints are then simply not there.
+    extension_source: Option<ExtensionSource>,
     /// Cosmetic filtering: rules are computed per page when set.
     pub cosmetic: Option<Arc<FilterEngine>>,
     /// The page URL of the response being rewritten, when the loaded lists
@@ -752,6 +773,7 @@ impl ProxySession {
             script_tag_src,
             script_body,
             script_source: None,
+            extension_source: None,
             cosmetic: None,
             page_url: None,
             stats: None,
@@ -810,6 +832,7 @@ impl ProxySession {
             script_tag_src,
             script_body,
             script_source: None,
+            extension_source: None,
             cosmetic: None,
             page_url: None,
             stats: None,
@@ -847,6 +870,15 @@ impl ProxySession {
     pub fn track_scripts(&mut self, source: ScriptSource) {
         self.script_source = Some(source);
         self.sync_scripts();
+    }
+
+    /// Serves the extension bundle's two files for the life of this connection.
+    ///
+    /// The bytes are asked for per request rather than held: the app rebuilds
+    /// the CRX when it is installed or the extension changes, and a browser's
+    /// update check must see the bytes on disk at that moment.
+    pub fn track_extension(&mut self, source: ExtensionSource) {
+        self.extension_source = Some(source);
     }
 
     /// Re-reads the script list when one is tracked. Called before anything
@@ -907,6 +939,7 @@ impl ProxySession {
             script_tag_src,
             script_body,
             script_source: None,
+            extension_source: None,
             cosmetic: None,
             page_url: None,
             stats: None,
@@ -1164,6 +1197,7 @@ impl ProxySession {
                     server,
                     &self.script_src,
                     &self.script_body,
+                    self.extension_source.as_ref(),
                     self.cosmetic.as_deref(),
                     &mut self.client_buffer,
                     self.stats.as_deref(),
@@ -1526,6 +1560,7 @@ impl ProxySession {
             &mut self.client_buffer,
             &self.script_src,
             &self.script_body,
+            self.extension_source.as_ref(),
             self.cosmetic.as_deref(),
             self.captured.as_deref(),
             self.stats.as_deref(),
@@ -1553,6 +1588,7 @@ impl ProxySession {
         buffer: &mut Vec<u8>,
         serve_path: &str,
         script_body: &str,
+        extension_source: Option<&ExtensionSource>,
         filter: Option<&FilterEngine>,
         session_host: Option<&str>,
         stats: Option<&Stats>,
@@ -1571,9 +1607,14 @@ impl ProxySession {
         // response head is edited (and the request head may already have been).
         let mut plan = RequestPlan::default();
         if !tls::server_handshaking(&session.server) {
-            while let Some(local) =
-                take_local_request(serve_path, script_body, filter, session_host, buffer)
-            {
+            while let Some(local) = take_local_request(
+                serve_path,
+                script_body,
+                extension_source,
+                filter,
+                session_host,
+                buffer,
+            ) {
                 let started = Instant::now();
                 let handshaking = tls::server_handshaking(&session.server);
                 outcome
@@ -2042,6 +2083,7 @@ impl ProxySession {
         server: &mut ServerConnection,
         serve_path: &str,
         script_body: &str,
+        extension_source: Option<&ExtensionSource>,
         filter: Option<&FilterEngine>,
         buffer: &mut Vec<u8>,
         stats: Option<&Stats>,
@@ -2050,7 +2092,14 @@ impl ProxySession {
         while header_end(buffer).is_some() {
             let started = Instant::now();
             let handshaking = tls::server_handshaking(server);
-            let response = match take_local_request(serve_path, script_body, filter, None, buffer) {
+            let response = match take_local_request(
+                serve_path,
+                script_body,
+                extension_source,
+                filter,
+                None,
+                buffer,
+            ) {
                 Some(response) => response,
                 None => {
                     let head = header_end(buffer).expect("checked by the loop condition");
@@ -2151,6 +2200,7 @@ impl ProxySession {
                 &mut self.client_buffer,
                 &self.script_src,
                 &self.script_body,
+                self.extension_source.as_ref(),
                 self.cosmetic.as_deref(),
                 self.captured.as_deref(),
                 self.stats.as_deref(),
@@ -2999,6 +3049,7 @@ impl ProxySession {
 pub fn take_local_request(
     serve_path: &str,
     script_body: &str,
+    extension_source: Option<&ExtensionSource>,
     filter: Option<&FilterEngine>,
     session_host: Option<&str>,
     buffer: &mut Vec<u8>,
@@ -3027,6 +3078,36 @@ pub fn take_local_request(
             gzip,
             false,
         ));
+    }
+    // The extension bundle. A browser installs the extension itself from
+    // these two: the policy names the manifest, the manifest names the CRX,
+    // and the CRX's signature names the key this machine generated — so there
+    // is no folder to pick and no developer mode to turn on.
+    if let Some(source) = extension_source {
+        let bundle = match target {
+            EXT_UPDATE_PATH => Some(("text/xml; charset=utf-8", false)),
+            EXT_CRX_PATH => Some(("application/x-chrome-extension", false)),
+            _ => None,
+        };
+        if let Some((content_type, gzip_ok)) = bundle {
+            let Some(bytes) = source(target) else {
+                // Installed into a folder but never built as a bundle: the
+                // browser's update check is told so plainly instead of being
+                // handed an HTML error body it would try to parse as XML.
+                buffer.drain(..head);
+                return Some(not_found_response());
+            };
+            buffer.drain(..head);
+            // No caching anywhere in this chain: a rebuilt extension must be
+            // what the next check installs.
+            return Some(local_response(
+                content_type,
+                "no-store",
+                &bytes,
+                gzip && gzip_ok,
+                false,
+            ));
+        }
     }
     // The assistant's calls are answered even where no filter engine is
     // passed in: the page may ask whether protection is on in a process that

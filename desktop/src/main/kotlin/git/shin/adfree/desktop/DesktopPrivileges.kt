@@ -368,6 +368,97 @@ class DesktopPrivileges(
         if (enable) add("enable")
     }
 
+    /**
+     * Makes every browser on this machine install the app's own extension
+     * itself.
+     *
+     * Browsers read managed policy from `/etc`, so this is the one step of the
+     * extension install that needs root — the same dialog the firewall already
+     * asks for, for a file that only names an update URL. The alternative was
+     * a folder picker the user has to walk to; the policy is the browser's own
+     * supported way of saying "install this without me".
+     *
+     * Windows would be `HKLM\SOFTWARE\Policies`, which this does not write:
+     * the redirect there is a packet filter with no elevated companion, and a
+     * half-written policy that makes a browser ask again on every start is
+     * worse than the folder it falls back to.
+     */
+    fun installBrowserExtensionPolicy(
+        policy: File,
+        dirs: List<String>,
+        environment: Map<String, String> = emptyMap(),
+    ): PrivilegeOutcome {
+        if (isWindows) {
+            return PrivilegeOutcome.Failed(
+                "automatic install is not wired for Windows yet; the folder is ready",
+            )
+        }
+        if (dirs.isEmpty()) return PrivilegeOutcome.Failed("no browser to write a policy for")
+        val java = selfArgv()?.first()
+            ?: return PrivilegeOutcome.Failed("cannot read this process's own command line")
+        val helper = helperArgv(java, System.getProperty("java.class.path"), policy, dirs)
+
+        // Three ways to become root, in the order a window can actually use
+        // them: no dialog at all, then polkit's own terminal prompt (a window
+        // started from a terminal has one), then the desktop's agent.
+        //
+        // The third is the one that fails on a service-started window even
+        // when the desktop has an agent: polkit routes a dialog through the
+        // *caller's* logind session, and a process started by systemd has none
+        // — "No authentication agent found", which is not a refusal, just a
+        // prompt with nowhere to appear.
+        val attempts = listOf(
+            listOf("sudo", "-n") + helper,
+            listOf(pkexec) + helper,
+            listOf(pkexec, "--disable-internal-agent") + helper,
+        )
+        var last: PrivilegeOutcome = PrivilegeOutcome.Failed("no way to become root")
+        for (attempt in attempts) {
+            val outcome = if (exec != null) {
+                runExec(attempt)
+            } else {
+                // The session variables travel with the ask: `pkexec` finds the
+                // desktop's authentication agent over the session bus, and a
+                // window that started from a systemd unit has no bus address of
+                // its own.
+                run(*attempt.toTypedArray(), deniedExit = PKEXEC_DENIED, environment = environment)
+            }
+            if (outcome is PrivilegeOutcome.Ok) return outcome
+            // A dismissal is an answer: do not ask a second way.
+            if (outcome is PrivilegeOutcome.Denied) return outcome
+            last = outcome
+        }
+        return last
+    }
+
+    /**
+     * The privileged half of the extension install, without the escalation: the
+     * java command line that writes the policy when run as root.
+     */
+    internal fun helperArgv(
+        java: String,
+        classpath: String,
+        policy: File,
+        dirs: List<String>,
+    ): List<String> = buildList {
+        add(java)
+        add("--enable-native-access=ALL-UNNAMED")
+        add("-cp")
+        add(classpath)
+        add(SETUP_MAIN)
+        add("browser-policy")
+        add(policy.absolutePath)
+        addAll(dirs)
+    }
+
+    internal fun browserPolicyArgv(
+        java: String,
+        classpath: String,
+        policy: File,
+        dirs: List<String>,
+    ): List<String> = listOf(pkexec, "--disable-internal-agent") +
+        helperArgv(java, classpath, policy, dirs)
+
     internal fun removeSetupArgv(java: String, classpath: String): List<String> = listOf(
         pkexec,
         java,
@@ -834,8 +925,17 @@ class DesktopPrivileges(
      * "this machine cannot ask" — `pkexec` uses 126 for a dismissed dialog, and
      * only systemd-shaped helpers report a refusal in words.
      */
-    private fun run(vararg argv: String, deniedExit: Int = -1): PrivilegeOutcome = runCatching {
-        val process = ProcessBuilder(*argv).redirectErrorStream(true).start()
+    private fun run(
+        vararg argv: String,
+        deniedExit: Int = -1,
+        environment: Map<String, String> = emptyMap(),
+    ): PrivilegeOutcome = runCatching {
+        val builder = ProcessBuilder(*argv).redirectErrorStream(true)
+        // Only ever additive: the child keeps its inherited environment and
+        // gains the session variables the caller could see and this process
+        // could not.
+        if (environment.isNotEmpty()) builder.environment().putAll(environment)
+        val process = builder.start()
         val output = process.inputStream.bufferedReader().readText().trim()
         val code = process.waitFor()
         when {
