@@ -77,8 +77,6 @@ pub struct FlowInfo {
     /// The app's live script list, so a terminated QUIC connection follows a
     /// settings change instead of keeping what it handshook with.
     pub script_source: Option<crate::mitm::proxy::ScriptSource>,
-    /// The extension bundle, when the app can serve one.
-    pub extension_source: Option<crate::mitm::proxy::ExtensionSource>,
     pub sink: Option<MitmSink>,
 }
 
@@ -422,7 +420,6 @@ async fn serve(
             Arc::clone(&info.script_body),
         )),
         script_source: info.script_source.clone(),
-        extension_source: info.extension_source.clone(),
         cosmetic: info.cosmetic.clone(),
         stealth: info.stealth,
         upstream: Arc::clone(&info.upstream),

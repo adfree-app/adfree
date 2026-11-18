@@ -59,28 +59,20 @@ skips it when that is the deliberate choice.
 
 ## The website
 
-`website/` is the landing page: Vite, Vue 3 and Nuxt UI without Nuxt, in two
-languages. It is **not tracked by git** — it is ignored on purpose — so a
-feature that only lands in `shared/`, `desktop/`, `app/` or `rust/` leaves the
-public page describing a build that no longer exists.
+The landing page, the extension and this app are three repositories now
+(`adfree-website`, `adfree-extension`, `adfree`), split out of this tree. This
+repository no longer carries either — `website/` and `extension/` are gone from
+here. A feature that only lands in `shared/`, `desktop/`, `app/` or `rust/`
+leaves the public page describing a build that no longer exists, and there is
+no copy here to edit: the page, its four languages and its screenshots live in
+their own repos.
 
-A change to what the app does is not finished until `website/` says so:
+Two things still cross the boundary:
 
-- **A new or changed feature** updates `website/src/content/en.ts` **and**
-  `website/src/content/vi.ts`. The two files hold the same keys; a key in one
-  and not the other is a hole in the page, not a translation to do later.
-- **A new screen, or a screen that changed** means new captures in
-  `website/public/shots/`. They are screenshots of the shipped builds, never
-  mockups, and they are taken in English.
-- **The changelog is not edited by hand.** `website/scripts/sync-changelog.mjs`
-  copies the repository's `CHANGELOG.md` into `website/public/` before `dev` and
-  `build`, and the `/changelog` page fetches that copy and renders it in place —
-  the visitor is never sent to a raw file URL.
-
-```sh
-cd website && bun run build      # prebuild syncs the changelog, then vue-tsc + vite
-cd website && bun run dev        # http://localhost:5173
-```
-
-`vue-tsc` is part of `build` and part of `typecheck`: a missing key in one of the
-two copies fails the build rather than shipping a half-translated page.
+- **The changelog.** The website's `/changelog` page reads this repository's
+  `CHANGELOG.md` from `raw.githubusercontent.com` at request time — there is no
+  copied file and no build step to keep in sync.
+- **The extension.** The app's **Extensions → Open the install guide** button
+  opens `/install-extension` on the website. The address is a constant,
+  `BROWSER_EXTENSION_GUIDE_URL` in `shared`, and it is the only URL the app
+  knows about the website.

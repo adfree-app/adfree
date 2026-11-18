@@ -28,12 +28,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
 import git.shin.adfree.model.UserScriptInfo
 import git.shin.adfree.ui.AdGuardIntent
 import git.shin.adfree.ui.AdGuardViewModel
@@ -80,16 +77,6 @@ fun ExtensionsScreen(
     // installed now; a browser added later is picked up on the next visit.
     var bridgeInstalled by remember { mutableStateOf(platform.browserExtensionBridgeInstalled()) }
     var bridgeMessage by remember { mutableStateOf<String?>(null) }
-    // Where this app wrote its own extension, and what the last write said. The
-    // folder is asked once: it is a fixed path under the user's data home.
-    val ownFolder = remember { platform.ownBrowserExtensionFolder() }
-    var ownResult by remember { mutableStateOf<PlatformHost.OwnExtensionInstallation?>(null) }
-    // What the browsers already hold. Asked on entry as well as after a write:
-    // an install finished in an earlier session — the usual case, since a
-    // browser picks the extension up at its own start — must not leave a button
-    // offering to do it again.
-    var ownState by remember { mutableStateOf(platform.ownExtensionState()) }
-    val clipboard = LocalClipboardManager.current
     var showCreateScript by remember { mutableStateOf(false) }
     var editScriptTarget by remember { mutableStateOf<UserScriptInfo?>(null) }
     var deleteScriptTarget by remember { mutableStateOf<UserScriptInfo?>(null) }
@@ -158,22 +145,7 @@ fun ExtensionsScreen(
             if (platform.supportsOwnBrowserExtension()) {
                 Spacer(modifier = Modifier.height(10.dp))
                 OwnExtensionRow(
-                    folder = ownFolder,
-                    result = ownResult,
-                    state = ownState,
-                    onInstall = {
-                        val result = platform.installOwnBrowserExtension()
-                        ownResult = result
-                        ownState = platform.ownExtensionState()
-                        // Whatever is left to do, it is a path: the folder for
-                        // the browser that has to be pointed at it, or the script
-                        // that finishes the install when the app could not become
-                        // root. The clipboard is where a paste comes from, and
-                        // both of them are typed into a box the app cannot reach.
-                        if (result != null) {
-                            clipboard.setText(AnnotatedString(result.command ?: result.folder))
-                        }
-                    },
+                    onOpenGuide = { platform.openUrl(platform.ownBrowserExtensionGuideUrl) },
                 )
             }
             Spacer(modifier = Modifier.height(10.dp))
@@ -403,24 +375,25 @@ private fun AssistantInstallRow(installed: Boolean, onInstall: () -> Unit) {
 }
 
 /**
- * The row that hands this app's own extension to a browser.
+ * The row that points at this app's own extension.
  *
  * It is the one piece of AdFree that runs inside the browser, and it holds no
  * rules: it asks the app what it would have injected and applies the answer,
- * which is why this row only has to write a folder. No browser accepts an
- * unpacked extension from a command — no store listing, no policy, no API — so
- * the honest shape of "install" here is: write it, copy the path, and say in
- * both languages what to click. The subtitle says plainly that filtering works
- * without it, because it does: the extension closes the pages a service worker
- * answers from a cache the app never saw.
+ * which is why the gap it closes — pages a service worker answers from its own
+ * cache — needs nothing from this app but the answer it already gives.
+ *
+ * The row opens a page rather than installing anything. A browser takes an
+ * extension from its store, from a folder the user picks, or from a policy the
+ * machine's administrator wrote; none of those is a thing this app can do for
+ * the user, and the last one asks for a root dialog that a window started by a
+ * service has no session to show. The guide says which of them applies and
+ * carries the screenshots, so the honest shape here is one link.
  */
 @Composable
-private fun OwnExtensionRow(
-    folder: String?,
-    result: PlatformHost.OwnExtensionInstallation?,
-    state: PlatformHost.OwnExtensionState?,
-    onInstall: () -> Unit,
-) {
+// Composables are capitalised by long convention; the rest of this file's rows
+// are too, and a lowercase row beside them would be the odd one out.
+@Suppress("ktlint:standard:function-naming")
+private fun OwnExtensionRow(onOpenGuide: () -> Unit) {
     SurfaceCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             Text(
@@ -436,104 +409,19 @@ private fun OwnExtensionRow(
                 lineHeight = 16.sp,
                 color = AdGuardTextMuted,
             )
-            val installedIn = state?.installedIn.orEmpty()
-            if (installedIn.isNotEmpty()) {
-                // Done, and the card says which browser did it. The button would
-                // only re-write what is already there.
-                Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+            // Text-only, like every other action in the app: the row is the
+            // control, and a filled button here would out-shout the list below.
+            TextButton(
+                onClick = onOpenGuide,
+                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp),
+            ) {
                 Text(
-                    text = L10n.format(Strings.own_ext_present, installedIn.joinToString(", ")),
-                    fontSize = 11.5.sp,
-                    lineHeight = 16.sp,
+                    text = L10n.get(Strings.own_ext_guide),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
                     color = AdGuardGreenPrimary,
                 )
-            } else if (state?.awaitingRestart == true) {
-                // Written and waiting: the browser installs it at its next start,
-                // so the only useful sentence is the one about restarting.
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = L10n.get(Strings.own_ext_inst_auto),
-                    fontSize = 11.5.sp,
-                    lineHeight = 16.sp,
-                    color = AdGuardGreenPrimary,
-                )
-            } else {
-                Spacer(modifier = Modifier.height(8.dp))
-                TextButton(
-                    onClick = onInstall,
-                    contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp),
-                ) {
-                    Text(
-                        text = L10n.get(Strings.own_ext_install),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = AdGuardGreenPrimary,
-                    )
-                }
-            }
-            if (result != null) {
-                Spacer(modifier = Modifier.height(6.dp))
-                if (result.automatic) {
-                    // The browser installs it at its next start on its own: the
-                    // only thing left is the restart, and saying "installed"
-                    // without it would send the user looking for a button that
-                    // is not there.
-                    Text(
-                        text = L10n.get(Strings.own_ext_inst_auto),
-                        fontSize = 11.5.sp,
-                        lineHeight = 16.sp,
-                        color = AdGuardGreenPrimary,
-                    )
-                } else {
-                    result.note?.let { reason ->
-                        Text(
-                            text = L10n.format(Strings.own_ext_note, reason),
-                            fontSize = 11.5.sp,
-                            lineHeight = 16.sp,
-                            color = AdGuardTextSecondary,
-                        )
-                    }
-                }
-                Text(
-                    text = L10n.get(Strings.own_ext_steps),
-                    fontSize = 11.5.sp,
-                    lineHeight = 16.sp,
-                    color = AdGuardTextMuted,
-                )
-                Text(
-                    text = L10n.format(Strings.own_ext_installed, result.folder),
-                    fontSize = 11.5.sp,
-                    lineHeight = 16.sp,
-                    color = AdGuardTextSecondary,
-                )
-                // The path again, on its own line: the sentence above it is a
-                // step-by-step, and a step-by-step is not something to select
-                // text out of.
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = result.folder,
-                    fontSize = 11.5.sp,
-                    color = AdGuardTextSecondary,
-                    fontFamily = FontFamily.Monospace,
-                )
-                // When the app could not become root itself, the folder is not
-                // the last thing to paste — the script is, and it is one line in
-                // a terminal away from a browser that installs this on its own.
-                result.command?.let { command ->
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = L10n.get(Strings.own_ext_cmd),
-                        fontSize = 11.5.sp,
-                        lineHeight = 16.sp,
-                        color = AdGuardTextMuted,
-                    )
-                    Text(
-                        text = command,
-                        fontSize = 11.5.sp,
-                        color = AdGuardTextSecondary,
-                        fontFamily = FontFamily.Monospace,
-                    )
-                }
             }
         }
     }

@@ -32,23 +32,6 @@ import kotlinx.coroutines.flow.StateFlow
 import git.shin.adfree.core.CoreEngine
 
 /**
- * What the bundled extension is made of.
- *
- * Listed rather than walked: a jar's resources cannot be enumerated, and
- * `extension/vite.config.js` emits exactly these files — `DesktopHostsTest`
- * asserts that every name here is on the classpath, so a renamed entry point
- * fails a test instead of an install.
- */
-internal val OWN_EXTENSION_FILES = listOf(
-    "manifest.json",
-    "background.js",
-    "icons/icon-16.png",
-    "icons/icon-32.png",
-    "icons/icon-48.png",
-    "icons/icon-128.png",
-)
-
-/**
  * The desktop answers the UI can honour: toasts become in-app snackbars,
  * URLs open in the browser, and the OS-settings prompts report honestly that
  * Linux has nothing of the sort. Nothing throws; nothing pretends.
@@ -156,147 +139,11 @@ class DesktopPlatformHost(
         return null
     }
 
-    // The extension the app itself hands out: it ships inside this jar, because
-    // it is a client of this app and holds no rules of its own. Writing it to a
-    // folder the user owns is the whole install — a browser will not take an
-    // unpacked extension by command, so the last click is theirs.
+    // The extension the app itself hands out is a client of this app and holds
+    // no rules of its own. Installing it is a click in a browser this process
+    // cannot reach, so this answers that it has one to offer and leaves the
+    // how to the guide.
     override fun supportsOwnBrowserExtension(): Boolean = true
-
-    override fun ownBrowserExtensionFolder(): String = ownExtensionFolder().path
-
-    /**
-     * The whole install: the unpacked copy, the signed CRX and its update
-     * manifest, then the managed policy that lets every browser here take it by
-     * itself.
-     *
-     * The automatic half is the browser's own supported route — a policy naming
-     * an update URL — not a trick: Chrome, Chromium, Edge, Brave and Vivaldi all
-     * read the same file shape, and each installs the extension at its next
-     * start with no folder to pick and no developer mode. It is the one step
-     * that needs root (the policy lives under `/etc`), so a refusal there is
-     * reported as what it is and the folder stays as the fallback.
-     */
-    override fun installOwnBrowserExtension(): PlatformHost.OwnExtensionInstallation? {
-        val folder = ownExtensionFolder()
-        installOwnExtensionInto(folder)?.let { failure ->
-            return PlatformHost.OwnExtensionInstallation(folder.path, false, failure)
-        }
-        val written = runCatching {
-            val files = extensionFiles()
-            val root = ownExtensionBundleFolder()
-            val id = SelfHostedExtension.write(
-                files = files,
-                folder = root,
-                codebase = SelfHostedExtension.LOCAL_ORIGIN + SelfHostedExtension.CRX_PATH,
-            )
-            val policy = File(root, "browser-policy.json").apply {
-                writeText(
-                    SelfHostedExtension.policyJson(
-                        id,
-                        SelfHostedExtension.LOCAL_ORIGIN + SelfHostedExtension.UPDATE_PATH,
-                    ),
-                )
-            }
-            policy to id
-        }.getOrElse { failure ->
-            return PlatformHost.OwnExtensionInstallation(
-                folder.path,
-                false,
-                L10n.format(Strings.own_ext_failed, failure.message ?: failure.javaClass.simpleName),
-            )
-        }
-        val dirs = SelfHostedExtension.policyDirs()
-        // The same command, written down: a machine where no dialog can be shown
-        // (a window started by a service has no logind session to route one to)
-        // still has a terminal, and one line pasted there finishes the install.
-        val script = writePolicyScript(written.first, dirs) ?: written.second
-        val outcome = privileges?.installBrowserExtensionPolicy(
-            written.first,
-            dirs,
-            sessionEnvironment(),
-        )
-        val automatic = outcome is PrivilegeOutcome.Ok
-        return PlatformHost.OwnExtensionInstallation(
-            folder = folder.path,
-            automatic = automatic,
-            note = when (outcome) {
-                // No privileged helper at all: a host built for a test, and a
-                // user who is looking at a card that says so.
-                null -> "this build has no privileged helper"
-                is PrivilegeOutcome.Ok -> null
-                is PrivilegeOutcome.Denied -> outcome.reason
-                is PrivilegeOutcome.Failed -> outcome.reason
-            },
-            // Only while something is left to do: a path on the clipboard is a
-            // paste waiting to happen, and after a successful install the only
-            // thing to paste would be a script that is already done.
-            command = if (automatic) null else script,
-        )
-    }
-
-    /**
-     * What the card should say before the button is pressed, and after.
-     *
-     * The extension is installed by a browser at its own start, so "did it
-     * work?" is not answerable from the files the app wrote — the policy can be
-     * on disk and the browser still holding the old window. Each browser's
-     * profile is the place the answer is true, and the id is this machine's, so
-     * a match is this build.
-     */
-    override fun ownExtensionState(): PlatformHost.OwnExtensionState {
-        val id = SelfHostedExtension.existingExtensionId(
-            File(ownExtensionBundleFolder(), SelfHostedExtension.KEY_NAME),
-        )
-        return PlatformHost.OwnExtensionState(
-            installedIn = id?.let { SelfHostedExtension.installedIn(it) }.orEmpty(),
-            awaitingRestart = id != null && SelfHostedExtension.policyWritten(SelfHostedExtension.policyDirs(), id),
-        )
-    }
-
-    /**
-     * Writes the one-line script that finishes the install as root.
-     *
-     * It exists for the case the button cannot cover: a window started by
-     * systemd is in no logind session, so polkit has no session to show a
-     * password dialog in, and every escalation attempt fails for a reason that
-     * has nothing to do with permission. A terminal always has the tty `pkexec`
-     * wants, and this script is that one command with its paths already filled
-     * in. Returns null when it could not be written.
-     */
-    private fun writePolicyScript(policy: File, dirs: List<String>): String? {
-        if (dirs.isEmpty()) return null
-        val java = System.getProperty("java.home")?.let { "$it/bin/java" }
-            ?: System.getProperty("sun.java.command")?.let { "java" }
-            ?: "java"
-        val script = File(policy.parentFile, "install-policy.sh")
-        return runCatching {
-            script.writeText(
-                buildString {
-                    appendLine("#!/bin/sh")
-                    appendLine("# Written by AdFree. Run it once, in a terminal, to let your")
-                    appendLine("# browser install the AdFree extension by itself:")
-                    appendLine("#   sh ${script.path}")
-                    append("exec pkexec ")
-                    append(java)
-                    append(" --enable-native-access=ALL-UNNAMED -cp '")
-                    append(System.getProperty("java.class.path").orEmpty())
-                    append("' git.shin.adfree.desktop.PrivilegedSetupKt browser-policy '")
-                    append(policy.absolutePath)
-                    append("'")
-                    for (dir in dirs) append(" '").append(dir).append("'")
-                    appendLine()
-                },
-            )
-            script.setExecutable(true)
-            script.path
-        }.getOrNull()
-    }
-
-    /** The extension's own files, read from the jar this app runs from. */
-    internal fun extensionFiles(): Map<String, ByteArray> = OWN_EXTENSION_FILES.associateWith { name ->
-        javaClass.getResourceAsStream("/extension/$name")?.use { it.readBytes() }
-            ?: error("this build carries no $name")
-    }
 
     /**
      * The environment a privileged child needs to reach this user's session.
@@ -334,43 +181,6 @@ class DesktopPlatformHost(
         coreLibrary?.let { put("ADFREE_CORE_LIB", it.absolutePath) }
     }
 
-    /**
-     * Writes the bundled extension into [folder], replacing what was there.
-     *
-     * Separated from [installOwnBrowserExtension] only so a test can watch it
-     * write somewhere harmless: the folder this ends up in on a real machine is
-     * the user's data home, and a test has no business there.
-     */
-    internal fun installOwnExtensionInto(folder: File): String? = runCatching {
-        folder.deleteRecursively()
-        for (name in OWN_EXTENSION_FILES) {
-            val bytes = javaClass.getResourceAsStream("/extension/$name")?.use { it.readBytes() }
-                ?: error("this build carries no $name")
-            File(folder, name).also { it.parentFile.mkdirs() }.writeBytes(bytes)
-        }
-        null
-    }.getOrElse { failure ->
-        L10n.format(Strings.own_ext_failed, failure.message ?: failure.javaClass.simpleName)
-    }
-
-    /**
-     * The folder the extension is written to, under the same XDG data home the
-     * rest of the app keeps its state in, so it is cleaned up with the app and
-     * lives where a Linux user expects to find it.
-     */
-    private fun ownExtensionFolder(): File = File(ownExtensionBundleFolder(), "unpacked")
-
-    /**
-     * The bundle directory: where the key, the CRX and its update manifest live,
-     * one level above the unpacked copy. The proxy serves the two files from
-     * here (`extension/` under the core's data root, which is this directory),
-     * so a browser's update check and this app always agree on what is installed.
-     */
-    internal fun ownExtensionBundleFolder(): File = File(
-        System.getenv("XDG_DATA_HOME")?.takeIf { it.isNotBlank() }
-            ?: (System.getProperty("user.home") + "/.local/share"),
-        "adfree/extension",
-    )
     // The listeners are this platform's own, so their ports are the user's to
     // move; Settings shows them where the Android host shows nothing at all.
     override fun supportsLocalProxyPorts(): Boolean = true

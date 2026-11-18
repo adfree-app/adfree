@@ -149,64 +149,24 @@ interface PlatformHost {
     fun installBrowserExtensionBridge(): String? = null
 
     /**
-     * The app's own extension, which is not AdGuard's and needs no manifest
-     * written for it: it is a few kilobytes of transport that asks this app
-     * what to inject.
+     * This platform has an extension of the app's own to offer.
+     *
+     * It is a few kilobytes of transport that asks this app what to inject and
+     * holds no rules itself. Installing it is the user's click in a browser
+     * this app cannot reach — no API takes an extension from a local process —
+     * so all this asks is whether the guide is worth showing at all.
      */
     fun supportsOwnBrowserExtension(): Boolean = false
 
-    /** Where the unpacked copy of it lives, for showing the user. */
-    fun ownBrowserExtensionFolder(): String? = null
-
     /**
-     * Installs it: writes the unpacked copy, signs a CRX for this machine, and
-     * — where the platform allows it — writes the managed policy that makes
-     * each browser install it at its next start.
+     * The page that explains the install, step by step and with screenshots.
      *
-     * Returns null when nothing could be written at all. A non-null result with
-     * [OwnExtensionInstallation.automatic] false is a real outcome too: the
-     * extension is on disk and the browser still needs the user to point at it,
-     * which is what [OwnExtensionInstallation.note] explains.
+     * A constant rather than a per-platform answer: there is one extension and
+     * one guide, and the app's part is to open it. Kept here, next to the flag,
+     * because both describe the same offer.
      */
-    fun installOwnBrowserExtension(): OwnExtensionInstallation? = null
-
-    /**
-     * What this machine already has of the install, for the card before any
-     * click: which browsers hold the extension, and whether a policy that
-     * names it is already down for a browser that has not restarted yet.
-     * Null where the concept does not exist.
-     */
-    fun ownExtensionState(): OwnExtensionState? = null
-
-    /**
-     * @property installedIn the browsers that already loaded this machine's
-     * build, by name — "Chrome", "Edge".
-     * @property awaitingRestart true when the policy naming it is on disk but
-     * the browser has not picked the extension up yet.
-     */
-    data class OwnExtensionState(
-        val installedIn: List<String>,
-        val awaitingRestart: Boolean,
-    )
-
-    /**
-     * What an install left behind.
-     *
-     * @property folder the unpacked copy, which is also what lands on the
-     * clipboard for a browser that refuses automatic installs.
-     * @property automatic true when a browser will pick the extension up at its
-     * next start with no clicks from the user.
-     * @property note why the automatic half did not happen, or null.
-     * @property command the one line that finishes the install as root, when the
-     * app could not run it itself — this is what lands on the clipboard in that
-     * case, because the user's next step is a terminal, not a file picker.
-     */
-    data class OwnExtensionInstallation(
-        val folder: String,
-        val automatic: Boolean,
-        val note: String? = null,
-        val command: String? = null,
-    )
+    val ownBrowserExtensionGuideUrl: String
+        get() = BROWSER_EXTENSION_GUIDE_URL
 
     /**
      * Brings the app's own window to the front.
@@ -234,3 +194,12 @@ interface PlatformHost {
 fun interface LogSink {
     fun line(line: String)
 }
+
+/**
+ * Where the install guide for the app's own browser extension is published.
+ *
+ * The website is its own repository and this is the only address the app knows
+ * about it: the page, its four languages and its screenshots.
+ */
+const val BROWSER_EXTENSION_GUIDE_URL =
+    "https://adfree-app.github.io/adfree-website/install-extension"

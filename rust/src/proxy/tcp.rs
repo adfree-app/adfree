@@ -818,7 +818,6 @@ fn arm_session(
     session.set_stealth(cfg.stealth);
     session.set_stats(core.stats_arc());
     session.track_scripts(core.script_source());
-    session.track_extension(core.extension_source());
     session.set_sink(crate::engine::log_mitm_block);
     session.set_apps(apps.to_vec());
     session.set_https_skip_apps(core.effective_https_skip_apps());
@@ -852,7 +851,6 @@ fn arm_local_session(
     }
     session.set_stats(core.stats_arc());
     session.track_scripts(core.script_source());
-    session.track_extension(core.extension_source());
     session.set_apps(apps.to_vec());
     Some(session)
 }

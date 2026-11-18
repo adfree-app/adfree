@@ -67,9 +67,6 @@ pub struct HubConfig {
     /// The app's live script list, when an engine owns the flow; `None` in
     /// tests and for the synthetic configs that only inject a fixed body.
     pub script_source: Option<crate::mitm::proxy::ScriptSource>,
-    /// The extension bundle the local origin serves, read per request so a
-    /// rebuilt CRX is what a browser's update check installs.
-    pub extension_source: Option<crate::mitm::proxy::ExtensionSource>,
     /// The engine cosmetic rules are read from, when the user enabled element
     /// hiding; `None` leaves the snippet to the user script and the runtime.
     pub cosmetic: Option<Arc<FilterEngine>>,
@@ -276,7 +273,6 @@ async fn handle_request(
         let response = take_local_request(
             &scripts.serve_path,
             &scripts.body,
-            config.extension_source.as_ref(),
             Some(&config.filter),
             Some(authority.as_str()),
             &mut head,
@@ -1141,7 +1137,6 @@ mod tests {
                 Arc::from(script_body),
             )),
             script_source: None,
-            extension_source: None,
             cosmetic: Some(filter),
             stealth: StealthConfig::default(),
             upstream: UpstreamTls::with_roots(roots),

@@ -592,15 +592,12 @@ object Strings {
     const val ext_browser_bridge_no_browser = "ext_browser_bridge_no_browser"
     const val own_ext_title = "own_ext_title"
     const val own_ext_subtitle = "own_ext_subtitle"
-    const val own_ext_install = "own_ext_install"
-    const val own_ext_installed = "own_ext_installed"
-    const val own_ext_inst_auto = "own_ext_inst_auto"
-    const val own_ext_note = "own_ext_note"
-    const val own_ext_cmd = "own_ext_cmd"
-    const val own_ext_present = "own_ext_present"
-    const val own_ext_steps = "own_ext_steps"
-    const val own_ext_copied = "own_ext_copied"
-    const val own_ext_failed = "own_ext_failed"
+
+    // The neighbours are named the same way; the rule wants SCREAMING_SNAKE,
+    // and a key that looks different from its siblings is worse.
+    @Suppress("ktlint:standard:property-naming")
+    const val own_ext_guide = "own_ext_guide"
+
     const val ext_create_title = "ext_create_title"
     const val ext_create_template = "ext_create_template"
     const val ext_create_confirm = "ext_create_confirm"

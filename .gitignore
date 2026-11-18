@@ -64,14 +64,3 @@ bench/probe
 # Captures and scratch from a working session (.tmp-win/ has its own entry)
 .tmp-shots/
 
-# The landing page: dependencies and the built output are generated from
-# website/package.json and website/src.
-website/node_modules/
-website/dist/
-
-# website build output and dependencies
-website/node_modules/
-website/dist/
-
-# Nuxt UI generated types (rebuilt by vite)
-website/.nuxt/

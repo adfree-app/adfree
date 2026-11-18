@@ -264,22 +264,12 @@ extension stands in for that, and it holds no rules of its own — it asks the
 app what it would have injected and applies the answer, so both paths block the
 same things.
 
-**Protection → Ad blocking → Extensions → Install for this browser** does the
-whole install: it mints a signing key for this machine, builds and signs a CRX,
-writes the unpacked copy, and serves both files from the local origin. The last
-step is the browser's own managed policy, and it is the only one that needs
-root.
-
-That step is where a window opened by `adfree-desktop.service` differs from one
-opened in a terminal: polkit routes the password dialog through the caller's
-logind session, and a process started by systemd is in none, so every
-escalation ends in *No authentication agent found*. Nothing is broken and
-nothing was refused — there is simply nowhere to put the question. The app does
-not pretend otherwise: it writes `install-policy.sh` next to the bundle, puts
-its path on the clipboard and says so. Running it once in a terminal finishes
-the install, and every browser that reads these policies —
-Chrome, Chromium, Brave, Edge, Opera, Vivaldi — picks the extension up at its
-next start with no developer mode and no folder to load.
+**Protection → Ad blocking → Extensions** is one link: **Open the install
+guide**. Installing the extension is a click in a browser this app cannot reach
+— no API takes an extension from a local process — so the row says where the
+guide is and opens it. The guide lives on the website
+(`/install-extension`), a separate repository, with the screenshots taken from
+a browser that really loaded the build.
 
 ## Limitations
 

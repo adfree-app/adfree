@@ -627,13 +627,7 @@
     <string name="ext_browser_bridge_no_browser">No browser with extension support found</string>
     <string name="own_ext_title">AdFree extension for your browser</string>
     <string name="own_ext_subtitle">Chrome answers some pages from its service worker\'s cache, and those never reach this app. The extension asks the app what it would have injected and applies the answer. Filtering works without it — this closes the gap that is left.</string>
-    <string name="own_ext_install">Install for this browser</string>
-    <string name="own_ext_inst_auto">Installed. Close the browser completely and open it again — it installs itself at start, no developer mode.</string>
-    <string name="own_ext_present">Installed in %1$s.</string>
-    <string name="own_ext_installed">Written to %1$s</string>
-    <string name="own_ext_steps">If it does not appear after the restart: chrome://extensions → turn on Developer mode → Load unpacked → paste the folder above.</string>
-    <string name="own_ext_copied">Folder path copied. Paste it into the browser\'s file picker with Ctrl+V.</string>
-    <string name="own_ext_failed">Could not write the extension: %1$s</string>
+    <string name="own_ext_guide">Open the install guide</string>
     <string name="ext_create_title">New extension</string>
     <string name="ext_create_template">// ==UserScript==\n// @name         My extension\n// @match        *://*/*\n// @grant        none\n// ==/UserScript==\n\n</string>
     <string name="ext_create_confirm">Create</string>
@@ -1290,6 +1284,4 @@
     <string name="stats_clear_body">Blocked counts, per-app usage and the filtering log start from zero. Filters, rules and settings stay untouched.</string>
     <string name="stats_clear_confirm">Clear</string>
     <string name="stats_cleared">Statistics cleared</string>
-    <string name="own_ext_note">Automatic install did not happen: %1$s</string>
-    <string name="own_ext_cmd">Or run this one line in a terminal:</string>
 </resources>

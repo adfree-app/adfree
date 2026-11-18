@@ -5,7 +5,6 @@ import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -114,31 +113,18 @@ class FullAppUiTest {
             // reports the package-manager answer) and closes the menu again.
             onNodeWithText(L10n.get(Strings.header_check_updates)).performClick()
 
-            // Protection → Ad blocking → Extensions is where the app hands out
-            // its own browser extension. The card is desktop-only, and the
-            // install button signs a CRX, writes the unpacked folder and — where
-            // it may — the policy each browser reads at start. This host has no
-            // privileges to ask, so the escalation is skipped and what is
-            // asserted is the part that always happens: the button produces the
-            // steps and the folder they point at.
+            // Protection → Ad blocking → Extensions is where the app points at
+            // its own browser extension. The card is desktop-only and it links
+            // out: installing an extension is a click in a browser this process
+            // cannot reach, so what is asserted is the row and its one action,
+            // not a write to a folder nobody here will open.
             onNodeWithText(L10n.get(Strings.nav_protection)).performClick()
             waitUntilAtLeastOneExists(hasText(L10n.get(Strings.home_module_adblock_title)), 30_000)
             onNodeWithText(L10n.get(Strings.home_module_adblock_title)).performClick()
             waitUntilAtLeastOneExists(hasText(L10n.get(Strings.hub_extensions_title)), 30_000)
             onNodeWithText(L10n.get(Strings.hub_extensions_title)).performClick()
             waitUntilAtLeastOneExists(hasText(L10n.get(Strings.own_ext_title)), 30_000)
-            // The card asks the browsers what they already hold, so on a machine
-            // where the extension is installed the button is gone and the card
-            // says which browser has it. Both are the card working; which one
-            // shows depends on the machine running the test.
-            val installed = onAllNodesWithText(
-                L10n.get(Strings.own_ext_present).split("%")[0],
-                substring = true,
-            ).fetchSemanticsNodes().isNotEmpty()
-            if (!installed) {
-                onNodeWithText(L10n.get(Strings.own_ext_install)).performClick()
-                waitUntilAtLeastOneExists(hasText(L10n.get(Strings.own_ext_steps)), 30_000)
-            }
+            onNodeWithText(L10n.get(Strings.own_ext_guide)).assertExists()
 
             // Statistics carries the counter reset AdGuard keeps in its menu.
             // Only the row is driven here: the confirmation it opens is an
