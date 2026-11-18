@@ -930,6 +930,12 @@
 
     <!-- Activity log -->
     <string name="log_title">Nhật ký</string>
+    <string name="inspector_title">Xem lưu lượng</string>
+    <string name="inspector_hint">Mở cửa sổ này thì lõi giữ phần đầu của mỗi yêu cầu và câu trả lời. Đóng lại thì việc sao chép dừng.</string>
+    <string name="inspector_clear">Xoá</string>
+    <string name="inspector_empty">Chưa có gì. Mở cửa sổ này rồi tải một trang.</string>
+    <string name="inspector_request">Yêu cầu</string>
+    <string name="inspector_response">Trả lời</string>
     <string name="log_subtitle">Truy vấn mạng gần đây</string>
     <string name="log_clear_action">Xóa nhật ký</string>
     <string name="log_export_action">Xuất hoạt động</string>

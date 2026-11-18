@@ -49,6 +49,11 @@ KTLINT_URL = (
 )
 KOTLIN_SUFFIXES = {".kt", ".kts"}
 
+# uniffi writes this file whole, and the next `:app:verifyBindings` replaces it
+# byte for byte. Reformatting it here would be undone by the next regeneration,
+# so the gate looks at what people wrote and leaves the generated tree alone.
+GENERATED = {"shared/src/main/kotlin/git/shin/adfree/core/adfree.kt"}
+
 
 def git(*args: str) -> str:
     return subprocess.run(
@@ -81,7 +86,7 @@ def added_lines(base: str) -> dict[str, set[int]]:
             current = None
     # A new file arrives as one hunk but git reports `+1,N`; a binary or a
     # rename has nothing to check.
-    return {path: lines for path, lines in touched.items() if lines}
+    return {path: lines for path, lines in touched.items() if lines and path not in GENERATED}
 
 
 def ktlint_jar() -> Path:

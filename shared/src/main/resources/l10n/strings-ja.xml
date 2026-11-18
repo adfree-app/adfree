@@ -930,6 +930,12 @@
 
     <!-- Activity log -->
     <string name="log_title">ログ</string>
+    <string name="inspector_title">通信の中身</string>
+    <string name="inspector_hint">このウィンドウを開いている間だけ、コアは各リクエストと応答のヘッダーを保持します。閉じると複製は止まります。</string>
+    <string name="inspector_clear">消去</string>
+    <string name="inspector_empty">まだ何もありません。このウィンドウを開いたままページを読み込んでください。</string>
+    <string name="inspector_request">リクエスト</string>
+    <string name="inspector_response">レスポンス</string>
     <string name="log_subtitle">最近の通信</string>
     <string name="log_clear_action">ログを消す</string>
     <string name="log_export_action">通信を書き出す</string>

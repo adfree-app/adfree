@@ -55,6 +55,7 @@ import git.shin.adfree.platform.LocalResumeTick
 import git.shin.adfree.ui.AdGuardApp
 import git.shin.adfree.ui.AdGuardIntent
 import git.shin.adfree.ui.screens.FilteringLogScreen
+import git.shin.adfree.ui.screens.RequestInspectorScreen
 import git.shin.adfree.ui.AdGuardTab
 import git.shin.adfree.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.CoroutineScope
@@ -188,6 +189,7 @@ fun main() {
         var paused by remember { mutableStateOf(false) }
         var pauseJob by remember { mutableStateOf<Job?>(null) }
         var showFilteringLog by remember { mutableStateOf(false) }
+        var showInspector by remember { mutableStateOf(false) }
         // The log is the AdGuard-for-Windows window: the request table and,
         // beside it, the details of the row that was clicked. Both halves need
         // room, and the pane only docks where the table beside it still has its
@@ -303,6 +305,7 @@ fun main() {
             when (command) {
                 TrayCommand.OPEN -> showWindow()
                 TrayCommand.LOG -> showFilteringLog = true
+                TrayCommand.INSPECTOR -> showInspector = true
                 TrayCommand.PAUSE_30S -> pauseFiltering(30_000)
                 TrayCommand.PAUSE_1H -> pauseFiltering(3_600_000)
                 TrayCommand.RESUME -> resumeFiltering()
@@ -442,6 +445,38 @@ fun main() {
                 // Outside the column and above the content: a grip that the content
                 // swallowed would be a border that only worked over empty space.
                 ResizeHandles()
+            }
+        }
+
+        if (showInspector) {
+            // Its own window, and its own switch: the engine copies heads only
+            // while this is open (see RequestInspectorScreen).
+            Window(
+                onCloseRequest = { showInspector = false },
+                title = L10n.get(Strings.inspector_title),
+                icon = rememberAppIconPainter(),
+                state = rememberWindowState(width = 1100.dp, height = 720.dp),
+                undecorated = true,
+            ) {
+                val settings by container.repository.settings.collectAsState()
+                val dark =
+                    when (settings.themeMode) {
+                        ThemeMode.SYSTEM, ThemeMode.DARK -> true
+                        ThemeMode.LIGHT -> false
+                    }
+                MyApplicationTheme(darkTheme = dark) {
+                    Column(Modifier.fillMaxSize()) {
+                        AppTitleBar(
+                            title = "AdFree",
+                            subtitle = L10n.get(Strings.inspector_title),
+                            onClose = { showInspector = false },
+                        )
+                        Box(Modifier.weight(1f).fillMaxWidth()) {
+                            RequestInspectorScreen()
+                        }
+                    }
+                    ResizeHandles()
+                }
             }
         }
 

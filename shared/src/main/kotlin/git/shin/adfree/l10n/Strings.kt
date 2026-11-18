@@ -937,6 +937,25 @@ object Strings {
     const val apps_preset_open = "apps_preset_open"
     const val apps_preset_default = "apps_preset_default"
     const val log_title = "log_title"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_title = "inspector_title"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_hint = "inspector_hint"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_clear = "inspector_clear"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_empty = "inspector_empty"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_request = "inspector_request"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_response = "inspector_response"
+
     const val log_subtitle = "log_subtitle"
     const val log_clear_action = "log_clear_action"
     const val log_export_action = "log_export_action"

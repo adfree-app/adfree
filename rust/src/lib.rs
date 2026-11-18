@@ -22,6 +22,7 @@ pub mod assets;
 /// The browser extension's wire: Chrome's framing, the endpoint, and the
 /// callback that answers it.
 pub mod assistant;
+pub mod capture;
 pub mod conntrack;
 pub mod dns;
 pub mod dnscache;

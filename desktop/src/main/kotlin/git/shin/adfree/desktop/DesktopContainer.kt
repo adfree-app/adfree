@@ -130,7 +130,9 @@ class DesktopContainer(
 
     val threatAnalyzer: ThreatAnalyzer by lazy { ThreatAnalyzer(repository, coreEngine) }
 
-    val appUpdate: DesktopAppUpdate by lazy { DesktopAppUpdate(coreEngine.version) }
+    val appUpdate: DesktopAppUpdate by lazy {
+        DesktopAppUpdate(coreEngine.version, openUrl = platformHost::openUrl)
+    }
 
     private val _configWarning = MutableStateFlow(ConfigWarning.NONE)
     val configWarning: StateFlow<ConfigWarning> = _configWarning.asStateFlow()

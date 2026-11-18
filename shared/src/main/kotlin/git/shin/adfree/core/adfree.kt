@@ -765,6 +765,16 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_adfree_core_checksum_func_core_ca_pem(
     ): Int
+    external fun uniffi_adfree_core_checksum_func_core_capture_clear(
+    ): Int
+    external fun uniffi_adfree_core_checksum_func_core_capture_count(
+    ): Int
+    external fun uniffi_adfree_core_checksum_func_core_capture_enabled(
+    ): Int
+    external fun uniffi_adfree_core_checksum_func_core_capture_records(
+    ): Int
+    external fun uniffi_adfree_core_checksum_func_core_capture_set_enabled(
+    ): Int
     external fun uniffi_adfree_core_checksum_func_core_check_host(
     ): Int
     external fun uniffi_adfree_core_checksum_func_core_clear_dns_cache(
@@ -1026,6 +1036,16 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_adfree_core_fn_func_core_ca_pem(uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_adfree_core_fn_func_core_capture_clear(uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_adfree_core_fn_func_core_capture_count(uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_adfree_core_fn_func_core_capture_enabled(uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_adfree_core_fn_func_core_capture_records(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_adfree_core_fn_func_core_capture_set_enabled(`on`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_adfree_core_fn_func_core_check_host(`host`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_adfree_core_fn_func_core_clear_dns_cache(uniffi_out_err: UniffiRustCallStatus, 
@@ -1363,6 +1383,21 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_adfree_core_checksum_func_core_ca_pem() and 0xFFFF) != 25216) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_adfree_core_checksum_func_core_capture_clear() and 0xFFFF) != 42879) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_adfree_core_checksum_func_core_capture_count() and 0xFFFF) != 53111) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_adfree_core_checksum_func_core_capture_enabled() and 0xFFFF) != 31785) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_adfree_core_checksum_func_core_capture_records() and 0xFFFF) != 14278) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_adfree_core_checksum_func_core_capture_set_enabled() and 0xFFFF) != 12518) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_adfree_core_checksum_func_core_check_host() and 0xFFFF) != 22170) {
@@ -3365,6 +3400,67 @@ public object FfiConverterTypeBackupOutcome: FfiConverterRustBuffer<BackupOutcom
     override fun write(value: BackupOutcome, buf: ByteBuffer) {
             FfiConverterBoolean.write(value.`ok`, buf)
             FfiConverterTypeBackupError.write(value.`error`, buf)
+    }
+}
+
+
+
+/**
+ * One request and its answer, for the request tracker window.
+ */
+data class CaptureRecord (
+    var `tsMs`: kotlin.Long
+    , 
+    var `id`: kotlin.Long
+    , 
+    var `url`: kotlin.String
+    , 
+    var `status`: kotlin.Int
+    , 
+    var `requestHead`: kotlin.String
+    , 
+    var `responseHead`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCaptureRecord: FfiConverterRustBuffer<CaptureRecord> {
+    override fun read(buf: ByteBuffer): CaptureRecord {
+        return CaptureRecord(
+            FfiConverterLong.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: CaptureRecord) = (
+            FfiConverterLong.allocationSize(value.`tsMs`) +
+            FfiConverterLong.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`url`) +
+            FfiConverterInt.allocationSize(value.`status`) +
+            FfiConverterString.allocationSize(value.`requestHead`) +
+            FfiConverterString.allocationSize(value.`responseHead`)
+    )
+
+    override fun write(value: CaptureRecord, buf: ByteBuffer) {
+            FfiConverterLong.write(value.`tsMs`, buf)
+            FfiConverterLong.write(value.`id`, buf)
+            FfiConverterString.write(value.`url`, buf)
+            FfiConverterInt.write(value.`status`, buf)
+            FfiConverterString.write(value.`requestHead`, buf)
+            FfiConverterString.write(value.`responseHead`, buf)
     }
 }
 
@@ -6908,6 +7004,34 @@ public object FfiConverterSequenceTypeAppUsage: FfiConverterRustBuffer<List<AppU
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeCaptureRecord: FfiConverterRustBuffer<List<CaptureRecord>> {
+    override fun read(buf: ByteBuffer): List<CaptureRecord> {
+        val len = buf.getInt()
+        return List<CaptureRecord>(len) {
+            FfiConverterTypeCaptureRecord.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<CaptureRecord>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeCaptureRecord.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<CaptureRecord>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeCaptureRecord.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeDnsProviderRecord: FfiConverterRustBuffer<List<DnsProviderRecord>> {
     override fun read(buf: ByteBuffer): List<DnsProviderRecord> {
         val len = buf.getInt()
@@ -7387,6 +7511,67 @@ public object FfiConverterSequenceTypeUidApps: FfiConverterRustBuffer<List<UidAp
 }
     )
     }
+    
+ fun `coreCaptureClear`()
+        = 
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_adfree_core_fn_func_core_capture_clear(
+    
+        _status)
+}
+    
+    
+ fun `coreCaptureCount`(): kotlin.Long {
+            return FfiConverterLong.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_adfree_core_fn_func_core_capture_count(
+    
+        _status)
+}
+    )
+    }
+    
+ fun `coreCaptureEnabled`(): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_adfree_core_fn_func_core_capture_enabled(
+    
+        _status)
+}
+    )
+    }
+    
+
+        /**
+         * What the tracker has seen, oldest first, up to its fixed capacity.
+         */ fun `coreCaptureRecords`(): List<CaptureRecord> {
+            return FfiConverterSequenceTypeCaptureRecord.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_adfree_core_fn_func_core_capture_records(
+    
+        _status)
+}
+    )
+    }
+    
+
+        /**
+         * Turns the request tracker on or off.
+         *
+         * Off is the default and the only state the packet path can afford long term:
+         * while it is off nothing is copied, because the switch is read before any
+         * head is touched. A window that shows the tracker turns it on while it is
+         * open and off when it closes, which is the whole reason it is a switch rather
+         * than a setting.
+         */ fun `coreCaptureSetEnabled`(`on`: kotlin.Boolean)
+        = 
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_adfree_core_fn_func_core_capture_set_enabled(
+    
+        
+        FfiConverterBoolean.lower(`on`),_status)
+}
+    
     
  fun `coreCheckHost`(`host`: kotlin.String): HostVerdictBinding {
             return FfiConverterTypeHostVerdictBinding.lift(

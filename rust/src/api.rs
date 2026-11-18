@@ -573,6 +573,64 @@ pub fn core_clear_events() {
     guard((), || crate::core().clear_events())
 }
 
+// ----------------------------------------------------------------- capture
+
+/// One request and its answer, for the request tracker window.
+#[derive(uniffi::Record, Clone, Debug, Default)]
+pub struct CaptureRecord {
+    pub ts_ms: i64,
+    pub id: i64,
+    pub url: String,
+    pub status: i32,
+    pub request_head: String,
+    pub response_head: String,
+}
+
+/// Turns the request tracker on or off.
+///
+/// Off is the default and the only state the packet path can afford long term:
+/// while it is off nothing is copied, because the switch is read before any
+/// head is touched. A window that shows the tracker turns it on while it is
+/// open and off when it closes, which is the whole reason it is a switch rather
+/// than a setting.
+#[uniffi::export]
+pub fn core_capture_set_enabled(on: bool) {
+    guard((), || crate::capture::set_enabled(on))
+}
+
+#[uniffi::export]
+pub fn core_capture_enabled() -> bool {
+    guard(false, crate::capture::enabled)
+}
+
+/// What the tracker has seen, oldest first, up to its fixed capacity.
+#[uniffi::export]
+pub fn core_capture_records() -> Vec<CaptureRecord> {
+    guard(Vec::new(), || {
+        crate::capture::snapshot()
+            .into_iter()
+            .map(|record| CaptureRecord {
+                ts_ms: record.ts_ms as i64,
+                id: record.id as i64,
+                url: record.url,
+                status: record.status as i32,
+                request_head: record.request_head,
+                response_head: record.response_head,
+            })
+            .collect()
+    })
+}
+
+#[uniffi::export]
+pub fn core_capture_clear() {
+    guard((), crate::capture::clear)
+}
+
+#[uniffi::export]
+pub fn core_capture_count() -> i64 {
+    guard(0, || crate::capture::len() as i64)
+}
+
 // ------------------------------------------------------------------- store
 
 /// Hands the core the directory it owns: filter bodies, script bodies, the CA

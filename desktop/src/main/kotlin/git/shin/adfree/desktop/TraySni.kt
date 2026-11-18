@@ -381,7 +381,7 @@ sealed interface TrayRequest {
 }
 
 /** What a click on the tray icon asks for. */
-enum class TrayCommand { OPEN, LOG, PAUSE_30S, PAUSE_1H, RESUME, EXIT }
+enum class TrayCommand { OPEN, LOG, INSPECTOR, PAUSE_30S, PAUSE_1H, RESUME, EXIT }
 
 /** The labels and enabled state of the tray menu, shared by both trays. */
 /**
@@ -397,6 +397,7 @@ internal fun trayIconPaused(paused: Boolean, protectionOn: Boolean): Boolean = p
 internal fun trayMenuEntries(paused: Boolean): List<TrayEntry> = listOf(
     TrayEntry(TrayCommand.OPEN, L10n.get(Strings.tray_open)),
     TrayEntry(TrayCommand.LOG, "Filtering log"),
+    TrayEntry(TrayCommand.INSPECTOR, "Request inspector"),
     TrayEntry.separator(),
     TrayEntry(TrayCommand.PAUSE_30S, L10n.get(Strings.tray_pause_30s), enabled = !paused),
     TrayEntry(TrayCommand.PAUSE_1H, L10n.get(Strings.tray_pause_1h), enabled = !paused),

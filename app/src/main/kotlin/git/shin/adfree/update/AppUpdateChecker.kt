@@ -52,7 +52,7 @@ class AppUpdateChecker(
                 val request =
                     Request
                         .Builder()
-                        .url(LATEST_RELEASE_URL)
+                        .url(ReleaseFeed.LATEST_RELEASE_API)
                         .header("Accept", "application/vnd.github+json")
                         .header("X-GitHub-Api-Version", "2022-11-28")
                         .header("User-Agent", "AdFree/${BuildConfig.VERSION_NAME}")
@@ -274,8 +274,6 @@ class AppUpdateChecker(
     }
 
     private companion object {
-        const val LATEST_RELEASE_URL =
-            "https://api.github.com/repos/tachibana-shin/adfree/releases/latest"
         const val UPDATE_DIRECTORY = "updates"
         const val APK_MIME_TYPE = "application/vnd.android.package-archive"
         const val DIGEST_PREFIX = "sha256:"

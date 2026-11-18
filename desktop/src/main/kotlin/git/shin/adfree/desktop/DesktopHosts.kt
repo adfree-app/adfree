@@ -12,10 +12,7 @@ import git.shin.adfree.platform.InstalledApp
 import git.shin.adfree.platform.KeyValueStore
 import git.shin.adfree.platform.PlatformHost
 import git.shin.adfree.platform.TunnelControl
-import git.shin.adfree.platform.AppUpdate
 import git.shin.adfree.model.LocalProxySettings
-import git.shin.adfree.update.UpdateOutcome
-import git.shin.adfree.update.UpdateUiState
 import java.awt.Desktop
 import java.awt.Frame
 import java.awt.FileDialog
@@ -538,22 +535,6 @@ class DesktopTunnelControl(
     override fun onPermissionResult(granted: Boolean) = Unit
 
     override fun refreshStatusNotification() = Unit
-}
-
-/** The desktop ships through package managers: report the version, install nothing. */
-class DesktopAppUpdate(private val currentVersion: String) : AppUpdate {
-
-    private val _state = MutableStateFlow<UpdateUiState>(UpdateUiState.Idle)
-    override val state: StateFlow<UpdateUiState> = _state
-
-    private val _outcomes = MutableSharedFlow<UpdateOutcome>(extraBufferCapacity = 4)
-    override val outcomes: SharedFlow<UpdateOutcome> = _outcomes
-
-    override fun manualCheck() {
-        System.err.println("[desktop] app update: $currentVersion (managed by the package manager)")
-    }
-
-    override fun downloadAndInstall(info: git.shin.adfree.update.UpdateInfo) = Unit
 }
 
 /** Puts the CA where the user can import it into the system trust store. */

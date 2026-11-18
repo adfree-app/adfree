@@ -498,6 +498,11 @@ struct ResponseEdit {
     log_url: String,
     log_type: &'static str,
     log_source: String,
+    /// The tracker's id for this request, when the tracker is on: the request
+    /// head rides in the same struct for the same reason the URL does, and the
+    /// answer's head completes the record here. `None` while the window is
+    /// closed, which is the state the packet path pays one atomic load for.
+    capture_id: Option<u64>,
 }
 
 /// State for a response whose body is streamed to the client as it is edited.
@@ -1632,6 +1637,11 @@ impl ProxySession {
                 hls: plan.hls,
                 html: plan.html,
                 page_url: plan.page_url,
+                capture_id: if plan.log_url.is_empty() {
+                    None
+                } else {
+                    crate::capture::record_request(&plan.log_url, buffer)
+                },
                 log_url: plan.log_url,
                 log_type: plan.log_type,
                 log_source: plan.log_source,
@@ -2340,6 +2350,9 @@ impl ProxySession {
                         continue;
                     }
                     let req = self.head_requests.pop_front().unwrap_or_default();
+                    if let Some(id) = req.capture_id {
+                        crate::capture::record_response(id, info.status, &head);
+                    }
                     // The request this answer belongs to is a log row of its
                     // own: AdGuard's Filtering Log lists what it forwarded
                     // beside what it stopped, with the status and the media
