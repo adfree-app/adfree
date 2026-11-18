@@ -235,6 +235,25 @@ class DesktopPlatformHost(
     }
 
     /**
+     * What the card should say before the button is pressed, and after.
+     *
+     * The extension is installed by a browser at its own start, so "did it
+     * work?" is not answerable from the files the app wrote — the policy can be
+     * on disk and the browser still holding the old window. Each browser's
+     * profile is the place the answer is true, and the id is this machine's, so
+     * a match is this build.
+     */
+    override fun ownExtensionState(): PlatformHost.OwnExtensionState {
+        val id = SelfHostedExtension.existingExtensionId(
+            File(ownExtensionBundleFolder(), SelfHostedExtension.KEY_NAME),
+        )
+        return PlatformHost.OwnExtensionState(
+            installedIn = id?.let { SelfHostedExtension.installedIn(it) }.orEmpty(),
+            awaitingRestart = id != null && SelfHostedExtension.policyWritten(SelfHostedExtension.policyDirs(), id),
+        )
+    }
+
+    /**
      * Writes the one-line script that finishes the install as root.
      *
      * It exists for the case the button cannot cover: a window started by

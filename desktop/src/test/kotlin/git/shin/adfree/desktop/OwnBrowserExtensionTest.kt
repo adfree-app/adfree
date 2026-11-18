@@ -2,6 +2,7 @@ package git.shin.adfree.desktop
 
 import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -77,6 +78,51 @@ class OwnBrowserExtensionTest {
 
         assertTrue("an absolute path", folder.startsWith("/"))
         assertTrue(folder, folder.endsWith("/adfree/extension/unpacked"))
+    }
+
+    /**
+     * The card must not keep offering an install that already happened. A
+     * browser's own profile is the only place that answers "did it install?" —
+     * the policy being on disk only means it will.
+     */
+    @Test
+    fun aBrowserProfileHoldingTheExtensionIsNamed() {
+        val config = temporary.newFolder("config")
+        val id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        File(config, "google-chrome/Default/Extensions/$id/0.2.0_0").mkdirs()
+        File(config, "chromium/Default/Extensions/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/1.0_0").mkdirs()
+
+        val present = SelfHostedExtension.installedIn(id, config)
+
+        assertEquals(listOf("Chrome"), present)
+    }
+
+    /** A policy that names this build means a restart, not an install. */
+    @Test
+    fun thePolicyCountsOnlyWhenItNamesThisBuild() {
+        val managed = temporary.newFolder("managed")
+        val mine = "chnjiendmhjcogfinnhionfogpiiokie"
+        File(managed, SelfHostedExtension.POLICY_NAME)
+            .writeText("{\"ExtensionSettings\":{\"$mine\":{\"installation_mode\":\"normal_installed\"}}}")
+
+        assertTrue(SelfHostedExtension.policyWritten(listOf(managed.path), mine))
+        assertFalse(
+            "a policy for another machine's id is not this one",
+            SelfHostedExtension.policyWritten(listOf(managed.path), "alennlaggopaghadfekfjmjimoojpkbh"),
+        )
+        assertFalse("no directory, no policy", SelfHostedExtension.policyWritten(listOf("/nonexistent"), mine))
+    }
+
+    /**
+     * Reading the id must never mint a key: a card that asks on entry would
+     * otherwise sign a new build for the machine just by being looked at.
+     */
+    @Test
+    fun askingForTheIdOfAMachineWithNoKeyWritesNothing() {
+        val key = File(temporary.root, "nothing/key.pem")
+
+        assertNull(SelfHostedExtension.existingExtensionId(key))
+        assertFalse("the query wrote a key", key.exists())
     }
 
     /**

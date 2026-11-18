@@ -35,7 +35,7 @@ object SelfHostedExtension {
     /** Where those files live, under the app's data directory. */
     const val FOLDER = "extension"
 
-    private const val KEY_NAME = "key.pem"
+    const val KEY_NAME = "key.pem"
 
     /**
      * The origin the proxy answers on, and the two paths it serves the bundle
@@ -80,6 +80,47 @@ object SelfHostedExtension {
     }
 
     /**
+     * The browsers that already have this machine's build, by name.
+     *
+     * A policy can be written and the browser still not restarted, so neither
+     * file on disk answers "did it install?" — each browser's own profile does,
+     * and it is the only place the answer is true. The id is per machine, so a
+     * match is this build and not somebody else's extension.
+     */
+    fun installedIn(
+        id: String,
+        configHome: File = NativeMessagingHosts.configHome(),
+    ): List<String> = NativeMessagingHosts.installedBrowsers(configHome).mapNotNull { root ->
+        val present = root.walkTopDown()
+            .maxDepth(3)
+            .any { it.isDirectory && it.name == "Extensions" && File(it, id).isDirectory }
+        if (present) BRAND_NAMES[root.relativeTo(configHome).path] ?: root.name else null
+    }
+
+    /** Whether a policy naming this build is already where a browser reads it. */
+    fun policyWritten(dirs: List<String>, id: String): Boolean = dirs.any { dir ->
+        val policy = File(dir, POLICY_NAME)
+        policy.isFile && runCatching { policy.readText().contains(id) }.getOrDefault(false)
+    }
+
+    /** What each brand is called in the UI. */
+    private val BRAND_NAMES = mapOf(
+        "google-chrome" to "Chrome",
+        "google-chrome-beta" to "Chrome Beta",
+        "google-chrome-unstable" to "Chrome Canary",
+        "chromium" to "Chromium",
+        "BraveSoftware/Brave-Browser" to "Brave",
+        "microsoft-edge" to "Edge",
+        "microsoft-edge-beta" to "Edge Beta",
+        "vivaldi" to "Vivaldi",
+        "opera" to "Opera",
+        "yandex-browser" to "Yandex",
+    )
+
+    /** The policy file the browser reads, per directory. */
+    const val POLICY_NAME = "adfree-extension.json"
+
+    /**
      * Whether the browser's own directory under `/etc` is there — `/etc/opt/chrome`
      * for Chrome, `/etc/chromium` for Chromium. Checked on the part before
      * `policies`, which the installer may have to create.
@@ -122,6 +163,14 @@ object SelfHostedExtension {
      * mints a new key and a new id — but it does mean the policy has to be
      * written again, because the old id no longer names anything.
      */
+    /**
+     * This machine's id, or null when no key has been minted yet — the query a
+     * card asks before anything is installed, which must not mint one as a side
+     * effect. [keyPair] mints; this only reads.
+     */
+    fun existingExtensionId(file: File): String? =
+        if (file.isFile) runCatching { extensionId(readKeyPair(file)) }.getOrNull() else null
+
     fun keyPair(file: File): KeyPair {
         if (file.isFile) {
             runCatching { readKeyPair(file) }.getOrNull()?.let { return it }

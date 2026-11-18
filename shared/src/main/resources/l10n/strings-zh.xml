@@ -629,6 +629,7 @@
     <string name="own_ext_subtitle">Chrome 有些页面由 Service Worker 从缓存直接返回，这些页面不会经过本应用。扩展会向应用询问应当注入什么，然后照着注入。没有它也能过滤 —— 它补的是最后一道缺口。</string>
     <string name="own_ext_install">安装到此浏览器</string>
     <string name="own_ext_inst_auto">已安装。请完全关闭浏览器后重新打开——它会在启动时自动装好，无需开发者模式。</string>
+    <string name="own_ext_present">已安装到 %1$s。</string>
     <string name="own_ext_installed">已写入 %1$s</string>
     <string name="own_ext_steps">如果重启后仍未出现：chrome://extensions → 开启开发者模式 → 加载已解压的扩展程序 → 粘贴上面的文件夹。</string>
     <string name="own_ext_copied">已复制文件夹路径，在浏览器的文件选择框中按 Ctrl+V 粘贴。</string>

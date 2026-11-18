@@ -5,6 +5,7 @@ import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -126,8 +127,18 @@ class FullAppUiTest {
             waitUntilAtLeastOneExists(hasText(L10n.get(Strings.hub_extensions_title)), 30_000)
             onNodeWithText(L10n.get(Strings.hub_extensions_title)).performClick()
             waitUntilAtLeastOneExists(hasText(L10n.get(Strings.own_ext_title)), 30_000)
-            onNodeWithText(L10n.get(Strings.own_ext_install)).performClick()
-            waitUntilAtLeastOneExists(hasText(L10n.get(Strings.own_ext_steps)), 30_000)
+            // The card asks the browsers what they already hold, so on a machine
+            // where the extension is installed the button is gone and the card
+            // says which browser has it. Both are the card working; which one
+            // shows depends on the machine running the test.
+            val installed = onAllNodesWithText(
+                L10n.get(Strings.own_ext_present).split("%")[0],
+                substring = true,
+            ).fetchSemanticsNodes().isNotEmpty()
+            if (!installed) {
+                onNodeWithText(L10n.get(Strings.own_ext_install)).performClick()
+                waitUntilAtLeastOneExists(hasText(L10n.get(Strings.own_ext_steps)), 30_000)
+            }
 
             // Statistics carries the counter reset AdGuard keeps in its menu.
             // Only the row is driven here: the confirmation it opens is an

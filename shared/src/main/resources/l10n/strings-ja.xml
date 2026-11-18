@@ -629,6 +629,7 @@
     <string name="own_ext_subtitle">Chrome はサービスワーカーのキャッシュから返すページがあり、そのページはこのアプリを通りません。拡張機能はアプリに何を挿入するかを問い合わせ、そのとおりに適用します。なくてもフィルタリングは動きます — これは最後に残った隙間を塞ぐものです。</string>
     <string name="own_ext_install">このブラウザにインストール</string>
     <string name="own_ext_inst_auto">インストールしました。ブラウザを完全に閉じて開き直すと、起動時に自動で組み込まれます（デベロッパーモード不要）。</string>
+    <string name="own_ext_present">%1$s にインストール済みです。</string>
     <string name="own_ext_installed">書き出し先: %1$s</string>
     <string name="own_ext_steps">再起動しても表示されない場合：chrome://extensions → デベロッパーモードを有効 →「パッケージ化されていない拡張機能を読み込む」→ 上のフォルダーを貼り付け。</string>
     <string name="own_ext_copied">フォルダーのパスをコピーしました。ブラウザのファイル選択で Ctrl+V を押して貼り付けてください。</string>

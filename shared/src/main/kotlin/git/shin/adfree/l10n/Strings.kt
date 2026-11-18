@@ -597,6 +597,7 @@ object Strings {
     const val own_ext_inst_auto = "own_ext_inst_auto"
     const val own_ext_note = "own_ext_note"
     const val own_ext_cmd = "own_ext_cmd"
+    const val own_ext_present = "own_ext_present"
     const val own_ext_steps = "own_ext_steps"
     const val own_ext_copied = "own_ext_copied"
     const val own_ext_failed = "own_ext_failed"

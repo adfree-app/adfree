@@ -171,6 +171,25 @@ interface PlatformHost {
     fun installOwnBrowserExtension(): OwnExtensionInstallation? = null
 
     /**
+     * What this machine already has of the install, for the card before any
+     * click: which browsers hold the extension, and whether a policy that
+     * names it is already down for a browser that has not restarted yet.
+     * Null where the concept does not exist.
+     */
+    fun ownExtensionState(): OwnExtensionState? = null
+
+    /**
+     * @property installedIn the browsers that already loaded this machine's
+     * build, by name — "Chrome", "Edge".
+     * @property awaitingRestart true when the policy naming it is on disk but
+     * the browser has not picked the extension up yet.
+     */
+    data class OwnExtensionState(
+        val installedIn: List<String>,
+        val awaitingRestart: Boolean,
+    )
+
+    /**
      * What an install left behind.
      *
      * @property folder the unpacked copy, which is also what lands on the

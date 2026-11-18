@@ -84,6 +84,11 @@ fun ExtensionsScreen(
     // folder is asked once: it is a fixed path under the user's data home.
     val ownFolder = remember { platform.ownBrowserExtensionFolder() }
     var ownResult by remember { mutableStateOf<PlatformHost.OwnExtensionInstallation?>(null) }
+    // What the browsers already hold. Asked on entry as well as after a write:
+    // an install finished in an earlier session — the usual case, since a
+    // browser picks the extension up at its own start — must not leave a button
+    // offering to do it again.
+    var ownState by remember { mutableStateOf(platform.ownExtensionState()) }
     val clipboard = LocalClipboardManager.current
     var showCreateScript by remember { mutableStateOf(false) }
     var editScriptTarget by remember { mutableStateOf<UserScriptInfo?>(null) }
@@ -155,9 +160,11 @@ fun ExtensionsScreen(
                 OwnExtensionRow(
                     folder = ownFolder,
                     result = ownResult,
+                    state = ownState,
                     onInstall = {
                         val result = platform.installOwnBrowserExtension()
                         ownResult = result
+                        ownState = platform.ownExtensionState()
                         // Whatever is left to do, it is a path: the folder for
                         // the browser that has to be pointed at it, or the script
                         // that finishes the install when the app could not become
@@ -411,6 +418,7 @@ private fun AssistantInstallRow(installed: Boolean, onInstall: () -> Unit) {
 private fun OwnExtensionRow(
     folder: String?,
     result: PlatformHost.OwnExtensionInstallation?,
+    state: PlatformHost.OwnExtensionState?,
     onInstall: () -> Unit,
 ) {
     SurfaceCard(modifier = Modifier.fillMaxWidth()) {
@@ -428,17 +436,40 @@ private fun OwnExtensionRow(
                 lineHeight = 16.sp,
                 color = AdGuardTextMuted,
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            TextButton(
-                onClick = onInstall,
-                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp),
-            ) {
+            val installedIn = state?.installedIn.orEmpty()
+            if (installedIn.isNotEmpty()) {
+                // Done, and the card says which browser did it. The button would
+                // only re-write what is already there.
+                Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = L10n.get(Strings.own_ext_install),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    text = L10n.format(Strings.own_ext_present, installedIn.joinToString(", ")),
+                    fontSize = 11.5.sp,
+                    lineHeight = 16.sp,
                     color = AdGuardGreenPrimary,
                 )
+            } else if (state?.awaitingRestart == true) {
+                // Written and waiting: the browser installs it at its next start,
+                // so the only useful sentence is the one about restarting.
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = L10n.get(Strings.own_ext_inst_auto),
+                    fontSize = 11.5.sp,
+                    lineHeight = 16.sp,
+                    color = AdGuardGreenPrimary,
+                )
+            } else {
+                Spacer(modifier = Modifier.height(8.dp))
+                TextButton(
+                    onClick = onInstall,
+                    contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp),
+                ) {
+                    Text(
+                        text = L10n.get(Strings.own_ext_install),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = AdGuardGreenPrimary,
+                    )
+                }
             }
             if (result != null) {
                 Spacer(modifier = Modifier.height(6.dp))

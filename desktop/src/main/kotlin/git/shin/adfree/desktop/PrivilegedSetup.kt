@@ -79,7 +79,7 @@ private fun browserPolicy(args: Array<String>) {
     println("adfree-setup: browser policy written to ${dirs.size} directories")
 }
 
-private const val POLICY_NAME = "adfree-extension.json"
+private const val POLICY_NAME = SelfHostedExtension.POLICY_NAME
 
 private fun remove(args: Array<String>) {
     val unitPath = args.getOrNull(1).orEmpty()

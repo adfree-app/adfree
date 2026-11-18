@@ -629,6 +629,7 @@
     <string name="own_ext_subtitle">Chrome có những trang nó lấy từ cache của service worker, và những trang đó không đi qua ứng dụng này. Tiện ích hỏi ứng dụng xem cần chèn gì rồi chèn đúng như vậy. Không có nó vẫn lọc được — đây là chỗ cuối cùng còn hở.</string>
     <string name="own_ext_install">Cài cho trình duyệt này</string>
     <string name="own_ext_inst_auto">Đã cài. Đóng hẳn trình duyệt rồi mở lại — nó tự cài lúc khởi động, không cần developer mode.</string>
+    <string name="own_ext_present">Đã cài trong %1$s.</string>
     <string name="own_ext_installed">Đã ghi vào %1$s</string>
     <string name="own_ext_steps">Nếu sau khi khởi động lại vẫn chưa thấy: chrome://extensions → bật Developer mode → Load unpacked → dán thư mục ở trên.</string>
     <string name="own_ext_copied">Đã copy đường dẫn. Dán vào hộp chọn thư mục của trình duyệt bằng Ctrl+V.</string>
