@@ -202,4 +202,4 @@ fun interface LogSink {
  * about it: the page, its four languages and its screenshots.
  */
 const val BROWSER_EXTENSION_GUIDE_URL =
-    "https://adfree-app.github.io/adfree-website/install-extension"
+    "https://adfree-app.github.io/install-extension"

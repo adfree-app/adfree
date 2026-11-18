@@ -626,7 +626,7 @@
     <string name="ext_browser_bridge_missing_host">Thiếu tệp host — hãy build bằng cargo build --release --bin adfree-native-host</string>
     <string name="ext_browser_bridge_no_browser">Không tìm thấy trình duyệt nào hỗ trợ tiện ích</string>
     <string name="own_ext_title">Tiện ích AdFree cho trình duyệt</string>
-    <string name="own_ext_subtitle">Chrome có những trang nó lấy từ cache của service worker, và những trang đó không đi qua ứng dụng này. Tiện ích hỏi ứng dụng xem cần chèn gì rồi chèn đúng như vậy. Không có nó vẫn lọc được — đây là chỗ cuối cùng còn hở.</string>
+    <string name="own_ext_subtitle">Chrome có những trang lấy thẳng từ cache của service worker nên chúng không đi qua ứng dụng này. Tiện ích hỏi ứng dụng cần chèn gì rồi chèn đúng như thế vào những trang đó. Không cài tiện ích vẫn lọc bình thường; tiện ích chỉ phủ thêm mấy trang ấy.</string>
     <string name="own_ext_guide">Mở trang hướng dẫn cài</string>
     <string name="ext_create_title">Tạo tiện ích mới</string>
     <string name="ext_create_template">// ==UserScript==\n// @name         Tiện ích của tôi\n// @match        *://*/*\n// @grant        none\n// ==/UserScript==\n\n</string>

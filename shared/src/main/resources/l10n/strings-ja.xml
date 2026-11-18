@@ -626,7 +626,7 @@
     <string name="ext_browser_bridge_missing_host">ネイティブホストの実行ファイルがありません。cargo build --release --bin adfree-native-host でビルドしてください</string>
     <string name="ext_browser_bridge_no_browser">拡張に対応したブラウザーが見つかりません</string>
     <string name="own_ext_title">ブラウザ用 AdFree 拡張機能</string>
-    <string name="own_ext_subtitle">Chrome はサービスワーカーのキャッシュから返すページがあり、そのページはこのアプリを通りません。拡張機能はアプリに何を挿入するかを問い合わせ、そのとおりに適用します。なくてもフィルタリングは動きます — これは最後に残った隙間を塞ぐものです。</string>
+    <string name="own_ext_subtitle">Chrome はサービスワーカーのキャッシュから返すページがあり、そのページはこのアプリを通りません。拡張機能はアプリに何を挿入するかを問い合わせ、そのとおりに適用します。拡張機能がなくてもフィルタリングは動きます。拡張機能はそうしたページを補うだけです。</string>
     <string name="own_ext_guide">インストール手順を見る</string>
     <string name="ext_create_title">新しい拡張</string>
     <string name="ext_create_template">// ==UserScript==\n// @name         My extension\n// @match        *://*/*\n// @grant        none\n// ==/UserScript==\n\n</string>

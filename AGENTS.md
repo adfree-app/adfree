@@ -73,6 +73,8 @@ Two things still cross the boundary:
   `CHANGELOG.md` from `raw.githubusercontent.com` at request time — there is no
   copied file and no build step to keep in sync.
 - **The extension.** The app's **Extensions → Open the install guide** button
-  opens `/install-extension` on the website. The address is a constant,
-  `BROWSER_EXTENSION_GUIDE_URL` in `shared`, and it is the only URL the app
-  knows about the website.
+  opens `https://adfree-app.github.io/install-extension` — the organisation's
+  root site. The address is a constant, `BROWSER_EXTENSION_GUIDE_URL` in
+  `shared`, and it is the only URL the app knows about the website. Moving the
+  site means changing that one line and the repo that serves it
+  (`adfree-app/adfree-app.github.io`).
