@@ -61,6 +61,9 @@ bench/probe
 # Scratch for driving a Windows test machine from here (probes, patched jars, screenshots)
 .tmp-win/
 
+# Captures and scratch from a working session (.tmp-win/ has its own entry)
+.tmp-shots/
+
 # The landing page: dependencies and the built output are generated from
 # website/package.json and website/src.
 website/node_modules/
