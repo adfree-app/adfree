@@ -1,3 +1,22 @@
+# [1.18.0](https://github.com/adfree-app/adfree/compare/v1.17.0...v1.18.0) (2026-11-18)
+
+### Bug Fixes
+
+* **desktop:** report the install honestly, and hand over the line that finishes it ([a749a3f](https://github.com/adfree-app/adfree/commit/a749a3f972bb209efa549b67bff0d8ae7966818e))
+* **desktop:** the card asks the browsers instead of offering the same install again ([44b67b9](https://github.com/adfree-app/adfree/commit/44b67b99108b0164d12fddedbeadf9465a73bdc6))
+* **l10n:** the extension card says what it is for, in six words ([eca0a63](https://github.com/adfree-app/adfree/commit/eca0a638d6efd8d5a291c8a89b4395534b0fa871))
+* **linux:** a connection opened before the redirect stays unfiltered, so end it ([165eeaf](https://github.com/adfree-app/adfree/commit/165eeaf50d01c2c7343bf9596cde0ec94ca53159))
+* **mitm:** a script switched off stops being injected on the next page ([d8bd994](https://github.com/adfree-app/adfree/commit/d8bd994d38c362c41528037717cd0efc3a2f3d8a))
+
+### Features
+
+* **desktop:** the browser installs the extension itself, from a policy the app writes ([290f4bf](https://github.com/adfree-app/adfree/commit/290f4bfbaab69c91d93c433162799c0fedc0edbf))
+* **desktop:** the guide is the organisation's root site, and the card says what it means ([21b24d8](https://github.com/adfree-app/adfree/commit/21b24d81cc563abc9a505ac3369ba066753289b0))
+* **extension:** a page runtime for the pages the proxy never sees ([2fe34a3](https://github.com/adfree-app/adfree/commit/2fe34a3de2bbf9f628894170b2582bd1ef5a4502))
+* **extension:** an icon, an install button in the app, and a section on the site ([d4564fa](https://github.com/adfree-app/adfree/commit/d4564fa091da967ae4d2aa07278cffa56bc203f2))
+* **extension:** the extension asks the app what it would have injected ([8548344](https://github.com/adfree-app/adfree/commit/8548344f5beddf52a6837da8e65e8596b3e0ce4c))
+* **website:** a YouTube section, with the video playing ad-free ([ba6a057](https://github.com/adfree-app/adfree/commit/ba6a057ce6ea2068271a892683daccdbe06f91f4))
+
 # [1.17.0](https://github.com/yuuki-kagura/adfree/compare/v1.16.0...v1.17.0) (2026-11-18)
 
 ### Features
