@@ -1,3 +1,9 @@
+# [1.21.0](https://github.com/adfree-app/adfree/compare/v1.20.0...v1.21.0) (2026-11-19)
+
+### Features
+
+* **core:** an HTTP proxy can be the way out ([83adf3e](https://github.com/adfree-app/adfree/commit/83adf3e1368c8433405e70318f4faa1c2a1d78e6))
+
 # [1.20.0](https://github.com/adfree-app/adfree/compare/v1.19.0...v1.20.0) (2026-11-19)
 
 ### Features
