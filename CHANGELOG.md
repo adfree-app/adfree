@@ -1,3 +1,9 @@
+# [1.22.0](https://github.com/adfree-app/adfree/compare/v1.21.0...v1.22.0) (2026-11-19)
+
+### Features
+
+* **desktop:** the tracker reads like a network panel, not a form ([1b0e18d](https://github.com/adfree-app/adfree/commit/1b0e18df42672f00865358ad0bb86f79807c08d8))
+
 # [1.21.0](https://github.com/adfree-app/adfree/compare/v1.20.0...v1.21.0) (2026-11-19)
 
 ### Features
