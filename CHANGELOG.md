@@ -1,3 +1,9 @@
+# [1.25.0](https://github.com/adfree-app/adfree/compare/v1.24.0...v1.25.0) (2026-11-19)
+
+### Features
+
+* **desktop:** kinds, methods, the request body and a pane that remembers ([76f7bce](https://github.com/adfree-app/adfree/commit/76f7bce7d1ce446422aea03412014402121e8339))
+
 # [1.24.0](https://github.com/adfree-app/adfree/compare/v1.23.0...v1.24.0) (2026-11-19)
 
 ### Features
