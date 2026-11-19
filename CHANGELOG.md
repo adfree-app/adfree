@@ -1,3 +1,9 @@
+## [1.28.1](https://github.com/adfree-app/adfree/compare/v1.28.0...v1.28.1) (2026-11-19)
+
+### Bug Fixes
+
+* **desktop:** the changelog is text, and an Arch box gets an Arch package ([5ade37e](https://github.com/adfree-app/adfree/commit/5ade37e888f66fd6459e075c17d71ef566926087))
+
 # [1.28.0](https://github.com/adfree-app/adfree/compare/v1.27.0...v1.28.0) (2026-11-19)
 
 ### Features
