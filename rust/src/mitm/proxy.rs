@@ -327,6 +327,11 @@ pub struct ProxySession {
     pub peer_buffer: Vec<u8>,
     /// Bytes from the client that are not yet processed.
     pub client_buffer: Vec<u8>,
+    /// A WebSocket upgrade in flight, so the two directions' frames can be read
+    /// off the plaintext. `None` until a `101 Switching Protocols` answers, and
+    /// boxed because the two frame readers are two hundred bytes that only an
+    /// upgraded socket has any use for.
+    ws: Option<Box<WsRelay>>,
     /// The body bytes of a request this proxy answered itself, still to be
     /// swallowed before anything is parsed again (see [`swallow_body`]). A
     /// body may look like a request line at any offset, so nothing after the
@@ -425,6 +430,25 @@ pub struct ProxySession {
 /// Bodies it wants to edit are held whole: HTML needs one pass over the class
 /// and id tokens anyway, and editing a body it has only seen half of would
 /// break its framing.
+/// One upgraded connection's frame readers, plus the capture row they append
+/// to. Two directions, two parsers: a socket's talk and its answer are two
+/// streams even though they share a row.
+struct WsRelay {
+    id: u64,
+    up: crate::ws::Parser,
+    down: crate::ws::Parser,
+}
+
+impl WsRelay {
+    fn new(id: u64) -> Self {
+        WsRelay {
+            id,
+            up: crate::ws::Parser::default(),
+            down: crate::ws::Parser::default(),
+        }
+    }
+}
+
 enum RespPhase {
     /// Reading a response head into `resp_pending`.
     Head,
@@ -751,6 +775,7 @@ impl ProxySession {
             resp_pending: Vec::new(),
             resp_phase: RespPhase::Head,
             head_requests: VecDeque::new(),
+            ws: None,
             peer_buffer: Vec::new(),
             client_buffer: Vec::new(),
             script_src,
@@ -809,6 +834,7 @@ impl ProxySession {
             resp_pending: Vec::new(),
             resp_phase: RespPhase::Head,
             head_requests: VecDeque::new(),
+            ws: None,
             peer_buffer: Vec::new(),
             client_buffer: Vec::new(),
             script_src,
@@ -906,6 +932,7 @@ impl ProxySession {
             resp_pending: Vec::new(),
             resp_phase: RespPhase::Head,
             head_requests: VecDeque::new(),
+            ws: None,
             peer_buffer: Vec::new(),
             client_buffer: Vec::new(),
             script_src,
@@ -1498,6 +1525,19 @@ impl ProxySession {
         if tls::server_handshaking(&session.server) {
             // Our own handshake answers go back to the client.
             outcome.to_client = tls::take_server_outbound(&mut session.server);
+            return Ok(outcome);
+        }
+        // After a protocol switch the client's bytes are frames, not requests:
+        // they travel untouched, and are read on the way past.
+        if let Some(ws) = self.ws.as_mut() {
+            if !plain.is_empty() {
+                for frame in ws.up.feed(&plain) {
+                    crate::capture::record_frame(ws.id, &frame, true);
+                }
+            }
+            let started = Instant::now();
+            outcome.to_peer = feed_client(&mut session.client, &plain)?;
+            record_tls(self.stats.as_deref(), started, false);
             return Ok(outcome);
         }
         // Our handshake with the client is complete: everything the server
@@ -2295,6 +2335,17 @@ impl ProxySession {
     /// added. Split out so it can be tested without a live TLS handshake.
     pub fn rewrite_response(&mut self, plain: &[u8]) -> (Vec<u8>, usize) {
         self.sync_scripts();
+        // An upgraded connection has no HTTP left to rewrite: what arrives is
+        // frames, and they are read here rather than further down where the
+        // head scanner would take them for a response.
+        if let Some(ws) = self.ws.as_mut() {
+            if !plain.is_empty() {
+                for frame in ws.down.feed(plain) {
+                    crate::capture::record_frame(ws.id, &frame, false);
+                }
+            }
+            return (plain.to_vec(), 0);
+        }
         // Nothing to hide, no header or body to edit and no answer for the log
         // to name: the connection bypasses the rewriter entirely. Header edits
         // alone still need it — they are what `$csp`, `$permissions`,
@@ -2323,12 +2374,24 @@ impl ProxySession {
                 if let Some(split) = http::head_end(plain) {
                     let info = http::parse_response_head(&plain[..split]);
                     if let Some(id) = self.head_requests.front().and_then(|req| req.capture_id) {
-                        crate::capture::record_response(
-                            id,
-                            info.status,
-                            &plain[..split],
-                            &plain[split..],
-                        );
+                        if info.status == 101 {
+                            // A switch is the answer here too: a page that
+                            // needs no rewrite still opens sockets, and its
+                            // frames are what the reader came to watch.
+                            crate::capture::record_response(id, 101, &plain[..split], &[]);
+                            let mut relay = WsRelay::new(id);
+                            for frame in relay.down.feed(&plain[split..]) {
+                                crate::capture::record_frame(id, &frame, false);
+                            }
+                            self.ws = Some(Box::new(relay));
+                        } else {
+                            crate::capture::record_response(
+                                id,
+                                info.status,
+                                &plain[..split],
+                                &plain[split..],
+                            );
+                        }
                     }
                 }
             }
@@ -2372,6 +2435,18 @@ impl ProxySession {
                     if info.status == 101 {
                         out.extend_from_slice(&head);
                         self.resp_phase = RespPhase::Pass { left: Left::End };
+                        // The row this row belongs to is still at the front:
+                        // a switch is answered before anything pops it.
+                        if let Some(id) = self.head_requests.front().and_then(|req| req.capture_id)
+                        {
+                            crate::capture::record_response(id, 101, &head, &[]);
+                            let mut relay = WsRelay::new(id);
+                            // Whatever arrived with the head is already frames.
+                            for frame in relay.down.feed(&self.resp_pending) {
+                                crate::capture::record_frame(id, &frame, false);
+                            }
+                            self.ws = Some(Box::new(relay));
+                        }
                         continue;
                     }
                     let req = self.head_requests.pop_front().unwrap_or_default();

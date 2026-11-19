@@ -15,7 +15,9 @@ enum class InspectorDock { BOTTOM, RIGHT, LEFT }
  * the rest of the app's small preferences; a store that is not there — a test,
  * a headless build — leaves the defaults in place.
  */
-class InspectorLayout(private val store: KeyValueStore) {
+class InspectorLayout(
+    private val store: KeyValueStore,
+) {
     fun dock(): InspectorDock =
         when (store.getString(KEY_DOCK)) {
             "RIGHT" -> InspectorDock.RIGHT

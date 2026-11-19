@@ -961,6 +961,8 @@
     <string name="inspector_col_time">时间</string>
     <string name="inspector_tab_headers">标头</string>
     <string name="inspector_tab_request">请求</string>
+    <string name="inspector_tab_messages">消息</string>
+    <string name="inspector_ws_empty">尚无帧</string>
     <string name="inspector_tab_response">响应</string>
     <string name="inspector_section_general">常规</string>
     <string name="inspector_section_response_headers">响应标头</string>

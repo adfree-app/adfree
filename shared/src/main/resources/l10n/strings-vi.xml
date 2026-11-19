@@ -961,6 +961,8 @@
     <string name="inspector_col_time">Thời gian</string>
     <string name="inspector_tab_headers">Tiêu đề</string>
     <string name="inspector_tab_request">Yêu cầu</string>
+    <string name="inspector_tab_messages">Tin nhắn</string>
+    <string name="inspector_ws_empty">Chưa có khung nào</string>
     <string name="inspector_tab_response">Trả lời</string>
     <string name="inspector_section_general">Chung</string>
     <string name="inspector_section_response_headers">Tiêu đề trả lời</string>

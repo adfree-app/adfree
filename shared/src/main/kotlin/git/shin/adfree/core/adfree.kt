@@ -3445,6 +3445,11 @@ data class CaptureRecord (
      * How many body bytes that read carried, preview or not.
      */
     var `bodyLen`: kotlin.Long
+    , 
+    /**
+     * The frames this connection carried after a `101`, oldest first.
+     */
+    var `frames`: List<WsFrame>
     
 ){
     
@@ -3472,6 +3477,7 @@ public object FfiConverterTypeCaptureRecord: FfiConverterRustBuffer<CaptureRecor
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
             FfiConverterLong.read(buf),
+            FfiConverterSequenceTypeWsFrame.read(buf),
         )
     }
 
@@ -3486,7 +3492,8 @@ public object FfiConverterTypeCaptureRecord: FfiConverterRustBuffer<CaptureRecor
             FfiConverterLong.allocationSize(value.`requestBodyLen`) +
             FfiConverterString.allocationSize(value.`responseHead`) +
             FfiConverterString.allocationSize(value.`bodyPreview`) +
-            FfiConverterLong.allocationSize(value.`bodyLen`)
+            FfiConverterLong.allocationSize(value.`bodyLen`) +
+            FfiConverterSequenceTypeWsFrame.allocationSize(value.`frames`)
     )
 
     override fun write(value: CaptureRecord, buf: ByteBuffer) {
@@ -3501,6 +3508,7 @@ public object FfiConverterTypeCaptureRecord: FfiConverterRustBuffer<CaptureRecor
             FfiConverterString.write(value.`responseHead`, buf)
             FfiConverterString.write(value.`bodyPreview`, buf)
             FfiConverterLong.write(value.`bodyLen`, buf)
+            FfiConverterSequenceTypeWsFrame.write(value.`frames`, buf)
     }
 }
 
@@ -6130,6 +6138,74 @@ public object FfiConverterTypeWindowTotals: FfiConverterRustBuffer<WindowTotals>
 
 
 
+/**
+ * One WebSocket frame, for the socket's row in the tracker.
+ */
+data class WsFrame (
+    var `tsMs`: kotlin.Long
+    , 
+    /**
+     * True when the client sent it.
+     */
+    var `outgoing`: kotlin.Boolean
+    , 
+    /**
+     * RFC 6455 opcode: 0 continuation, 1 text, 2 binary, 8 close, 9 ping, 10 pong.
+     */
+    var `opcode`: kotlin.Int
+    , 
+    /**
+     * The payload length as the frame declared it.
+     */
+    var `len`: kotlin.Long
+    , 
+    /**
+     * The first half kilobyte of the payload, unmasked.
+     */
+    var `preview`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeWsFrame: FfiConverterRustBuffer<WsFrame> {
+    override fun read(buf: ByteBuffer): WsFrame {
+        return WsFrame(
+            FfiConverterLong.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: WsFrame) = (
+            FfiConverterLong.allocationSize(value.`tsMs`) +
+            FfiConverterBoolean.allocationSize(value.`outgoing`) +
+            FfiConverterInt.allocationSize(value.`opcode`) +
+            FfiConverterLong.allocationSize(value.`len`) +
+            FfiConverterString.allocationSize(value.`preview`)
+    )
+
+    override fun write(value: WsFrame, buf: ByteBuffer) {
+            FfiConverterLong.write(value.`tsMs`, buf)
+            FfiConverterBoolean.write(value.`outgoing`, buf)
+            FfiConverterInt.write(value.`opcode`, buf)
+            FfiConverterLong.write(value.`len`, buf)
+            FfiConverterString.write(value.`preview`, buf)
+    }
+}
+
+
+
 
 enum class AppLanguage {
     
@@ -7379,6 +7455,34 @@ public object FfiConverterSequenceTypeUidApps: FfiConverterRustBuffer<List<UidAp
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeUidApps.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeWsFrame: FfiConverterRustBuffer<List<WsFrame>> {
+    override fun read(buf: ByteBuffer): List<WsFrame> {
+        val len = buf.getInt()
+        return List<WsFrame>(len) {
+            FfiConverterTypeWsFrame.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<WsFrame>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeWsFrame.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<WsFrame>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeWsFrame.write(it, buf)
         }
     }
 }

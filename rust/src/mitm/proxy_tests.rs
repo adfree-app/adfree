@@ -14,6 +14,14 @@ use crate::mitm::ca::CertificateAuthority;
 use crate::mitm::tls::{open_session, SniCertResolver};
 use std::io::{Read, Write};
 use std::sync::Arc;
+use std::sync::Mutex;
+
+/// The request tracker is process-wide: both round-trip tests write the same
+/// ring and the same switch, so they take turns rather than racing each other.
+fn tracker_serial() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: Mutex<()> = Mutex::new(());
+    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 /// A nonce of the length the injector writes: 18 random bytes in hex.
 ///
@@ -783,6 +791,7 @@ fn the_request_tracker_records_a_real_round_trip() {
     };
 
     // While it is on: a record for the request, completed by its answer.
+    let _guard = tracker_serial();
     crate::capture::set_enabled(true);
     crate::capture::clear();
     drive(&mut proxy);
@@ -2562,4 +2571,175 @@ fn an_error_page_is_not_a_document_to_inject_into() {
         let renderable = status < 300 || (400..500).contains(&status);
         assert_eq!(renderable, injected, "status {status}");
     }
+}
+
+/// A client frame as the wire carries it: a masked text frame, because a
+/// browser must mask and the proxy must be able to read the text back out.
+fn masked_text(text: &str) -> Vec<u8> {
+    let mask = [0x37u8, 0xfa, 0x21, 0x3d];
+    let mut out = vec![0x81, 0x80 | text.len() as u8];
+    out.extend_from_slice(&mask);
+    for (i, byte) in text.as_bytes().iter().enumerate() {
+        out.push(byte ^ mask[i % 4]);
+    }
+    out
+}
+
+/// A server frame: unmasked, as a server sends it.
+fn text_frame(text: &str) -> Vec<u8> {
+    let mut out = vec![0x81, text.len() as u8];
+    out.extend_from_slice(text.as_bytes());
+    out
+}
+
+/// The tracker's second promise: a socket that upgrades to WebSocket keeps its
+/// row, and every frame that crosses the splice is kept beside it with its
+/// direction and its text. The proxy in the middle must not be able to read a
+/// frame and then change it either, so the bytes the browser gets are the
+/// origin's own.
+#[test]
+fn the_request_tracker_keeps_a_websockets_frames() {
+    use rustls::pki_types::ServerName;
+    use rustls::{ClientConnection, ServerConnection};
+
+    let origin_ca = CertificateAuthority::generate().expect("origin ca");
+    let mut origin_roots = rustls::RootCertStore::empty();
+    origin_roots
+        .add(rustls::pki_types::CertificateDer::from(
+            origin_ca.cert_der(),
+        ))
+        .expect("origin root");
+    let upstream_config = tls::UpstreamTls::with_roots(origin_roots);
+
+    let mitm_ca = CertificateAuthority::generate().expect("mitm ca");
+    let resolver = Arc::new(SniCertResolver::new(Arc::new(
+        CertificateAuthority::from_pem(&mitm_ca.cert_pem(), &mitm_ca.key_pem()).expect("restore"),
+    )));
+    let session =
+        tls::open_session_with(&resolver, "origin.example.com", upstream_config).expect("session");
+    let mut proxy = ProxySession::new(session, String::new(), Arc::from(""));
+
+    let origin_resolver = Arc::new(SniCertResolver::new(Arc::new(origin_ca)));
+    let mut origin = ServerConnection::new(tls::server_config(origin_resolver)).expect("origin");
+
+    let mut browser_roots = rustls::RootCertStore::empty();
+    browser_roots
+        .add(rustls::pki_types::CertificateDer::from(mitm_ca.cert_der()))
+        .expect("browser root");
+    let name = ServerName::try_from("origin.example.com".to_string()).expect("server name");
+    let mut browser =
+        ClientConnection::new(tls::client_config_with(browser_roots), name).expect("browser");
+
+    let request = b"GET /socket HTTP/1.1\r\nHost: origin.example.com\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n";
+    let mut response = b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n".to_vec();
+    response.extend_from_slice(&text_frame("hi"));
+    browser.writer().write_all(request).expect("browser writes");
+
+    let mut to_origin: Vec<u8> = Vec::new();
+    let mut origin_request: Vec<u8> = Vec::new();
+    let mut browser_plain: Vec<u8> = Vec::new();
+    let mut upgraded = false;
+    let mut sent = false;
+    let mut answered = false;
+    let mut quiet = 0u32;
+
+    let _guard = tracker_serial();
+    crate::capture::set_enabled(true);
+    crate::capture::clear();
+    for _round in 0..128 {
+        let wire = tls::take_client_outbound(&mut browser);
+        if !wire.is_empty() {
+            let out = proxy.on_client_payload(&wire).expect("proxy client step");
+            to_origin.extend_from_slice(&out.to_peer);
+            feed_browser(&mut browser, &out.to_client, &mut browser_plain);
+        }
+        if !to_origin.is_empty() {
+            feed_origin(&mut origin, &to_origin, &mut origin_request);
+            to_origin.clear();
+            if !upgraded
+                && origin_request
+                    .windows(17)
+                    .any(|w| w == b"GET /socket HTTP/")
+            {
+                origin
+                    .writer()
+                    .write_all(&response)
+                    .expect("origin answers");
+                upgraded = true;
+            }
+        }
+        // The handshake is over: the browser sends, the origin echoes.
+        if upgraded && !sent && browser_plain.windows(12).any(|w| w == b"HTTP/1.1 101") {
+            browser
+                .writer()
+                .write_all(&masked_text("one"))
+                .expect("frame one");
+            browser
+                .writer()
+                .write_all(&masked_text("two"))
+                .expect("frame two");
+            sent = true;
+        }
+        // The client masks its frames, so the origin cannot be read for the
+        // text: the echo follows the frames by a few rounds instead.
+        if sent {
+            quiet += 1;
+        }
+        if sent && !answered && quiet >= 3 {
+            origin
+                .writer()
+                .write_all(&text_frame("there"))
+                .expect("echo");
+            answered = true;
+        }
+        let wire = tls::take_server_outbound(&mut origin);
+        if !wire.is_empty() {
+            let out = proxy.on_peer_payload(&wire).expect("proxy peer step");
+            to_origin.extend_from_slice(&out.to_peer);
+            feed_browser(&mut browser, &out.to_client, &mut browser_plain);
+        }
+        if answered && browser_plain.windows(5).any(|w| w == b"there") {
+            break;
+        }
+    }
+    let records = crate::capture::snapshot();
+    crate::capture::set_enabled(false);
+    crate::capture::clear();
+
+    // The origin's bytes reach the browser untouched: a frame the reader can
+    // see is not a frame the reader may rewrite.
+    assert!(
+        browser_plain.ends_with(&text_frame("there")),
+        "the frames must survive the splice: {:?}",
+        String::from_utf8_lossy(&browser_plain)
+    );
+    let socket = records
+        .iter()
+        .find(|record| record.url.contains("/socket"))
+        .expect("the upgrade must have a row");
+    assert_eq!(socket.status, 101, "the row keeps its switch status");
+    // The order the frames land in is the order the reads arrived in, which
+    // TLS does not promise; the direction and the text are what the row says.
+    let outgoing: Vec<String> = socket
+        .frames
+        .iter()
+        .filter(|frame| frame.outgoing)
+        .map(|frame| frame.preview.clone())
+        .collect();
+    let incoming: Vec<String> = socket
+        .frames
+        .iter()
+        .filter(|frame| !frame.outgoing)
+        .map(|frame| frame.preview.clone())
+        .collect();
+    assert_eq!(outgoing, vec!["one".to_string(), "two".to_string()]);
+    assert_eq!(
+        incoming,
+        vec!["hi".to_string(), "there".to_string()],
+        "the mask must be taken off before the text is kept"
+    );
+    assert!(
+        socket.frames.iter().all(|frame| frame.opcode == 1),
+        "text frames stay text frames"
+    );
 }

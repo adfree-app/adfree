@@ -1012,6 +1012,12 @@ object Strings {
     const val inspector_tab_response = "inspector_tab_response"
 
     @Suppress("ktlint:standard:property-naming")
+    const val inspector_tab_messages = "inspector_tab_messages"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_ws_empty = "inspector_ws_empty"
+
+    @Suppress("ktlint:standard:property-naming")
     const val inspector_section_general = "inspector_section_general"
 
     @Suppress("ktlint:standard:property-naming")

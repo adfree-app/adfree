@@ -32,6 +32,25 @@ pub const MAX_BODY: usize = 2048;
 /// Records kept before the oldest is dropped.
 pub const CAPACITY: usize = 300;
 
+/// Frames kept per socket. A chat or a multiplayer game speaks for as long as
+/// it is open, and a ring of its own is what keeps one socket from filling the
+/// tracker: the oldest frame goes before the row it belongs to.
+pub const MAX_FRAMES: usize = 200;
+
+/// One WebSocket frame that crossed an upgraded connection.
+#[derive(Clone, Debug, Default)]
+pub struct Frame {
+    pub ts_ms: u64,
+    /// Sent by the client rather than received.
+    pub outgoing: bool,
+    /// RFC 6455 opcode: 0 continuation, 1 text, 2 binary, 8 close, 9 ping, 10 pong.
+    pub opcode: u8,
+    /// The payload length the frame declared, preview or not.
+    pub len: usize,
+    /// The first [`crate::ws::MAX_PAYLOAD`] bytes, unmasked.
+    pub preview: String,
+}
+
 /// One request and its answer, as they crossed the connection.
 #[derive(Clone, Debug, Default)]
 pub struct Record {
@@ -61,6 +80,9 @@ pub struct Record {
     /// How many body bytes the connection carried in that read, which can be
     /// far more than the preview kept.
     pub body_len: usize,
+    /// The frames this connection carried after a protocol switch, the newest
+    /// last, up to [`MAX_FRAMES`].
+    pub frames: Vec<Frame>,
 }
 
 static ENABLED: AtomicBool = AtomicBool::new(false);
@@ -190,6 +212,7 @@ pub fn record_request(url: &str, head: &[u8]) -> Option<u64> {
         response_head: String::new(),
         body_preview: String::new(),
         body_len: 0,
+        frames: Vec::new(),
     };
     let mut ring = ring().lock().ok()?;
     if ring.len() == CAPACITY {
@@ -216,6 +239,33 @@ pub fn record_response(id: u64, status: u16, head: &[u8], body: &[u8]) {
         record.body_len = body.len();
         record.body_preview = clip_body(body);
     }
+}
+
+/// Records one frame of an upgraded connection.
+///
+/// Frames are matched by the record's id rather than appended by position: a
+/// connection that was upgraded is the one the row belongs to, and the ring may
+/// have dropped that row already if it was old enough.
+pub fn record_frame(id: u64, frame: &crate::ws::Frame, outgoing: bool) {
+    if !enabled() {
+        return;
+    }
+    let Ok(mut ring) = ring().lock() else {
+        return;
+    };
+    let Some(record) = ring.iter_mut().find(|record| record.id == id) else {
+        return;
+    };
+    if record.frames.len() == MAX_FRAMES {
+        record.frames.remove(0);
+    }
+    record.frames.push(Frame {
+        ts_ms: now_ms(),
+        outgoing,
+        opcode: frame.opcode,
+        len: frame.len,
+        preview: String::from_utf8_lossy(&frame.payload).into_owned(),
+    });
 }
 
 /// A body is binary, so the preview is lossy and never longer than
@@ -355,6 +405,101 @@ mod tests {
             let records = snapshot();
             assert_eq!(records[0].request_body_len, 0);
             assert!(records[0].request_head.contains("Host"));
+        });
+    }
+
+    #[test]
+    fn a_frame_is_appended_to_the_socket_it_arrived_on() {
+        serial(|| {
+            set_enabled(true);
+            let id = record_request(
+                "https://example.com/socket",
+                b"GET /socket HTTP/1.1\r\n\r\n",
+            )
+            .expect("the tracker is on");
+            record_response(id, 101, b"HTTP/1.1 101 Switching Protocols\r\n\r\n", &[]);
+            record_frame(
+                id,
+                &crate::ws::Frame {
+                    fin: true,
+                    opcode: 1,
+                    len: 5,
+                    payload: b"hello".to_vec(),
+                },
+                true,
+            );
+            record_frame(
+                id,
+                &crate::ws::Frame {
+                    fin: true,
+                    opcode: 1,
+                    len: 2,
+                    payload: b"hi".to_vec(),
+                },
+                false,
+            );
+
+            let records = snapshot();
+            let frames = &records[0].frames;
+            assert_eq!(frames.len(), 2);
+            assert!(frames[0].outgoing);
+            assert_eq!(frames[0].preview, "hello");
+            assert_eq!(frames[0].len, 5);
+            assert!(!frames[1].outgoing);
+            assert_eq!(frames[1].preview, "hi");
+        });
+    }
+
+    #[test]
+    fn a_talkative_socket_keeps_only_the_newest_frames() {
+        serial(|| {
+            set_enabled(true);
+            let id = record_request(
+                "https://example.com/socket",
+                b"GET /socket HTTP/1.1\r\n\r\n",
+            )
+            .expect("on");
+            for index in 0..MAX_FRAMES + 5 {
+                record_frame(
+                    id,
+                    &crate::ws::Frame {
+                        fin: true,
+                        opcode: 1,
+                        len: 1,
+                        payload: vec![b'a' + (index % 26) as u8],
+                    },
+                    index % 2 == 0,
+                );
+            }
+            let records = snapshot();
+            assert_eq!(records[0].frames.len(), MAX_FRAMES);
+            // The oldest five are gone; the newest one is still the newest.
+            assert_eq!(records[0].frames[MAX_FRAMES - 1].len, 1);
+            assert_eq!(
+                records[0].frames[MAX_FRAMES - 1].preview,
+                ((b'a' + ((MAX_FRAMES + 4) % 26) as u8) as char).to_string()
+            );
+        });
+    }
+
+    #[test]
+    fn a_frame_for_a_dropped_row_is_dropped_too() {
+        serial(|| {
+            set_enabled(true);
+            assert!(record_request("https://example.com/", b"GET / HTTP/1.1\r\n\r\n").is_some());
+            // An id the ring never held: a socket outliving its row must not
+            // resurrect it or panic.
+            record_frame(
+                999,
+                &crate::ws::Frame {
+                    fin: true,
+                    opcode: 1,
+                    len: 1,
+                    payload: b"x".to_vec(),
+                },
+                false,
+            );
+            assert!(snapshot()[0].frames.is_empty());
         });
     }
 

@@ -6739,8 +6739,10 @@ mod tests {
         // with, so a userscript switched off in the app stops being injected
         // on the connections that are already open (`track_scripts`). Two
         // pointers, per connection, neither optional in a session an engine
-        // owns.
-        assert!(relay <= 1104, "a TCP relay is {relay} B");
+        // owns. 1120 adds the boxed WebSocket frame readers: one pointer per
+        // connection, plus the struct's own alignment, because the two parsers
+        // behind it are only ever allocated for a socket that upgraded.
+        assert!(relay <= 1120, "a TCP relay is {relay} B");
         assert!(udp <= 192, "a datagram mapping is {udp} B");
         assert!(h3 <= 112, "a terminated QUIC flow is {h3} B");
         // The worst case for both datagram tables at the caps the engine

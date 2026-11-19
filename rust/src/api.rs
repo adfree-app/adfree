@@ -594,6 +594,22 @@ pub struct CaptureRecord {
     pub body_preview: String,
     /// How many body bytes that read carried, preview or not.
     pub body_len: i64,
+    /// The frames this connection carried after a `101`, oldest first.
+    pub frames: Vec<WsFrame>,
+}
+
+/// One WebSocket frame, for the socket's row in the tracker.
+#[derive(uniffi::Record, Clone, Debug, Default)]
+pub struct WsFrame {
+    pub ts_ms: i64,
+    /// True when the client sent it.
+    pub outgoing: bool,
+    /// RFC 6455 opcode: 0 continuation, 1 text, 2 binary, 8 close, 9 ping, 10 pong.
+    pub opcode: i32,
+    /// The payload length as the frame declared it.
+    pub len: i64,
+    /// The first half kilobyte of the payload, unmasked.
+    pub preview: String,
 }
 
 /// Turns the request tracker on or off.
@@ -631,6 +647,17 @@ pub fn core_capture_records() -> Vec<CaptureRecord> {
                 response_head: record.response_head,
                 body_preview: record.body_preview,
                 body_len: record.body_len as i64,
+                frames: record
+                    .frames
+                    .into_iter()
+                    .map(|frame| WsFrame {
+                        ts_ms: frame.ts_ms as i64,
+                        outgoing: frame.outgoing,
+                        opcode: frame.opcode as i32,
+                        len: frame.len as i64,
+                        preview: frame.preview,
+                    })
+                    .collect(),
             })
             .collect()
     })

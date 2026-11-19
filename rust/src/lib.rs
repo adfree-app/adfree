@@ -66,6 +66,7 @@ pub mod winnat;
 /// The Windows redirect's lifecycle: start, stop, and the counters the tray
 /// shows. A no-op with a sentence elsewhere.
 pub mod wredirect;
+pub mod ws;
 
 pub use engine::core;
 

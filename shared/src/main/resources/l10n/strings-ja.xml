@@ -961,6 +961,8 @@
     <string name="inspector_col_time">時刻</string>
     <string name="inspector_tab_headers">ヘッダー</string>
     <string name="inspector_tab_request">リクエスト</string>
+    <string name="inspector_tab_messages">メッセージ</string>
+    <string name="inspector_ws_empty">フレームはまだありません</string>
     <string name="inspector_tab_response">レスポンス</string>
     <string name="inspector_section_general">全般</string>
     <string name="inspector_section_response_headers">レスポンスヘッダー</string>

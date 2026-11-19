@@ -13,6 +13,7 @@ import androidx.compose.foundation.gestures.DraggableState
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -25,7 +26,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -76,11 +76,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import git.shin.adfree.core.CaptureRecord
-import git.shin.adfree.data.InspectorDock
-import git.shin.adfree.data.InspectorLayout
+import git.shin.adfree.core.WsFrame
 import git.shin.adfree.core.coreCaptureClear
 import git.shin.adfree.core.coreCaptureRecords
 import git.shin.adfree.core.coreCaptureSetEnabled
+import git.shin.adfree.data.InspectorDock
+import git.shin.adfree.data.InspectorLayout
 import git.shin.adfree.l10n.L10n
 import git.shin.adfree.l10n.Strings
 import git.shin.adfree.model.RequestCopy
@@ -411,7 +412,6 @@ private fun DetailSlot(
     }
 }
 
-/** Where the details dock: the browser's own three homes for its panel. */
 /**
  * The kinds a request can be filed under, guessed from what the answer claims
  * to be carrying. The browser knows a resource's type because it asked for it;
@@ -631,8 +631,8 @@ private fun FilterBox(
     }
 }
 
-/** Fixed widths keep every column on a shared edge down the list. */
-// The header reads "Phương thức" in Vietnamese, which is wider than the flag
+// Fixed widths keep every column on a shared edge down the list. The method
+// column reads "Phương thức" in Vietnamese, which is wider than the flag
 // itself; a phone's row only ever holds "GET" or "POST".
 private val methodWidth = 104.dp
 private val methodWidthCompact = 54.dp
@@ -652,7 +652,12 @@ private fun ColumnHeader(compact: Boolean) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        HeaderCell(L10n.get(Strings.inspector_col_method), Modifier.width(if (compact) methodWidthCompact else methodWidth))
+        // On a phone the column only ever holds GET or POST, so its header
+        // stays blank rather than truncating the long Vietnamese word.
+        HeaderCell(
+            if (compact) "" else L10n.get(Strings.inspector_col_method),
+            Modifier.width(if (compact) methodWidthCompact else methodWidth),
+        )
         HeaderCell(L10n.get(Strings.inspector_col_name), Modifier.weight(1f))
         HeaderCell(L10n.get(Strings.inspector_col_status), Modifier.width(statusWidth))
         if (!compact) HeaderCell(L10n.get(Strings.inspector_col_type), Modifier.width(typeWidth))
@@ -825,7 +830,9 @@ private fun DetailPane(
 ) {
     var tab by remember(record.id) { mutableStateOf(Tab.HEADERS) }
     Column(modifier.background(Dt.panel)) {
-        TabStrip(tab) { tab = it }
+        val tabs = tab.tabs(record)
+        if (tab !in tabs) tab = Tab.HEADERS
+        TabStrip(tab, { tab = it }, tabs)
         Box(Modifier.fillMaxWidth().height(1.dp).background(Dt.border))
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp)) {
             when (tab) {
@@ -865,6 +872,14 @@ private fun DetailPane(
                     }
                 }
 
+                Tab.MESSAGES -> {
+                    if (record.frames.isEmpty()) {
+                        Text(L10n.get(Strings.inspector_ws_empty), fontSize = 11.sp, color = Dt.muted)
+                    } else {
+                        record.frames.forEach { frame -> MessageRow(frame, onCopy) }
+                    }
+                }
+
                 Tab.RESPONSE -> {
                     if (record.bodyPreview.isEmpty()) {
                         Pair(L10n.get(Strings.inspector_col_size), bytes(record.bodyLen), Dt.text, onCopy)
@@ -889,12 +904,79 @@ private fun DetailPane(
     }
 }
 
-private enum class Tab { HEADERS, REQUEST, RESPONSE }
+/**
+ * One frame of an upgraded socket: which way it went, what kind it was, how
+ * long it was and the beginning of what it said. Clicking it copies the text.
+ */
+@Composable
+private fun MessageRow(
+    frame: WsFrame,
+    onCopy: (String) -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable { if (frame.preview.isNotEmpty()) onCopy(frame.preview) }
+            .padding(vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            if (frame.outgoing) "\u2191" else "\u2193",
+            fontSize = 12.sp,
+            color = if (frame.outgoing) Dt.ok else Dt.link,
+            fontFamily = FontFamily.Monospace,
+        )
+        Text(
+            opcodeName(frame.opcode),
+            fontSize = 11.sp,
+            color = Dt.text,
+            modifier = Modifier.width(56.dp),
+        )
+        Text(
+            bytes(frame.len),
+            fontSize = 11.sp,
+            fontFamily = FontFamily.Monospace,
+            color = Dt.muted,
+            maxLines = 1,
+        )
+        Text(
+            frame.preview.ifEmpty { "\u00a0" },
+            fontSize = 11.sp,
+            fontFamily = FontFamily.Monospace,
+            color = Dt.muted,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+private fun opcodeName(opcode: Int): String =
+    when (opcode) {
+        1 -> "Text"
+        2 -> "Binary"
+        8 -> "Close"
+        9 -> "Ping"
+        10 -> "Pong"
+        0 -> "Cont."
+        else -> "Op $opcode"
+    }
+
+private enum class Tab { HEADERS, REQUEST, RESPONSE, MESSAGES }
+
+private fun Tab.tabs(record: CaptureRecord): List<Tab> =
+    if (record.status == 101) {
+        listOf(Tab.HEADERS, Tab.REQUEST, Tab.MESSAGES, Tab.RESPONSE)
+    } else {
+        listOf(Tab.HEADERS, Tab.REQUEST, Tab.RESPONSE)
+    }
 
 @Composable
 private fun TabStrip(
     selected: Tab,
     onSelect: (Tab) -> Unit,
+    tabs: List<Tab>,
 ) {
     Row(
         Modifier
@@ -905,7 +987,7 @@ private fun TabStrip(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Tab.entries.forEach { entry ->
+        tabs.forEach { entry ->
             val on = entry == selected
             // The underline is drawn under the word, not laid out as a child
             // of it: a fillMaxWidth box inside this column would have made the
@@ -916,6 +998,7 @@ private fun TabStrip(
                     when (entry) {
                         Tab.HEADERS -> Strings.inspector_tab_headers
                         Tab.REQUEST -> Strings.inspector_tab_request
+                        Tab.MESSAGES -> Strings.inspector_tab_messages
                         Tab.RESPONSE -> Strings.inspector_tab_response
                     },
                 ),
