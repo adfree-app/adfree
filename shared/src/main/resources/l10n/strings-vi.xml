@@ -935,8 +935,19 @@
     <!-- Activity log -->
     <string name="log_title">Nhật ký</string>
     <string name="inspector_title">Xem lưu lượng</string>
-    <string name="inspector_hint">Mở cửa sổ này thì lõi giữ phần đầu của mỗi yêu cầu và câu trả lời. Đóng lại thì việc sao chép dừng.</string>
     <string name="inspector_clear">Xoá</string>
+    <string name="inspector_count">%1$d yêu cầu</string>
+    <string name="inspector_col_name">Tên</string>
+    <string name="inspector_col_status">Trạng thái</string>
+    <string name="inspector_col_type">Loại</string>
+    <string name="inspector_col_size">Kích thước</string>
+    <string name="inspector_tab_headers">Tiêu đề</string>
+    <string name="inspector_tab_request">Yêu cầu</string>
+    <string name="inspector_tab_response">Trả lời</string>
+    <string name="inspector_section_general">Chung</string>
+    <string name="inspector_section_response_headers">Tiêu đề trả lời</string>
+    <string name="inspector_general_url">URL yêu cầu</string>
+    <string name="inspector_general_status">Mã trạng thái</string>
     <string name="inspector_empty">Chưa có gì. Mở cửa sổ này rồi tải một trang.</string>
     <string name="inspector_request">Yêu cầu</string>
     <string name="inspector_body">Nội dung</string>

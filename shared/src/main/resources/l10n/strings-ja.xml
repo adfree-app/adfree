@@ -935,8 +935,19 @@
     <!-- Activity log -->
     <string name="log_title">ログ</string>
     <string name="inspector_title">通信の中身</string>
-    <string name="inspector_hint">このウィンドウを開いている間だけ、コアは各リクエストと応答のヘッダーを保持します。閉じると複製は止まります。</string>
     <string name="inspector_clear">消去</string>
+    <string name="inspector_count">%1$d 件のリクエスト</string>
+    <string name="inspector_col_name">名前</string>
+    <string name="inspector_col_status">ステータス</string>
+    <string name="inspector_col_type">種類</string>
+    <string name="inspector_col_size">サイズ</string>
+    <string name="inspector_tab_headers">ヘッダー</string>
+    <string name="inspector_tab_request">リクエスト</string>
+    <string name="inspector_tab_response">レスポンス</string>
+    <string name="inspector_section_general">全般</string>
+    <string name="inspector_section_response_headers">レスポンスヘッダー</string>
+    <string name="inspector_general_url">リクエスト URL</string>
+    <string name="inspector_general_status">ステータスコード</string>
     <string name="inspector_empty">まだ何もありません。このウィンドウを開いたままページを読み込んでください。</string>
     <string name="inspector_request">リクエスト</string>
     <string name="inspector_body">ボディ</string>

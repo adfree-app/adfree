@@ -2377,8 +2377,9 @@ impl ProxySession {
                     let req = self.head_requests.pop_front().unwrap_or_default();
                     if let Some(id) = req.capture_id {
                         // The body this read carried, still as the origin
-                        // framed it: the rewriter has not touched it yet.
-                        crate::capture::record_response(id, info.status, &head, &[]);
+                        // framed it: the rewriter has not touched it yet, and
+                        // what it did with it is not what arrived.
+                        crate::capture::record_response(id, info.status, &head, &self.resp_pending);
                     }
                     // The request this answer belongs to is a log row of its
                     // own: AdGuard's Filtering Log lists what it forwarded

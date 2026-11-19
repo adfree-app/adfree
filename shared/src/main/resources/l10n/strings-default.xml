@@ -935,8 +935,19 @@
     <!-- Activity log -->
     <string name="log_title">Log</string>
     <string name="inspector_title">Request inspector</string>
-    <string name="inspector_hint">Open this window and the engine keeps the head of every request and of its answer. Close it and the copying stops.</string>
     <string name="inspector_clear">Clear</string>
+    <string name="inspector_count">%1$d requests</string>
+    <string name="inspector_col_name">Name</string>
+    <string name="inspector_col_status">Status</string>
+    <string name="inspector_col_type">Type</string>
+    <string name="inspector_col_size">Size</string>
+    <string name="inspector_tab_headers">Headers</string>
+    <string name="inspector_tab_request">Request</string>
+    <string name="inspector_tab_response">Response</string>
+    <string name="inspector_section_general">General</string>
+    <string name="inspector_section_response_headers">Response Headers</string>
+    <string name="inspector_general_url">Request URL</string>
+    <string name="inspector_general_status">Status Code</string>
     <string name="inspector_empty">Nothing yet. Load a page with this window open.</string>
     <string name="inspector_request">Request</string>
     <string name="inspector_body">Body</string>

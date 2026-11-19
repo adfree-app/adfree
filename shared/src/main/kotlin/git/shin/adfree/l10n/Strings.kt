@@ -955,7 +955,40 @@ object Strings {
     const val inspector_title = "inspector_title"
 
     @Suppress("ktlint:standard:property-naming")
-    const val inspector_hint = "inspector_hint"
+    const val inspector_count = "inspector_count"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_col_name = "inspector_col_name"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_col_status = "inspector_col_status"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_col_type = "inspector_col_type"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_col_size = "inspector_col_size"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_tab_headers = "inspector_tab_headers"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_tab_request = "inspector_tab_request"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_tab_response = "inspector_tab_response"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_section_general = "inspector_section_general"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_section_response_headers = "inspector_section_response_headers"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_general_url = "inspector_general_url"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_general_status = "inspector_general_status"
 
     @Suppress("ktlint:standard:property-naming")
     const val inspector_clear = "inspector_clear"
