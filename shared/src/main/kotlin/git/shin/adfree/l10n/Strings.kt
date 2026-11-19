@@ -979,6 +979,12 @@ object Strings {
     const val inspector_section_request_body = "inspector_section_request_body"
 
     @Suppress("ktlint:standard:property-naming")
+    const val inspector_section_query = "inspector_section_query"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_body_none = "inspector_body_none"
+
+    @Suppress("ktlint:standard:property-naming")
     const val inspector_type_all = "inspector_type_all"
 
     @Suppress("ktlint:standard:property-naming")
@@ -1010,6 +1016,10 @@ object Strings {
 
     @Suppress("ktlint:standard:property-naming")
     const val inspector_tab_request = "inspector_tab_request"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_tab_body = "inspector_tab_body"
+
 
     @Suppress("ktlint:standard:property-naming")
     const val inspector_tab_response = "inspector_tab_response"

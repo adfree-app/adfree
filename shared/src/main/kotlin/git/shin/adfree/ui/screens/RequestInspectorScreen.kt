@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -352,9 +353,27 @@ private fun RequestList(
     modifier: Modifier,
     compact: Boolean = false,
 ) {
+    val state = rememberLazyListState()
+    // A reader at the top of the list is watching it arrive; one who has
+    // scrolled down is reading something, and a jump to the top would take it
+    // away. The row that was first before the new one landed is the tell: with
+    // keys, inserting above leaves it at index 1, and the offset stays 0 only
+    // when nothing was scrolled.
+    var seenTop by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(records.firstOrNull()?.id) {
+        val top = records.firstOrNull()?.id
+        if (seenTop != null &&
+            top != seenTop &&
+            state.firstVisibleItemIndex <= 1 &&
+            state.firstVisibleItemScrollOffset == 0
+        ) {
+            state.scrollToItem(0)
+        }
+        seenTop = top
+    }
     Column(modifier.fillMaxWidth()) {
         ColumnHeader(compact)
-        LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
+        LazyColumn(Modifier.fillMaxWidth().weight(1f), state = state) {
             items(records, key = { it.id }) { record ->
                 RequestRow(
                     record = record,
@@ -517,16 +536,23 @@ private fun KindRow(
     ) {
         Kind.entries.forEach { entry ->
             val selected = entry == kind
+            // The chip is a fixed 22 dp tall box with the label centred in it:
+            // a padded box, sized by the text, drifts by however tall the
+            // font's line box came out, which differs between a label with
+            // diacritics and one without.
             Box(
                 Modifier
+                    .height(22.dp)
                     .clip(RoundedCornerShape(9.dp))
                     .background(if (selected) Dt.rowSelected else Color.Transparent)
                     .clickable { onKind(entry) }
-                    .padding(horizontal = 9.dp, vertical = 3.dp),
+                    .padding(horizontal = 9.dp),
+                contentAlignment = Alignment.Center,
             ) {
                 Text(
                     L10n.get(kindLabel(entry)),
                     fontSize = 11.sp,
+                    lineHeight = 12.sp,
                     color = if (selected) Dt.text else Dt.muted,
                     maxLines = 1,
                 )
@@ -627,18 +653,25 @@ private fun FilterBox(
             Text(
                 L10n.get(Strings.inspector_search),
                 fontSize = 11.sp,
+                lineHeight = 12.sp,
                 color = Dt.muted,
                 maxLines = 1,
             )
         }
-        BasicTextField(
-            value = query,
-            onValueChange = onQuery,
-            singleLine = true,
-            textStyle = TextStyle(color = Dt.text, fontSize = 11.sp),
-            cursorBrush = SolidColor(Dt.link),
-            modifier = Modifier.fillMaxWidth(),
-        )
+        // The field sits in a row of its own so it is centred by the row
+        // rather than laid out from the top of the box: the placeholder was
+        // centred and the typed text was not, so the first character of a
+        // search jumped down as it was typed.
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            BasicTextField(
+                value = query,
+                onValueChange = onQuery,
+                singleLine = true,
+                textStyle = TextStyle(color = Dt.text, fontSize = 11.sp, lineHeight = 12.sp),
+                cursorBrush = SolidColor(Dt.link),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 }
 
@@ -880,14 +913,29 @@ private fun DetailPane(
 
                 Tab.REQUEST -> {
                     HeaderSection(null, headerRows(record.requestHead), onCopy)
-                    if (record.requestBodyPreview.isNotEmpty()) {
+                }
+
+                Tab.BODY -> {
+                    // A GET carries its parameters in the URL and no body at
+                    // all, so both live here: what the request said, and what
+                    // it carried.
+                    val query = queryPairs(record.url)
+                    val body = record.requestBodyPreview
+                    if (query.isEmpty() && body.isEmpty()) {
+                        Text(L10n.get(Strings.inspector_body_none), fontSize = 11.sp, color = Dt.muted)
+                    }
+                    if (query.isNotEmpty()) {
+                        Section(L10n.get(Strings.inspector_section_query))
+                        query.forEach { (name, value) -> Pair(name, value, Dt.text, onCopy) }
+                    }
+                    if (body.isNotEmpty()) {
                         Section(L10n.get(Strings.inspector_section_request_body))
                         Text(
-                            record.requestBodyPreview,
+                            body,
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
                             color = Dt.text,
-                            modifier = Modifier.clickable { onCopy(record.requestBodyPreview) },
+                            modifier = Modifier.clickable { onCopy(body) },
                         )
                         Text(
                             bytes(record.requestBodyLen),
@@ -989,13 +1037,13 @@ private fun opcodeName(opcode: Int): String =
         else -> "Op $opcode"
     }
 
-private enum class Tab { HEADERS, REQUEST, RESPONSE, MESSAGES }
+private enum class Tab { HEADERS, REQUEST, BODY, RESPONSE, MESSAGES }
 
 private fun tabsFor(record: CaptureRecord): List<Tab> =
     if (record.status == 101) {
-        listOf(Tab.HEADERS, Tab.REQUEST, Tab.MESSAGES, Tab.RESPONSE)
+        listOf(Tab.HEADERS, Tab.REQUEST, Tab.BODY, Tab.MESSAGES, Tab.RESPONSE)
     } else {
-        listOf(Tab.HEADERS, Tab.REQUEST, Tab.RESPONSE)
+        listOf(Tab.HEADERS, Tab.REQUEST, Tab.BODY, Tab.RESPONSE)
     }
 
 @Composable
@@ -1024,6 +1072,7 @@ private fun TabStrip(
                     when (entry) {
                         Tab.HEADERS -> Strings.inspector_tab_headers
                         Tab.REQUEST -> Strings.inspector_tab_request
+                        Tab.BODY -> Strings.inspector_tab_body
                         Tab.MESSAGES -> Strings.inspector_tab_messages
                         Tab.RESPONSE -> Strings.inspector_tab_response
                     },
@@ -1134,6 +1183,17 @@ private fun nameCell(url: String): androidx.compose.ui.text.AnnotatedString {
         if (host.isNotEmpty()) {
             withStyle(SpanStyle(color = Dt.muted)) { append("  $host") }
         }
+    }
+}
+
+/** The URL's own parameters, in the order the request wrote them. */
+private fun queryPairs(url: String): List<Pair<String, String>> {
+    val query = url.substringAfter('?', "").substringBefore('#')
+    if (query.isEmpty()) return emptyList()
+    return query.split('&').filter { it.isNotEmpty() }.map { pair ->
+        val name = pair.substringBefore('=')
+        val value = if ('=' in pair) pair.substringAfter('=') else ""
+        name to value
     }
 }
 

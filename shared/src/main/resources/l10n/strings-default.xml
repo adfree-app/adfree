@@ -962,6 +962,9 @@
     <string name="inspector_col_time">Time</string>
     <string name="inspector_tab_headers">Headers</string>
     <string name="inspector_tab_request">Request</string>
+    <string name="inspector_tab_body">Body</string>
+    <string name="inspector_section_query">Query string</string>
+    <string name="inspector_body_none">No parameters and no body</string>
     <string name="inspector_tab_messages">Messages</string>
     <string name="inspector_ws_empty">No frames yet</string>
     <string name="inspector_tab_response">Response</string>
@@ -969,7 +972,7 @@
     <string name="inspector_section_response_headers">Response Headers</string>
     <string name="inspector_general_url">Request URL</string>
     <string name="inspector_general_status">Status Code</string>
-    <string name="inspector_empty">Nothing yet. Load a page with this window open.</string>
+    <string name="inspector_empty">No requests yet.</string>
     <string name="inspector_request">Request</string>
     <string name="inspector_body">Body</string>
     <string name="inspector_response">Response</string>

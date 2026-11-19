@@ -962,6 +962,9 @@
     <string name="inspector_col_time">時刻</string>
     <string name="inspector_tab_headers">ヘッダー</string>
     <string name="inspector_tab_request">リクエスト</string>
+    <string name="inspector_tab_body">本文</string>
+    <string name="inspector_section_query">クエリ文字列</string>
+    <string name="inspector_body_none">パラメータも本文もありません</string>
     <string name="inspector_tab_messages">メッセージ</string>
     <string name="inspector_ws_empty">フレームはまだありません</string>
     <string name="inspector_tab_response">レスポンス</string>
@@ -969,7 +972,7 @@
     <string name="inspector_section_response_headers">レスポンスヘッダー</string>
     <string name="inspector_general_url">リクエスト URL</string>
     <string name="inspector_general_status">ステータスコード</string>
-    <string name="inspector_empty">まだ何もありません。このウィンドウを開いたままページを読み込んでください。</string>
+    <string name="inspector_empty">リクエストはまだありません。</string>
     <string name="inspector_request">リクエスト</string>
     <string name="inspector_body">ボディ</string>
     <string name="inspector_response">レスポンス</string>
