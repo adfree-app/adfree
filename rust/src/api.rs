@@ -584,6 +584,10 @@ pub struct CaptureRecord {
     pub status: i32,
     pub request_head: String,
     pub response_head: String,
+    /// The first kilobytes of the body as the origin framed it.
+    pub body_preview: String,
+    /// How many body bytes that read carried, preview or not.
+    pub body_len: i64,
 }
 
 /// Turns the request tracker on or off.
@@ -616,6 +620,8 @@ pub fn core_capture_records() -> Vec<CaptureRecord> {
                 status: record.status as i32,
                 request_head: record.request_head,
                 response_head: record.response_head,
+                body_preview: record.body_preview,
+                body_len: record.body_len as i64,
             })
             .collect()
     })

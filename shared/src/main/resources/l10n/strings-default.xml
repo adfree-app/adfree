@@ -935,6 +935,7 @@
     <string name="inspector_clear">Clear</string>
     <string name="inspector_empty">Nothing yet. Load a page with this window open.</string>
     <string name="inspector_request">Request</string>
+    <string name="inspector_body">Body</string>
     <string name="inspector_response">Response</string>
     <string name="log_subtitle">Recent network queries</string>
     <string name="log_clear_action">Clear log</string>

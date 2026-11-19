@@ -703,6 +703,119 @@ fn a_request_and_its_response_cross_the_splice() {
     );
 }
 
+/// The request tracker's promise, end to end: with it enabled, a request that
+/// crosses the splice leaves a record whose answer arrives and fills the
+/// status and the response head; with it disabled, the same splice leaves
+/// nothing.
+#[test]
+fn the_request_tracker_records_a_real_round_trip() {
+    use rustls::pki_types::ServerName;
+    use rustls::{ClientConnection, ServerConnection};
+
+    let origin_ca = CertificateAuthority::generate().expect("origin ca");
+    let mut origin_roots = rustls::RootCertStore::empty();
+    origin_roots
+        .add(rustls::pki_types::CertificateDer::from(
+            origin_ca.cert_der(),
+        ))
+        .expect("origin root");
+    let upstream_config = tls::UpstreamTls::with_roots(origin_roots);
+
+    let mitm_ca = CertificateAuthority::generate().expect("mitm ca");
+    let resolver = Arc::new(SniCertResolver::new(Arc::new(
+        CertificateAuthority::from_pem(&mitm_ca.cert_pem(), &mitm_ca.key_pem()).expect("restore"),
+    )));
+    let session =
+        tls::open_session_with(&resolver, "origin.example.com", upstream_config).expect("session");
+    let mut proxy = ProxySession::new(session, String::new(), Arc::from(""));
+
+    let origin_resolver = Arc::new(SniCertResolver::new(Arc::new(origin_ca)));
+    let mut origin = ServerConnection::new(tls::server_config(origin_resolver)).expect("origin");
+
+    let mut browser_roots = rustls::RootCertStore::empty();
+    browser_roots
+        .add(rustls::pki_types::CertificateDer::from(mitm_ca.cert_der()))
+        .expect("browser root");
+    let name = ServerName::try_from("origin.example.com".to_string()).expect("server name");
+    let mut browser =
+        ClientConnection::new(tls::client_config_with(browser_roots), name).expect("browser");
+
+    let request = b"GET /probe HTTP/1.1\r\nHost: origin.example.com\r\n\r\n";
+    let response_body = b"<html><body>tracked</body></html>";
+    let mut response = Vec::new();
+    response.extend_from_slice(b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: ");
+    response.extend_from_slice(response_body.len().to_string().as_bytes());
+    response.extend_from_slice(b"\r\n\r\n");
+    response.extend_from_slice(response_body);
+    browser.writer().write_all(request).expect("browser writes");
+
+    let mut to_origin: Vec<u8> = Vec::new();
+    let mut origin_request: Vec<u8> = Vec::new();
+    let mut origin_answered = false;
+    let mut browser_plain: Vec<u8> = Vec::new();
+
+    let mut drive = |proxy: &mut ProxySession| {
+        for _round in 0..64 {
+            let wire = tls::take_client_outbound(&mut browser);
+            if !wire.is_empty() {
+                let out = proxy.on_client_payload(&wire).expect("proxy client step");
+                to_origin.extend_from_slice(&out.to_peer);
+                feed_browser(&mut browser, &out.to_client, &mut browser_plain);
+            }
+            if !to_origin.is_empty() {
+                feed_origin(&mut origin, &to_origin, &mut origin_request);
+                to_origin.clear();
+                if !origin_answered && !origin_request.is_empty() {
+                    origin.writer().write_all(&response).expect("origin writes");
+                    origin_answered = true;
+                }
+            }
+            let wire = tls::take_server_outbound(&mut origin);
+            if !wire.is_empty() {
+                let out = proxy.on_peer_payload(&wire).expect("proxy peer step");
+                to_origin.extend_from_slice(&out.to_peer);
+                feed_browser(&mut browser, &out.to_client, &mut browser_plain);
+            }
+            if browser_plain.windows(12).any(|w| w == b"HTTP/1.1 200") {
+                return;
+            }
+        }
+    };
+
+    // While it is on: a record for the request, completed by its answer.
+    crate::capture::set_enabled(true);
+    crate::capture::clear();
+    drive(&mut proxy);
+    let records = crate::capture::snapshot();
+    crate::capture::set_enabled(false);
+    crate::capture::clear();
+    let tracked = records.iter().find(|record| record.url.contains("probe"));
+    assert!(
+        tracked.is_some(),
+        "the round trip must be recorded: {:?}",
+        records
+            .iter()
+            .map(|r| (r.url.clone(), r.request_head.len()))
+            .collect::<Vec<_>>()
+    );
+    let record = tracked.unwrap();
+    assert_eq!(record.status, 200);
+    assert!(record.request_head.contains("GET /probe"));
+    assert!(record.response_head.contains("text/html"));
+    assert!(
+        record.body_preview.contains("tracked"),
+        "the body follows the head: {:?}",
+        record.body_preview
+    );
+
+    // While it is off: the same trip records nothing.
+    drive(&mut proxy);
+    assert!(
+        crate::capture::snapshot().is_empty(),
+        "nothing may be recorded while the tracker is off"
+    );
+}
+
 /// The engine's actual path: the relay is armed before the flow's hostname is
 /// known, and the session opens from the ClientHello itself — the DNS table
 /// is not consulted (a browser's own cache, DoH or a shared CDN address can

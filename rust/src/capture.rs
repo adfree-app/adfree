@@ -21,6 +21,12 @@ use std::sync::{Mutex, OnceLock};
 /// identifies it.
 pub const MAX_HEAD: usize = 4096;
 
+/// Longest body preview kept. This is the wire bytes as they arrived — still
+/// compressed, still chunked, exactly what a packet capture would show — so it
+/// is short by design: the heads answer "what", the preview answers "does it
+/// look like what it claims".
+pub const MAX_BODY: usize = 2048;
+
 /// Records kept before the oldest is dropped.
 pub const CAPACITY: usize = 300;
 
@@ -38,6 +44,13 @@ pub struct Record {
     pub request_head: String,
     /// The response head, verbatim, up to [`MAX_HEAD`] bytes.
     pub response_head: String,
+    /// The first [`MAX_BODY`] wire bytes of the body, lossily decoded: this is
+    /// the transfer, not the usable document, so a gzip body starts with its
+    /// own magic and a chunked one with its sizes.
+    pub body_preview: String,
+    /// How many body bytes the connection carried in that read, which can be
+    /// far more than the preview kept.
+    pub body_len: usize,
 }
 
 static ENABLED: AtomicBool = AtomicBool::new(false);
@@ -82,6 +95,30 @@ fn clip(head: &[u8]) -> String {
     String::from_utf8_lossy(&head[..cut]).into_owned()
 }
 
+/// The URL a request head names, for the ring's left column.
+///
+/// The head carries a target, not an origin: `GET /a?b=c HTTP/1.1`. The host
+/// comes from the session, which is the name the client asked for and the one
+/// the certificate was minted for — the `Host` header can disagree with it, and
+/// when it does, the session name is the connection that actually happened.
+///
+/// An absolute-form target (a proxy-style `GET http://host/path`) is already a
+/// URL and is left alone.
+pub fn url_for(host: &str, head: &[u8]) -> String {
+    let line_end = head.iter().position(|b| *b == b'\n').unwrap_or(head.len());
+    let line = String::from_utf8_lossy(&head[..line_end]);
+    let mut parts = line.split(' ');
+    let _method = parts.next().unwrap_or("");
+    let target = parts.next().unwrap_or("/");
+    if target.starts_with("http://") || target.starts_with("https://") {
+        return target.to_string();
+    }
+    if host.is_empty() {
+        return target.to_string();
+    }
+    format!("https://{host}{target}")
+}
+
 /// Records one request head. The answer arrives later and completes the
 /// record by id.
 ///
@@ -100,6 +137,8 @@ pub fn record_request(url: &str, head: &[u8]) -> Option<u64> {
         status: 0,
         request_head: clip(head),
         response_head: String::new(),
+        body_preview: String::new(),
+        body_len: 0,
     };
     let mut ring = ring().lock().ok()?;
     if ring.len() == CAPACITY {
@@ -109,8 +148,11 @@ pub fn record_request(url: &str, head: &[u8]) -> Option<u64> {
     Some(id)
 }
 
-/// Completes one record with the answer's head.
-pub fn record_response(id: u64, status: u16, head: &[u8]) {
+/// Completes one record with the answer's head and the body that followed it.
+///
+/// `body` is the wire payload of that read: the caller has it in hand already,
+/// so this costs a copy of at most [`MAX_BODY`] bytes and a length.
+pub fn record_response(id: u64, status: u16, head: &[u8], body: &[u8]) {
     if !enabled() {
         return;
     }
@@ -120,7 +162,16 @@ pub fn record_response(id: u64, status: u16, head: &[u8]) {
     if let Some(record) = ring.iter_mut().find(|record| record.id == id) {
         record.status = status;
         record.response_head = clip(head);
+        record.body_len = body.len();
+        record.body_preview = clip_body(body);
     }
+}
+
+/// A body is binary, so the preview is lossy and never longer than
+/// [`MAX_BODY`].
+fn clip_body(body: &[u8]) -> String {
+    let cut = body.len().min(MAX_BODY);
+    String::from_utf8_lossy(&body[..cut]).into_owned()
 }
 
 /// The records, oldest first.
@@ -171,7 +222,12 @@ mod tests {
                 b"GET /a HTTP/1.1\r\nHost: example.com\r\n",
             )
             .expect("the tracker is on");
-            record_response(id, 200, b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n");
+            record_response(
+                id,
+                200,
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n",
+                b"<html>hi</html>",
+            );
 
             let records = snapshot();
             assert_eq!(records.len(), 1);
@@ -180,6 +236,8 @@ mod tests {
             assert_eq!(record.status, 200);
             assert!(record.request_head.contains("Host: example.com"));
             assert!(record.response_head.contains("text/html"));
+            assert_eq!(record.body_preview, "<html>hi</html>");
+            assert_eq!(record.body_len, 15);
             assert!(record.ts_ms > 0);
         });
     }
@@ -219,6 +277,42 @@ mod tests {
                 .ends_with(&format!("/{}", CAPACITY + 4)));
             assert!(!records.iter().any(|record| record.url.ends_with("/0")));
         });
+    }
+
+    #[test]
+    fn a_body_preview_is_cut_and_keeps_its_length() {
+        serial(|| {
+            set_enabled(true);
+            let id = record_request("https://example.com/big", b"GET / HTTP/1.1\r\n").expect("on");
+            let body = vec![0xffu8; MAX_BODY * 3];
+            record_response(id, 200, b"HTTP/1.1 200 OK\r\n", &body);
+
+            let records = snapshot();
+            assert_eq!(records[0].body_len, MAX_BODY * 3);
+            // Lossy decoding turns each kept byte into one replacement
+            // character, which is three bytes of UTF-8: the cut is on bytes.
+            assert_eq!(records[0].body_preview.chars().count(), MAX_BODY);
+        });
+    }
+
+    #[test]
+    fn the_url_is_the_connection_not_the_header() {
+        assert_eq!(
+            url_for(
+                "example.com",
+                b"GET /a?b=c HTTP/1.1\r\nHost: other.test\r\n"
+            ),
+            "https://example.com/a?b=c"
+        );
+        assert_eq!(
+            url_for("example.com", b"POST /x HTTP/1.1\r\n"),
+            "https://example.com/x"
+        );
+        // A proxy-style absolute target is already a URL.
+        assert_eq!(
+            url_for("example.com", b"GET http://plain.test/y HTTP/1.1\r\n"),
+            "http://plain.test/y"
+        );
     }
 
     #[test]

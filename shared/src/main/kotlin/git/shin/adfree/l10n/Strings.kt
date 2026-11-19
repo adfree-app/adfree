@@ -954,6 +954,7 @@ object Strings {
     const val inspector_request = "inspector_request"
 
     @Suppress("ktlint:standard:property-naming")
+    const val inspector_body = "inspector_body"
     const val inspector_response = "inspector_response"
 
     const val log_subtitle = "log_subtitle"

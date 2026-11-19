@@ -3420,6 +3420,16 @@ data class CaptureRecord (
     var `requestHead`: kotlin.String
     , 
     var `responseHead`: kotlin.String
+    , 
+    /**
+     * The first kilobytes of the body as the origin framed it.
+     */
+    var `bodyPreview`: kotlin.String
+    , 
+    /**
+     * How many body bytes that read carried, preview or not.
+     */
+    var `bodyLen`: kotlin.Long
     
 ){
     
@@ -3442,6 +3452,8 @@ public object FfiConverterTypeCaptureRecord: FfiConverterRustBuffer<CaptureRecor
             FfiConverterInt.read(buf),
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterLong.read(buf),
         )
     }
 
@@ -3451,7 +3463,9 @@ public object FfiConverterTypeCaptureRecord: FfiConverterRustBuffer<CaptureRecor
             FfiConverterString.allocationSize(value.`url`) +
             FfiConverterInt.allocationSize(value.`status`) +
             FfiConverterString.allocationSize(value.`requestHead`) +
-            FfiConverterString.allocationSize(value.`responseHead`)
+            FfiConverterString.allocationSize(value.`responseHead`) +
+            FfiConverterString.allocationSize(value.`bodyPreview`) +
+            FfiConverterLong.allocationSize(value.`bodyLen`)
     )
 
     override fun write(value: CaptureRecord, buf: ByteBuffer) {
@@ -3461,6 +3475,8 @@ public object FfiConverterTypeCaptureRecord: FfiConverterRustBuffer<CaptureRecor
             FfiConverterInt.write(value.`status`, buf)
             FfiConverterString.write(value.`requestHead`, buf)
             FfiConverterString.write(value.`responseHead`, buf)
+            FfiConverterString.write(value.`bodyPreview`, buf)
+            FfiConverterLong.write(value.`bodyLen`, buf)
     }
 }
 

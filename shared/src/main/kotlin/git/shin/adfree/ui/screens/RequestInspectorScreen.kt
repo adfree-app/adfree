@@ -48,10 +48,10 @@ import kotlinx.coroutines.delay
  * on, closing it turns the copy off. That is the whole reason it is a window
  * and not a setting — a tracker nobody is looking at should not cost a byte.
  *
- * Bodies are not here on purpose: reading one means undoing its transfer and
- * content encoding, which is a second decode of the same response. The two
- * heads, the status and the time answer the question this window exists for:
- * what went where, and what came back.
+ * The body is shown as the origin framed it — still compressed, still chunked
+ * — because undoing that is a second decode of the same response, and a second
+ * decode is not what a connection log is for. What the bytes look like, and how
+ * many there were, is what the window can honestly show.
  */
 @Composable
 @Suppress("ktlint:standard:function-naming")
@@ -150,6 +150,14 @@ fun RequestInspectorScreen(modifier: Modifier = Modifier) {
                     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp)) {
                         HeadBlock(Strings.inspector_request, current.requestHead)
                         HeadBlock(Strings.inspector_response, current.responseHead)
+                        HeadBlock(
+                            Strings.inspector_body,
+                            if (current.bodyLen == 0L) {
+                                ""
+                            } else {
+                                "${current.bodyPreview}\n\n(${current.bodyLen} B)"
+                            },
+                        )
                     }
                 }
             }

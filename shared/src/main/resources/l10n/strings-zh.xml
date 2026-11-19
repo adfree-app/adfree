@@ -935,6 +935,7 @@
     <string name="inspector_clear">清空</string>
     <string name="inspector_empty">还没有内容。保持此窗口打开并加载一个页面。</string>
     <string name="inspector_request">请求</string>
+    <string name="inspector_body">正文</string>
     <string name="inspector_response">响应</string>
     <string name="log_subtitle">最近的网络查询</string>
     <string name="log_clear_action">清空日志</string>

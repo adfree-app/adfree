@@ -1637,10 +1637,18 @@ impl ProxySession {
                 hls: plan.hls,
                 html: plan.html,
                 page_url: plan.page_url,
-                capture_id: if plan.log_url.is_empty() {
-                    None
+                // Every request is worth a row while the tracker is open,
+                // matched by a rule or not: the URL comes off the head when the
+                // filter never named one.
+                capture_id: if crate::capture::enabled() {
+                    let url = if plan.log_url.is_empty() {
+                        crate::capture::url_for(session_host.unwrap_or(""), buffer)
+                    } else {
+                        plan.log_url.clone()
+                    };
+                    crate::capture::record_request(&url, buffer)
                 } else {
-                    crate::capture::record_request(&plan.log_url, buffer)
+                    None
                 },
                 log_url: plan.log_url,
                 log_type: plan.log_type,
@@ -2307,6 +2315,23 @@ impl ProxySession {
             && !self.stealth.blocks_web_rtc()
             && !pending
         {
+            // The one thing worth reading here: an open tracker window wants
+            // the answer's status and head, and this is the last place they
+            // exist before the bytes are handed on unread. Off is a no-op, so
+            // the plain splice pays nothing for a window that is not open.
+            if crate::capture::enabled() {
+                if let Some(split) = http::head_end(plain) {
+                    let info = http::parse_response_head(&plain[..split]);
+                    if let Some(id) = self.head_requests.front().and_then(|req| req.capture_id) {
+                        crate::capture::record_response(
+                            id,
+                            info.status,
+                            &plain[..split],
+                            &plain[split..],
+                        );
+                    }
+                }
+            }
             return (plain.to_vec(), 0);
         }
         // The session facts every row this connection writes reports. A
@@ -2351,7 +2376,9 @@ impl ProxySession {
                     }
                     let req = self.head_requests.pop_front().unwrap_or_default();
                     if let Some(id) = req.capture_id {
-                        crate::capture::record_response(id, info.status, &head);
+                        // The body this read carried, still as the origin
+                        // framed it: the rewriter has not touched it yet.
+                        crate::capture::record_response(id, info.status, &head, &[]);
                     }
                     // The request this answer belongs to is a log row of its
                     // own: AdGuard's Filtering Log lists what it forwarded
