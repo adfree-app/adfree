@@ -4,10 +4,10 @@ import git.shin.adfree.update.ReleaseAssets
 import git.shin.adfree.update.ReleaseFeed
 import git.shin.adfree.update.UpdateOutcome
 import git.shin.adfree.update.UpdateUiState
-import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 /**
  * The Settings row's check button, which used to change nothing at all.
@@ -28,9 +28,7 @@ class DesktopAppUpdateTest {
     private val linuxArm = ReleaseAssets.Machine("Linux", "aarch64")
 
     /** The same, with the download and the installer-start replaced by a recorder. */
-    private fun installingUpdate(
-        release: DesktopAppUpdate.Release,
-    ): Triple<DesktopAppUpdate, MutableList<String>, MutableList<File>> {
+    private fun installingUpdate(release: DesktopAppUpdate.Release): Triple<DesktopAppUpdate, MutableList<String>, MutableList<File>> {
         val opened = mutableListOf<String>()
         val launched = mutableListOf<File>()
         val update =

@@ -10,9 +10,16 @@ package git.shin.adfree.update
  * parsed: a miss means "no update this way", never a wrong download.
  */
 object ReleaseAssets {
-
-    /** What this build is: the OS family and the CPU it would run on. */
-    data class Machine(val os: String, val arch: String)
+    /**
+     * What this build is: the OS family, the CPU, and — on Linux — the
+     * distribution, because a `.deb` and a `.pkg.tar.zst` are both "Linux" and
+     * only one of them is installable.
+     */
+    data class Machine(
+        val os: String,
+        val arch: String,
+        val distro: String = "",
+    )
 
     private val LINUX_PACKAGE = Regex("""^adfree[_-]([0-9][^-]*)[_-].*\.(deb|rpm)$""")
 
@@ -21,15 +28,19 @@ object ReleaseAssets {
      * machine — a release that predates the package, an architecture nobody
      * built, a Windows release read by a Linux box.
      */
-    fun pick(names: List<String>, machine: Machine): Pair<String, String>? {
+    fun pick(
+        names: List<String>,
+        machine: Machine,
+    ): Pair<String, String>? {
         // `os.name` is "Windows 11" and "Mac OS X", not "windows" and "mac":
         // the family is somewhere in the string, never the whole of it.
         val os = machine.os.lowercase()
+        val distro = machine.distro.lowercase()
         val formats =
             when {
                 "windows" in os -> listOf(Format(".msi", namesArch = false), Format(".exe", namesArch = true))
-                "linux" in os -> listOf(Format(".deb", namesArch = true), Format(".rpm", namesArch = true))
                 "mac" in os -> listOf(Format(".dmg", namesArch = false))
+                "linux" in os -> linuxFormats(distro)
                 else -> emptyList()
             }
         val cpu =
@@ -38,8 +49,16 @@ object ReleaseAssets {
                 "aarch64", "arm64" -> "aarch64"
                 else -> machine.arch.lowercase()
             }
+        // `adfree-debug-...pkg.tar.zst` is a symbol package beside the real one
+        // and sorts before it; a debug build installed as the app is an app
+        // with no code in it.
+        val installable =
+            names.filter { name ->
+                val n = name.lowercase()
+                "-debug" !in n && "-src" !in n
+            }
         formats.forEach { format ->
-            val ofFormat = names.filter { it.lowercase().endsWith(format.extension) }
+            val ofFormat = installable.filter { it.lowercase().endsWith(format.extension) }
             if (ofFormat.isEmpty()) return@forEach
             // An installer that names its architecture has to name this one; the
             // MSI does not name one at all, so on that format there is nothing
@@ -53,13 +72,47 @@ object ReleaseAssets {
     }
 
     /**
+     * The Linux package families, best first.
+     *
+     * A distribution installs exactly one of them, so the family it belongs to
+     * goes first and the rest follow as a last resort: an Arch machine that is
+     * handed a deb has been handed a file it cannot install, which is what
+     * happened before this list existed.
+     */
+    private fun linuxFormats(distro: String): List<Format> {
+        val arch = Format(".pkg.tar.zst", namesArch = true)
+        val deb = Format(".deb", namesArch = true)
+        val rpm = Format(".rpm", namesArch = true)
+        return when {
+            "arch" in distro || "cachy" in distro || "manjaro" in distro -> {
+                listOf(arch, deb, rpm)
+            }
+
+            "debian" in distro || "ubuntu" in distro || "mint" in distro -> {
+                listOf(deb, rpm, arch)
+            }
+
+            "fedora" in distro || "rhel" in distro || "centos" in distro || "suse" in distro -> {
+                listOf(rpm, deb, arch)
+            }
+
+            else -> {
+                listOf(deb, rpm, arch)
+            }
+        }
+    }
+
+    /**
      * Whether the file name says this CPU.
      *
      * `x86_64` is written `amd64` by dpkg and `x86_64` by rpm; arm is `arm64`
      * or `aarch64`. A name with neither is ambiguous, and taking it would hand
      * an arm machine an x86 installer.
      */
-    fun carries(name: String, cpu: String): Boolean {
+    fun carries(
+        name: String,
+        cpu: String,
+    ): Boolean {
         val n = name.lowercase()
         return when (cpu) {
             "x86_64" -> "amd64" in n || "x86_64" in n || "x64" in n
@@ -72,5 +125,8 @@ object ReleaseAssets {
     fun versionOf(name: String): String? = LINUX_PACKAGE.find(name)?.groupValues?.get(1)
 
     /** One installable format on a release, and whether its names say which CPU. */
-    private data class Format(val extension: String, val namesArch: Boolean)
+    private data class Format(
+        val extension: String,
+        val namesArch: Boolean,
+    )
 }

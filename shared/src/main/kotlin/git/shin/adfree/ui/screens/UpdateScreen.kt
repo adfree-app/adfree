@@ -33,7 +33,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -47,6 +46,7 @@ import git.shin.adfree.ui.theme.AdGuardTextMuted
 import git.shin.adfree.ui.theme.AdGuardTextPrimary
 import git.shin.adfree.ui.theme.AdGuardTextSecondary
 import git.shin.adfree.update.ReleaseFeed
+import git.shin.adfree.update.ReleaseNotes
 import git.shin.adfree.update.UpdateInfo
 import git.shin.adfree.update.UpdateUiState
 
@@ -61,6 +61,7 @@ import git.shin.adfree.update.UpdateUiState
  * waiting.
  */
 @Composable
+@Suppress("ktlint:standard:function-naming")
 fun UpdateScreen(
     viewModel: AdGuardViewModel,
     onBack: () -> Unit,
@@ -74,15 +75,17 @@ fun UpdateScreen(
     val uri = LocalUriHandler.current
 
     Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(AdGuardDarkBg),
+        modifier =
+            modifier
+                .fillMaxSize()
+                .background(AdGuardDarkBg),
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onBack)
-                .padding(horizontal = 12.dp, vertical = 12.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onBack)
+                    .padding(horizontal = 12.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
@@ -101,11 +104,12 @@ fun UpdateScreen(
         }
 
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp),
         ) {
             Spacer(modifier = Modifier.height(4.dp))
 
@@ -116,8 +120,9 @@ fun UpdateScreen(
                 onInstall = { viewModel.installAppUpdate(it) },
             )
 
-            val info = (state as? UpdateUiState.Available)?.info
-                ?: (state as? UpdateUiState.Downloading)?.info
+            val info =
+                (state as? UpdateUiState.Available)?.info
+                    ?: (state as? UpdateUiState.Downloading)?.info
 
             Spacer(modifier = Modifier.height(18.dp))
 
@@ -126,16 +131,24 @@ fun UpdateScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             // The release body is the changelog for that version: every commit
-            // semantic-release wrote into it, in the words it wrote them.
-            Text(
-                text = info?.releaseNotes?.takeIf { it.isNotBlank() }
-                    ?: if (info == null) L10n.get(Strings.update_notes_none_current)
-                    else L10n.get(Strings.update_notes_empty),
-                fontSize = 12.sp,
-                lineHeight = 18.sp,
-                fontFamily = FontFamily.Monospace,
-                color = if (info?.releaseNotes.isNullOrBlank()) AdGuardTextMuted else AdGuardTextPrimary,
-            )
+            // semantic-release wrote into it, in the words it wrote them — and
+            // written in Markdown, which is why it is flattened first.
+            val notes = info?.releaseNotes.orEmpty()
+            if (notes.isBlank()) {
+                Text(
+                    text =
+                        if (info == null) {
+                            L10n.get(Strings.update_notes_none_current)
+                        } else {
+                            L10n.get(Strings.update_notes_empty)
+                        },
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp,
+                    color = AdGuardTextMuted,
+                )
+            } else {
+                NotesList(ReleaseNotes.lines(notes))
+            }
 
             Spacer(modifier = Modifier.height(18.dp))
 
@@ -157,6 +170,7 @@ fun UpdateScreen(
 }
 
 @Composable
+@Suppress("ktlint:standard:function-naming")
 private fun VersionCard(
     version: String,
     state: UpdateUiState,
@@ -164,12 +178,13 @@ private fun VersionCard(
     onInstall: (UpdateInfo) -> Unit,
 ) {
     Column(
-        modifier = Modifier
-            .widthIn(max = 640.dp)
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(AdGuardDarkBg.copy(alpha = 0.6f))
-            .padding(16.dp),
+        modifier =
+            Modifier
+                .widthIn(max = 640.dp)
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(AdGuardDarkBg.copy(alpha = 0.6f))
+                .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -204,20 +219,31 @@ private fun VersionCard(
 
         Row(verticalAlignment = Alignment.CenterVertically) {
             when (state) {
-                UpdateUiState.Idle -> Button(onClick = onCheck) {
-                    Text(L10n.get(Strings.settings_update_check))
+                UpdateUiState.Idle -> {
+                    Button(onClick = onCheck) {
+                        Text(L10n.get(Strings.settings_update_check))
+                    }
                 }
-                UpdateUiState.Checking -> CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    strokeWidth = 2.dp,
-                )
-                is UpdateUiState.Available -> Button(onClick = { onInstall(state.info) }) {
-                    Text(L10n.get(Strings.update_install))
+
+                UpdateUiState.Checking -> {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                    )
                 }
-                is UpdateUiState.Downloading -> CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    strokeWidth = 2.dp,
-                )
+
+                is UpdateUiState.Available -> {
+                    Button(onClick = { onInstall(state.info) }) {
+                        Text(L10n.get(Strings.update_install))
+                    }
+                }
+
+                is UpdateUiState.Downloading -> {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                    )
+                }
             }
             if (state is UpdateUiState.Available) {
                 Spacer(modifier = Modifier.width(10.dp))
@@ -233,14 +259,62 @@ private fun statusLine(state: UpdateUiState): String =
     when (state) {
         // Idle is "nothing was asked yet", not "nothing newer exists": the
         // automatic check follows the filter schedule and may not have run.
-        UpdateUiState.Idle -> L10n.get(Strings.settings_update_idle)
-        UpdateUiState.Checking -> L10n.get(Strings.settings_update_checking)
-        is UpdateUiState.Available ->
+        UpdateUiState.Idle -> {
+            L10n.get(Strings.settings_update_idle)
+        }
+
+        UpdateUiState.Checking -> {
+            L10n.get(Strings.settings_update_checking)
+        }
+
+        is UpdateUiState.Available -> {
             L10n.format(Strings.settings_update_available, state.info.version)
-        is UpdateUiState.Downloading -> L10n.format(Strings.settings_update_downloading, state.progress)
+        }
+
+        is UpdateUiState.Downloading -> {
+            L10n.format(Strings.settings_update_downloading, state.progress)
+        }
     }
 
 @Composable
+@Suppress("ktlint:standard:function-naming")
+private fun NotesList(lines: List<ReleaseNotes.Line>) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        lines.forEach { line ->
+            when (line.kind) {
+                ReleaseNotes.Kind.HEADING -> {
+                    Text(
+                        text = line.text,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AdGuardTextPrimary,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+
+                ReleaseNotes.Kind.BULLET -> {
+                    Row {
+                        Text("•", fontSize = 12.sp, color = AdGuardTextMuted)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(line.text, fontSize = 12.sp, lineHeight = 17.sp, color = AdGuardTextPrimary)
+                    }
+                }
+
+                ReleaseNotes.Kind.TEXT -> {
+                    Text(
+                        text = line.text,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                        color = AdGuardTextSecondary,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+@Suppress("ktlint:standard:function-naming")
 private fun SectionLabel(text: String) {
     Box(modifier = Modifier.fillMaxWidth()) {
         Text(

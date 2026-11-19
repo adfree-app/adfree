@@ -1924,17 +1924,29 @@ private fun AppUpdateSection(
                 Text(
                     text =
                         when (state) {
-                            UpdateUiState.Idle -> L10n.get(Strings.update_up_to_date)
-                            UpdateUiState.Checking -> L10n.get(Strings.settings_update_checking)
-                            is UpdateUiState.Available ->
+                            UpdateUiState.Idle -> {
+                                L10n.get(Strings.update_up_to_date)
+                            }
+
+                            UpdateUiState.Checking -> {
+                                L10n.get(Strings.settings_update_checking)
+                            }
+
+                            is UpdateUiState.Available -> {
                                 L10n.format(Strings.settings_update_available, state.info.version)
-                            is UpdateUiState.Downloading ->
+                            }
+
+                            is UpdateUiState.Downloading -> {
                                 L10n.format(Strings.settings_update_downloading, state.progress)
+                            }
                         },
                     fontSize = 11.sp,
                     color =
-                        if (state is UpdateUiState.Available) AdGuardGreenPrimary
-                        else AdGuardTextMuted,
+                        if (state is UpdateUiState.Available) {
+                            AdGuardGreenPrimary
+                        } else {
+                            AdGuardTextMuted
+                        },
                 )
             }
             Icon(

@@ -146,7 +146,8 @@ class DesktopAppUpdate(
             // The file this machine can install, not the page that lists them
             // all: the screen offers one button, and it has to know which file.
             val asset =
-                ReleaseAssets.pick(release.assets.map { it.name }, machine)
+                ReleaseAssets
+                    .pick(release.assets.map { it.name }, machine)
                     ?.first
                     ?.let { name -> release.assets.first { it.name == name } }
             _state.value =
@@ -218,16 +219,33 @@ class DesktopAppUpdate(
                 )
             }
 
-        /** Which machine this is, as the JVM spells it: "Linux", "Windows 11", "amd64". */
+        /** Which machine this is: the JVM's OS and CPU, and the Linux distribution. */
         fun hostMachine() =
             ReleaseAssets.Machine(
                 os = System.getProperty("os.name").orEmpty(),
                 arch = System.getProperty("os.arch").orEmpty(),
+                distro = distro(),
             )
 
+        /**
+         * The distribution's own name, from `/etc/os-release`.
+         *
+         * "Linux" is not enough to choose a package: an Arch machine installs a
+         * `.pkg.tar.zst` and cannot install a deb at all, and the release has
+         * both.
+         */
+        fun distro(): String =
+            runCatching {
+                val release = File("/etc/os-release")
+                if (!release.canRead()) return ""
+                release
+                    .readLines()
+                    .filter { it.startsWith("ID=") || it.startsWith("ID_LIKE=") }
+                    .joinToString(" ") { it.substringAfter('=').trim('"') }
+            }.getOrDefault("")
+
         /** The file name an asset URL ends with, which is how the OS sees it. */
-        fun assetNameOf(url: String): String =
-            url.substringAfterLast('/').substringBefore('?').ifBlank { "adfree-update" }
+        fun assetNameOf(url: String): String = url.substringAfterLast('/').substringBefore('?').ifBlank { "adfree-update" }
 
         /**
          * Fetches an installer to a temporary directory, reporting how much has
@@ -237,7 +255,10 @@ class DesktopAppUpdate(
          * than a spinner: the MSI is tens of megabytes and the wait is long
          * enough that a still bar reads as a hang.
          */
-        fun downloadAsset(asset: Asset, onProgress: (Int) -> Unit): Result<File> =
+        fun downloadAsset(
+            asset: Asset,
+            onProgress: (Int) -> Unit,
+        ): Result<File> =
             runCatching {
                 val dir = File(System.getProperty("java.io.tmpdir"), "adfree-update").apply { mkdirs() }
                 val target = File(dir, asset.name)
@@ -282,6 +303,23 @@ class DesktopAppUpdate(
          * manager's default handler is tried directly.
          */
         fun openWithSystem(file: File) {
+            // An Arch package has no file association: double-clicking one opens
+            // an archive viewer. What it needs is pacman, and pacman needs root,
+            // so the password prompt the user sees is polkit's — the same one
+            // the setup helper already asks for.
+            if (file.name.endsWith(".pkg.tar.zst")) {
+                val started =
+                    ProcessBuilder("pkexec", "pacman", "-U", "--noconfirm", file.absolutePath)
+                        .redirectErrorStream(true)
+                        .start()
+                // pacman's own output is the explanation when it fails; a bare
+                // exit code would leave the user with nothing.
+                val output = started.inputStream.bufferedReader().readText()
+                check(started.waitFor() == 0) {
+                    output.ifBlank { "pacman exited ${started.exitValue()}" }.trim()
+                }
+                return
+            }
             if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
                 runCatching { Desktop.getDesktop().open(file) }
                     .onSuccess { return }

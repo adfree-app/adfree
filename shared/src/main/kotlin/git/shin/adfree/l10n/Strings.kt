@@ -1,3 +1,5 @@
+@file:Suppress("ktlint:standard:property-naming")
+
 // Generated from l10n/strings-default.xml — the single source of truth for
 // app wording on every platform. Regenerate after adding keys:
 //   grep -o 'name="[^"]*"' app/src/main/res/values/strings.xml | ...
@@ -332,9 +334,7 @@ object Strings {
     const val home_stat_battery = "home_stat_battery"
     const val home_stat_battery_value = "home_stat_battery_value"
 
-    @Suppress("ktlint:standard:property-naming")
     const val home_quick_log = "home_quick_log"
-
     const val home_quick_ads = "home_quick_ads"
     const val home_quick_tracking = "home_quick_tracking"
     const val home_quick_dns = "home_quick_dns"
@@ -1387,6 +1387,7 @@ object Strings {
     const val update_notes_empty = "update_notes_empty"
     const val update_notes_none_current = "update_notes_none_current"
     const val update_release_page = "update_release_page"
+
     const val update_check_again = "update_check_again"
     const val update_install = "update_install"
     const val settings_update_title = "settings_update_title"
