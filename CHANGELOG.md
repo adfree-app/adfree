@@ -1,3 +1,9 @@
+# [1.23.0](https://github.com/adfree-app/adfree/compare/v1.22.0...v1.23.0) (2026-11-19)
+
+### Features
+
+* **desktop:** a clock on every request, and a phone's way to read one ([7ad1b3a](https://github.com/adfree-app/adfree/commit/7ad1b3aa3b9aad6628453ab73f98fa27f7ef67dd))
+
 # [1.22.0](https://github.com/adfree-app/adfree/compare/v1.21.0...v1.22.0) (2026-11-19)
 
 ### Features
