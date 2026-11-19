@@ -39,19 +39,22 @@ object RequestCopy {
         val first = lines.firstOrNull().orEmpty().split(' ')
         val method = first.getOrNull(0)?.takeIf { it.isNotBlank() } ?: "GET"
         val target = first.getOrNull(1)?.takeIf { it.isNotBlank() } ?: "/"
-        val headers = lines.drop(1).mapNotNull { line ->
-            if (line.isBlank()) {
-                null
-            } else {
-                val colon = line.indexOf(':')
-                if (colon <= 0) {
-                    null
-                } else {
-                    val name = line.substring(0, colon).trim()
-                    if (name.lowercase() in SKIP) name to "" else name to line.substring(colon + 1).trim()
-                }
-            }
-        }.filter { it.second.isNotEmpty() }
+        val headers =
+            lines
+                .drop(1)
+                .mapNotNull { line ->
+                    if (line.isBlank()) {
+                        null
+                    } else {
+                        val colon = line.indexOf(':')
+                        if (colon <= 0) {
+                            null
+                        } else {
+                            val name = line.substring(0, colon).trim()
+                            if (name.lowercase() in SKIP) name to "" else name to line.substring(colon + 1).trim()
+                        }
+                    }
+                }.filter { it.second.isNotEmpty() }
         return Line(method, target, headers)
     }
 
@@ -92,6 +95,40 @@ object RequestCopy {
         line.headers.forEach { (name, value) -> parts += "-H ${quote("$name: $value", '"')}" }
         return parts.joinToString(" ^\n  ") + "\n"
     }
+
+    /**
+     * The request as PowerShell, where there is no `curl` to rely on.
+     *
+     * `Invoke-WebRequest` takes its headers as a hashtable and its strings in
+     * single quotes: a bearer token or a cookie can carry a `$`, and PowerShell
+     * reads that as a variable name inside double quotes. Windows PowerShell
+     * 5.1 has no `curl` at all — it is an alias for this same cmdlet — so the
+     * two `curl` copies above are useless on the machine this app runs on.
+     */
+    fun powershell(
+        url: String,
+        head: String,
+    ): String {
+        val line = parse(head)
+        val parts = mutableListOf("Invoke-WebRequest -Uri ${powershellQuote(url)}")
+        if (line.method.uppercase() != "GET") parts += "-Method ${line.method}"
+        if (line.headers.isNotEmpty()) {
+            val headers =
+                line.headers.joinToString("; ") { (name, value) ->
+                    "${powershellQuote(name)} = ${powershellQuote(value)}"
+                }
+            parts += "-Headers @{ $headers }"
+        }
+        return parts.joinToString(" `\n  ") + "\n"
+    }
+
+    /**
+     * A PowerShell literal that survives what a header carries. Inside single
+     * quotes the only character that ends the string is another single quote,
+     * and the language escapes it by doubling it — not with a backslash, which
+     * PowerShell would store as a literal.
+     */
+    private fun powershellQuote(value: String): String = "'" + value.replace("'", "''") + "'"
 
     /**
      * Wraps a value in [mark] and escapes what would end it: a backslash and the

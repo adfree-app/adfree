@@ -3415,9 +3415,24 @@ data class CaptureRecord (
     , 
     var `url`: kotlin.String
     , 
+    /**
+     * The method from the request line.
+     */
+    var `method`: kotlin.String
+    , 
     var `status`: kotlin.Int
     , 
     var `requestHead`: kotlin.String
+    , 
+    /**
+     * The first kilobytes of the request body, as it was framed.
+     */
+    var `requestBodyPreview`: kotlin.String
+    , 
+    /**
+     * How many body bytes the request carried, preview or not.
+     */
+    var `requestBodyLen`: kotlin.Long
     , 
     var `responseHead`: kotlin.String
     , 
@@ -3449,8 +3464,11 @@ public object FfiConverterTypeCaptureRecord: FfiConverterRustBuffer<CaptureRecor
             FfiConverterLong.read(buf),
             FfiConverterLong.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
             FfiConverterInt.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterLong.read(buf),
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
             FfiConverterLong.read(buf),
@@ -3461,8 +3479,11 @@ public object FfiConverterTypeCaptureRecord: FfiConverterRustBuffer<CaptureRecor
             FfiConverterLong.allocationSize(value.`tsMs`) +
             FfiConverterLong.allocationSize(value.`id`) +
             FfiConverterString.allocationSize(value.`url`) +
+            FfiConverterString.allocationSize(value.`method`) +
             FfiConverterInt.allocationSize(value.`status`) +
             FfiConverterString.allocationSize(value.`requestHead`) +
+            FfiConverterString.allocationSize(value.`requestBodyPreview`) +
+            FfiConverterLong.allocationSize(value.`requestBodyLen`) +
             FfiConverterString.allocationSize(value.`responseHead`) +
             FfiConverterString.allocationSize(value.`bodyPreview`) +
             FfiConverterLong.allocationSize(value.`bodyLen`)
@@ -3472,8 +3493,11 @@ public object FfiConverterTypeCaptureRecord: FfiConverterRustBuffer<CaptureRecor
             FfiConverterLong.write(value.`tsMs`, buf)
             FfiConverterLong.write(value.`id`, buf)
             FfiConverterString.write(value.`url`, buf)
+            FfiConverterString.write(value.`method`, buf)
             FfiConverterInt.write(value.`status`, buf)
             FfiConverterString.write(value.`requestHead`, buf)
+            FfiConverterString.write(value.`requestBodyPreview`, buf)
+            FfiConverterLong.write(value.`requestBodyLen`, buf)
             FfiConverterString.write(value.`responseHead`, buf)
             FfiConverterString.write(value.`bodyPreview`, buf)
             FfiConverterLong.write(value.`bodyLen`, buf)

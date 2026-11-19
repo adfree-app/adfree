@@ -973,6 +973,36 @@ object Strings {
     const val inspector_col_time = "inspector_col_time"
 
     @Suppress("ktlint:standard:property-naming")
+    const val inspector_col_method = "inspector_col_method"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_section_request_body = "inspector_section_request_body"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_type_all = "inspector_type_all"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_type_xhr = "inspector_type_xhr"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_type_js = "inspector_type_js"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_type_css = "inspector_type_css"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_type_doc = "inspector_type_doc"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_type_img = "inspector_type_img"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_type_font = "inspector_type_font"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_type_other = "inspector_type_other"
+
+    @Suppress("ktlint:standard:property-naming")
     const val inspector_tab_headers = "inspector_tab_headers"
 
     @Suppress("ktlint:standard:property-naming")
@@ -1013,6 +1043,9 @@ object Strings {
 
     @Suppress("ktlint:standard:property-naming")
     const val inspector_copy_head = "inspector_copy_head"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_copy_powershell = "inspector_copy_powershell"
 
     @Suppress("ktlint:standard:property-naming")
     const val inspector_empty = "inspector_empty"

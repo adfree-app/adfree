@@ -43,6 +43,7 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberTrayState
 import androidx.compose.ui.window.rememberWindowState
+import git.shin.adfree.data.InspectorLayout
 import git.shin.adfree.l10n.L10n
 import git.shin.adfree.l10n.Strings
 import git.shin.adfree.model.ThemeMode
@@ -472,7 +473,7 @@ fun main() {
                             onClose = { showInspector = false },
                         )
                         Box(Modifier.weight(1f).fillMaxWidth()) {
-                            RequestInspectorScreen()
+                            RequestInspectorScreen(layout = InspectorLayout(container.store))
                         }
                     }
                     ResizeHandles()

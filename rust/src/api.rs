@@ -581,8 +581,14 @@ pub struct CaptureRecord {
     pub ts_ms: i64,
     pub id: i64,
     pub url: String,
+    /// The method from the request line.
+    pub method: String,
     pub status: i32,
     pub request_head: String,
+    /// The first kilobytes of the request body, as it was framed.
+    pub request_body_preview: String,
+    /// How many body bytes the request carried, preview or not.
+    pub request_body_len: i64,
     pub response_head: String,
     /// The first kilobytes of the body as the origin framed it.
     pub body_preview: String,
@@ -617,8 +623,11 @@ pub fn core_capture_records() -> Vec<CaptureRecord> {
                 ts_ms: record.ts_ms as i64,
                 id: record.id as i64,
                 url: record.url,
+                method: record.method,
                 status: record.status as i32,
                 request_head: record.request_head,
+                request_body_preview: record.request_body_preview,
+                request_body_len: record.request_body_len as i64,
                 response_head: record.response_head,
                 body_preview: record.body_preview,
                 body_len: record.body_len as i64,

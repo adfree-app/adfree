@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -75,6 +76,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import git.shin.adfree.core.CaptureRecord
+import git.shin.adfree.data.InspectorDock
+import git.shin.adfree.data.InspectorLayout
 import git.shin.adfree.core.coreCaptureClear
 import git.shin.adfree.core.coreCaptureRecords
 import git.shin.adfree.core.coreCaptureSetEnabled
@@ -120,11 +123,15 @@ private object Dt {
 }
 
 @Composable
-fun RequestInspectorScreen(modifier: Modifier = Modifier) {
+fun RequestInspectorScreen(
+    modifier: Modifier = Modifier,
+    layout: InspectorLayout? = null,
+) {
     var records by remember { mutableStateOf(emptyList<CaptureRecord>()) }
     var selected by remember { mutableStateOf<Long?>(null) }
     var opened by remember { mutableStateOf<Long?>(null) }
     var query by remember { mutableStateOf("") }
+    var kind by remember { mutableStateOf(Kind.ALL) }
     val clipboard = LocalClipboardManager.current
     var copied by remember { mutableStateOf(0) }
 
@@ -161,21 +168,44 @@ fun RequestInspectorScreen(modifier: Modifier = Modifier) {
     val current = records.firstOrNull { it.id == selected } ?: records.lastOrNull()
     // The ring hands them over oldest first, which is the order they arrived in.
     // Read from the other end so the newest line is the first one on screen.
-    val shown = records.filter { matches(it, query) }.asReversed()
+    // Both narrowings at once: the text filter answers "which one was that",
+    // the kind row answers "what did this page load".
+    val shown =
+        records
+            .filter { kind == Kind.ALL || kindOf(it) == kind }
+            .filter { matches(it, query) }
+            .asReversed()
 
     // Where the exchange details sit: below the list like the default browser
     // dock, or pinned to either side. The split remembers what the user set it
     // to; turning it means the pick starts over from the sensible default. On a
     // narrow window there is no room for a permanent pane, so the details move
     // into a dialog that opens over the list.
-    var dock by remember { mutableStateOf(Dock.BOTTOM) }
+    // A pane that opens where the defaults put it has to be dragged there on
+    // every open, so the last position — and the last size — are read back from
+    // the store before the first frame.
+    var dock by remember { mutableStateOf(layout?.dock() ?: InspectorDock.BOTTOM) }
     var picked by remember { mutableStateOf<Dp?>(null) }
 
     BoxWithConstraints(modifier.fillMaxSize().background(Dt.panel)) {
         val compact = maxWidth < 600.dp
-        val axis = if (dock == Dock.BOTTOM) maxHeight else maxWidth
+        val axis = if (dock == InspectorDock.BOTTOM) maxHeight else maxWidth
         val density = LocalDensity.current
-        val detail = if (compact) 0.dp else (picked ?: (axis * 0.42f)).coerceIn(140.dp, axis * 0.78f)
+        val ratio = layout?.ratio() ?: InspectorLayout.DEFAULT_RATIO
+        val detail =
+            if (compact) {
+                0.dp
+            } else {
+                (picked ?: (axis * ratio)).coerceIn(140.dp, axis * InspectorLayout.MAX_RATIO)
+            }
+        // Saved after the drag settles, not on every delta: a properties file
+        // written per mouse move is a file written a thousand times a second.
+        LaunchedEffect(dock, picked) {
+            if (!compact && axis > 0.dp) {
+                delay(400)
+                layout?.remember(dock, detail.value / axis.value)
+            }
+        }
         // A drag that opens the pane grows it: at the bottom the divider moves
         // up with the pointer, on the right it moves in from the right, and on
         // the left the pane's own edge is the divider.
@@ -183,8 +213,8 @@ fun RequestInspectorScreen(modifier: Modifier = Modifier) {
             rememberDraggableState { delta ->
                 val step = with(density) { delta.toDp() }
                 picked =
-                    (detail + if (dock == Dock.LEFT) step else -step)
-                        .coerceIn(140.dp, axis * 0.78f)
+                    (detail + if (dock == InspectorDock.LEFT) step else -step)
+                        .coerceIn(140.dp, axis * InspectorLayout.MAX_RATIO)
             }
 
         Column(Modifier.fillMaxSize()) {
@@ -194,16 +224,16 @@ fun RequestInspectorScreen(modifier: Modifier = Modifier) {
                 query = query,
                 onQuery = { query = it },
                 dock = if (compact) null else dock,
-                onDock = {
-                    dock = it
-                    picked = null
-                },
+                onDock = { dock = it },
+                kind = kind,
+                onKind = { kind = it },
                 onClear = {
                     coreCaptureClear()
                     records = emptyList()
                     selected = null
                 },
             )
+            KindRow(kind) { kind = it }
             if (compact) {
                 RequestList(
                     records = shown,
@@ -267,13 +297,13 @@ fun RequestInspectorScreen(modifier: Modifier = Modifier) {
                 }
             } else {
                 when (dock) {
-                    Dock.BOTTOM -> {
+                    InspectorDock.BOTTOM -> {
                         RequestList(shown, current, { selected = it }, copy, Modifier.weight(1f))
                         SplitHandle(vertical = false, drag = drag)
                         DetailSlot(current, copy, Modifier.fillMaxWidth().height(detail))
                     }
 
-                    Dock.RIGHT -> {
+                    InspectorDock.RIGHT -> {
                         Row(Modifier.fillMaxWidth().weight(1f)) {
                             RequestList(shown, current, { selected = it }, copy, Modifier.weight(1f).fillMaxHeight())
                             SplitHandle(vertical = true, drag = drag)
@@ -281,7 +311,7 @@ fun RequestInspectorScreen(modifier: Modifier = Modifier) {
                         }
                     }
 
-                    Dock.LEFT -> {
+                    InspectorDock.LEFT -> {
                         Row(Modifier.fillMaxWidth().weight(1f)) {
                             DetailSlot(current, copy, Modifier.width(detail).fillMaxHeight())
                             SplitHandle(vertical = true, drag = drag)
@@ -382,7 +412,13 @@ private fun DetailSlot(
 }
 
 /** Where the details dock: the browser's own three homes for its panel. */
-private enum class Dock { BOTTOM, RIGHT, LEFT }
+/**
+ * The kinds a request can be filed under, guessed from what the answer claims
+ * to be carrying. The browser knows a resource's type because it asked for it;
+ * a tracker watching bytes only has the content type, which is why this is a
+ * filter a reader narrows by hand rather than a fact the row states.
+ */
+private enum class Kind { ALL, XHR, JS, CSS, DOC, IMG, FONT, OTHER }
 
 @Composable
 private fun Toolbar(
@@ -390,8 +426,10 @@ private fun Toolbar(
     shown: Int,
     query: String,
     onQuery: (String) -> Unit,
-    dock: Dock?,
-    onDock: (Dock) -> Unit,
+    dock: InspectorDock?,
+    onDock: (InspectorDock) -> Unit,
+    kind: Kind,
+    onKind: (Kind) -> Unit,
     onClear: () -> Unit,
 ) {
     Row(
@@ -429,7 +467,7 @@ private fun Toolbar(
         // 48 dp touch target, and three of those plus a dock switcher is more
         // room than a toolbar this short has to give.
         if (dock != null) {
-            Dock.entries.forEach { entry ->
+            InspectorDock.entries.forEach { entry ->
                 DockButton(entry, entry == dock) { onDock(entry) }
             }
         }
@@ -451,13 +489,84 @@ private fun Toolbar(
 }
 
 /**
+ * The kinds a request can be narrowed to, in a row of chips the way a browser
+ * lays them out. The row scrolls sideways rather than wrapping: eight chips do
+ * not fit a narrow window, and a second line would eat the list.
+ */
+@Composable
+private fun KindRow(
+    kind: Kind,
+    onKind: (Kind) -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(28.dp)
+            .background(Dt.toolbar)
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Kind.entries.forEach { entry ->
+            val selected = entry == kind
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(if (selected) Dt.rowSelected else Color.Transparent)
+                    .clickable { onKind(entry) }
+                    .padding(horizontal = 9.dp, vertical = 3.dp),
+            ) {
+                Text(
+                    L10n.get(kindLabel(entry)),
+                    fontSize = 11.sp,
+                    color = if (selected) Dt.text else Dt.muted,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+private fun kindLabel(kind: Kind): String =
+    when (kind) {
+        Kind.ALL -> Strings.inspector_type_all
+        Kind.XHR -> Strings.inspector_type_xhr
+        Kind.JS -> Strings.inspector_type_js
+        Kind.CSS -> Strings.inspector_type_css
+        Kind.DOC -> Strings.inspector_type_doc
+        Kind.IMG -> Strings.inspector_type_img
+        Kind.FONT -> Strings.inspector_type_font
+        Kind.OTHER -> Strings.inspector_type_other
+    }
+
+/**
+ * What the answer claims to be carrying. A response with no head yet cannot be
+ * filed, so it lands in `OTHER` until its own row updates — which is also what
+ * a request still waiting to be answered looks like.
+ */
+private fun kindOf(record: CaptureRecord): Kind {
+    val type = mediaType(record.responseHead).lowercase()
+    return when {
+        record.responseHead.isEmpty() -> Kind.OTHER
+        "javascript" in type || "ecmascript" in type -> Kind.JS
+        "text/css" in type -> Kind.CSS
+        "text/html" in type || "xhtml" in type -> Kind.DOC
+        "image/" in type -> Kind.IMG
+        "font" in type || "woff" in type || "ttf" in type || "opentype" in type -> Kind.FONT
+        "json" in type || "xml" in type || "text/plain" in type -> Kind.XHR
+        else -> Kind.OTHER
+    }
+}
+
+/**
  * One of the three dock positions, drawn as the layout it means: a rectangle
  * with the detail pane filled in at the bottom, the right or the left. Drawn
  * rather than borrowed from an icon font, because the shape is the choice.
  */
 @Composable
 private fun DockButton(
-    dock: Dock,
+    dock: InspectorDock,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
@@ -475,9 +584,9 @@ private fun DockButton(
             drawRect(tint, style = Stroke(stroke))
             val filled =
                 when (dock) {
-                    Dock.BOTTOM -> Rect(0f, size.height * 0.6f, size.width, size.height)
-                    Dock.RIGHT -> Rect(size.width * 0.6f, 0f, size.width, size.height)
-                    Dock.LEFT -> Rect(0f, 0f, size.width * 0.4f, size.height)
+                    InspectorDock.BOTTOM -> Rect(0f, size.height * 0.6f, size.width, size.height)
+                    InspectorDock.RIGHT -> Rect(size.width * 0.6f, 0f, size.width, size.height)
+                    InspectorDock.LEFT -> Rect(0f, 0f, size.width * 0.4f, size.height)
                 }
             drawRect(tint, topLeft = filled.topLeft, size = filled.size)
         }
@@ -523,6 +632,10 @@ private fun FilterBox(
 }
 
 /** Fixed widths keep every column on a shared edge down the list. */
+// The header reads "Phương thức" in Vietnamese, which is wider than the flag
+// itself; a phone's row only ever holds "GET" or "POST".
+private val methodWidth = 104.dp
+private val methodWidthCompact = 54.dp
 private val statusWidth = 72.dp
 private val typeWidth = 86.dp
 private val sizeWidth = 90.dp
@@ -539,6 +652,7 @@ private fun ColumnHeader(compact: Boolean) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        HeaderCell(L10n.get(Strings.inspector_col_method), Modifier.width(if (compact) methodWidthCompact else methodWidth))
         HeaderCell(L10n.get(Strings.inspector_col_name), Modifier.weight(1f))
         HeaderCell(L10n.get(Strings.inspector_col_status), Modifier.width(statusWidth))
         if (!compact) HeaderCell(L10n.get(Strings.inspector_col_type), Modifier.width(typeWidth))
@@ -596,6 +710,24 @@ private fun RequestRow(
             // DevTools marks a failed request with a red left edge; here it is
             // the one stripe that survives a narrow window.
             Box(Modifier.width(2.dp).fillMaxHeight().background(if (failed) Dt.bad else Color.Transparent))
+            // The method in its own column, coloured the way a reader already
+            // reads HTTP: a read is green, a write is yellow, a deletion is
+            // red. The name keeps whatever is left.
+            Text(
+                record.method.ifEmpty { "GET" },
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                color =
+                    when (record.method.uppercase()) {
+                        "GET", "HEAD" -> Dt.ok
+                        "POST", "PUT", "PATCH" -> Dt.warn
+                        "DELETE" -> Dt.bad
+                        else -> Dt.muted
+                    },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.width(if (compact) methodWidthCompact else methodWidth),
+            )
             Text(
                 nameCell(record.url),
                 fontSize = 12.sp,
@@ -668,6 +800,13 @@ private fun RequestRow(
                 },
             )
             DropdownMenuItem(
+                text = { Text(L10n.get(Strings.inspector_copy_powershell), fontSize = 12.sp, color = Dt.text) },
+                onClick = {
+                    menu = false
+                    onCopy(RequestCopy.powershell(record.url, record.requestHead))
+                },
+            )
+            DropdownMenuItem(
                 text = { Text(L10n.get(Strings.inspector_copy_head), fontSize = 12.sp, color = Dt.text) },
                 onClick = {
                     menu = false
@@ -708,6 +847,22 @@ private fun DetailPane(
 
                 Tab.REQUEST -> {
                     HeaderSection(null, headerRows(record.requestHead), onCopy)
+                    if (record.requestBodyPreview.isNotEmpty()) {
+                        Section(L10n.get(Strings.inspector_section_request_body))
+                        Text(
+                            record.requestBodyPreview,
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = Dt.text,
+                            modifier = Modifier.clickable { onCopy(record.requestBodyPreview) },
+                        )
+                        Text(
+                            bytes(record.requestBodyLen),
+                            fontSize = 11.sp,
+                            color = Dt.muted,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
                 }
 
                 Tab.RESPONSE -> {

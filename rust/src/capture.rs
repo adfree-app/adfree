@@ -8,9 +8,11 @@
 //! It costs the packet path one atomic load while it is off. While it is on it
 //! copies at most [`MAX_HEAD`] bytes of each head into a ring that holds
 //! [`CAPACITY`] records, so a window left open on a busy page stops at a fixed
-//! amount of memory instead of growing. Bodies are not kept: reading them means
-//! undoing the transfer encoding and the content encoding per response, and
-//! that work belongs behind its own switch, not in the middle of a stream.
+//! amount of memory instead of growing. Each side also keeps a [`MAX_BODY`]
+//! preview of what followed its head. It is the wire, not the document: still
+//! compressed, still chunked, and short by design — undoing the transfer and
+//! content encodings per response is work that belongs behind its own switch,
+//! not in the middle of a stream.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -38,10 +40,18 @@ pub struct Record {
     /// Monotonic id, so a UI can order records it received in two batches.
     pub id: u64,
     pub url: String,
+    /// The method from the request line, so the list can sort and colour by it
+    /// without re-reading the head on every frame.
+    pub method: String,
     /// The status the origin answered with; 0 while the answer is still out.
     pub status: u16,
     /// The request head, verbatim, up to [`MAX_HEAD`] bytes.
     pub request_head: String,
+    /// The first [`MAX_BODY`] wire bytes of the request's body, lossily
+    /// decoded, so a form or a JSON post can be read without a second capture.
+    pub request_body_preview: String,
+    /// How many body bytes the request carried, preview or not.
+    pub request_body_len: usize,
     /// The response head, verbatim, up to [`MAX_HEAD`] bytes.
     pub response_head: String,
     /// The first [`MAX_BODY`] wire bytes of the body, lossily decoded: this is
@@ -95,6 +105,33 @@ fn clip(head: &[u8]) -> String {
     String::from_utf8_lossy(&head[..cut]).into_owned()
 }
 
+/// The method a request head opens with. A head that names none is a `GET`,
+/// which is what a client that left it out would be understood to mean.
+pub fn method_of(head: &[u8]) -> String {
+    let line_end = head.iter().position(|b| *b == b'\n').unwrap_or(head.len());
+    let line = String::from_utf8_lossy(&head[..line_end]);
+    let method = line.split(' ').next().unwrap_or("").trim().to_string();
+    if method.is_empty() {
+        "GET".to_string()
+    } else {
+        method
+    }
+}
+
+/// The byte just past the blank line that ends a head, where the body starts.
+/// `0` for a head that is still being read, and the whole slice for one that
+/// never ends — a request body cannot be told from a head without it.
+fn body_start(bytes: &[u8]) -> usize {
+    let mut i = 0;
+    while i + 3 < bytes.len() {
+        if &bytes[i..i + 4] == b"\r\n\r\n" {
+            return i + 4;
+        }
+        i += 1;
+    }
+    0
+}
+
 /// The URL a request head names, for the ring's left column.
 ///
 /// The head carries a target, not an origin: `GET /a?b=c HTTP/1.1`. The host
@@ -130,12 +167,26 @@ pub fn record_request(url: &str, head: &[u8]) -> Option<u64> {
         return None;
     }
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+    // The client's buffer holds head and body in one piece. Cutting at the
+    // blank line keeps a form or a JSON post where it can be read, instead of
+    // letting it run past the head's four kilobytes and lose its beginning.
+    let split = body_start(head);
+    // No blank line means the whole buffer is still the head: a request that
+    // has not finished arriving has no body to tell apart yet.
+    let (request_head, request_body) = if split == 0 {
+        (head, &head[head.len()..])
+    } else {
+        head.split_at(split)
+    };
     let record = Record {
         ts_ms: now_ms(),
         id,
         url: url.to_string(),
+        method: method_of(head),
         status: 0,
-        request_head: clip(head),
+        request_head: clip(request_head),
+        request_body_preview: clip_body(request_body),
+        request_body_len: request_body.len(),
         response_head: String::new(),
         body_preview: String::new(),
         body_len: 0,
@@ -253,6 +304,57 @@ mod tests {
             assert_eq!(records.len(), 1);
             assert_eq!(records[0].request_head.len(), MAX_HEAD);
             assert_eq!(records[0].id, id);
+        });
+    }
+
+    #[test]
+    fn the_method_and_the_body_are_kept_apart_from_the_head() {
+        serial(|| {
+            set_enabled(true);
+            record_request(
+                "https://example.com/post",
+                b"POST /post HTTP/1.1\r\nHost: example.com\r\n\r\n{\"a\":1}",
+            )
+            .expect("the tracker is on");
+
+            let records = snapshot();
+            let record = &records[0];
+            assert_eq!(record.method, "POST");
+            assert!(record.request_head.ends_with("Host: example.com\r\n\r\n"));
+            assert!(!record.request_head.contains("{\"a\":1}"));
+            assert_eq!(record.request_body_preview, "{\"a\":1}");
+            assert_eq!(record.request_body_len, 7);
+        });
+    }
+
+    #[test]
+    fn a_request_with_no_body_has_an_empty_one() {
+        serial(|| {
+            set_enabled(true);
+            record_request(
+                "https://example.com/",
+                b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n",
+            )
+            .expect("on");
+            let records = snapshot();
+            assert_eq!(records[0].method, "GET");
+            assert_eq!(records[0].request_body_len, 0);
+            assert!(records[0].request_body_preview.is_empty());
+        });
+    }
+
+    #[test]
+    fn a_head_without_a_blank_line_is_not_mistaken_for_a_body() {
+        serial(|| {
+            set_enabled(true);
+            record_request(
+                "https://example.com/",
+                b"GET / HTTP/1.1\r\nHost: example.com",
+            )
+            .expect("on");
+            let records = snapshot();
+            assert_eq!(records[0].request_body_len, 0);
+            assert!(records[0].request_head.contains("Host"));
         });
     }
 

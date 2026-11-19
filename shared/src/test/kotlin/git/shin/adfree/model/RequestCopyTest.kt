@@ -67,6 +67,32 @@ class RequestCopyTest {
     }
 
     @Test
+    fun powershellGetsAHashtableRatherThanTheCurlFlag() {
+        val command = RequestCopy.powershell("https://example.com/v1/chat", head)
+        assertEquals(
+            "Invoke-WebRequest -Uri 'https://example.com/v1/chat' `\n" +
+                "  -Method POST `\n" +
+                "  -Headers @{ 'Accept' = 'application/json'; 'Cookie' = 'a=1' }\n",
+            command,
+        )
+    }
+
+    @Test
+    fun aPowerShellStringEscapesWithADoubledQuote() {
+        val tricky = "GET / HTTP/1.1\r\nX-Name: it's fine\r\n\r\n"
+        assertTrue("'X-Name' = 'it''s fine'" in RequestCopy.powershell("https://e.com/", tricky))
+    }
+
+    @Test
+    fun powershellWithoutHeadersIsOneLine() {
+        val get = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
+        assertEquals(
+            "Invoke-WebRequest -Uri 'https://example.com/'\n",
+            RequestCopy.powershell("https://example.com/", get),
+        )
+    }
+
+    @Test
     fun anEmptyHeadStillProducesAUsableCommand() {
         val command = RequestCopy.curlBash("https://e.com/", "")
         assertEquals("curl 'https://e.com/'\n", command)
