@@ -70,6 +70,7 @@ import git.shin.adfree.model.DnsBackupMode
 import git.shin.adfree.model.DnsBlockMode
 import git.shin.adfree.model.DnsProvider
 import git.shin.adfree.model.ProtocolType
+import git.shin.adfree.model.ProxyProtocol
 import git.shin.adfree.model.ProxySettings
 import git.shin.adfree.model.normalizeProxyHost
 import git.shin.adfree.model.probeAddress
@@ -653,6 +654,55 @@ private fun ProxySection(
 
         SurfaceCard {
             Column(modifier = Modifier.padding(14.dp)) {
+                Text(
+                    text = L10n.get(Strings.network_proxy_protocol_label),
+                    fontSize = 11.sp,
+                    color = AdGuardTextMuted,
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ProxyProtocol.entries.forEach { protocol ->
+                        FilterChip(
+                            selected = draft.protocol == protocol,
+                            onClick = {
+                                draft = draft.copy(protocol = protocol)
+                                error = null
+                            },
+                            label = {
+                                Text(
+                                    L10n.get(
+                                        if (protocol == ProxyProtocol.SOCKS5) {
+                                            Strings.network_proxy_protocol_socks5
+                                        } else {
+                                            Strings.network_proxy_protocol_http
+                                        },
+                                    ),
+                                    fontSize = 11.sp,
+                                )
+                            },
+                            colors =
+                                FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = AdGuardGreenPrimary,
+                                    selectedLabelColor = AdGuardOnAccent,
+                                ),
+                        )
+                    }
+                }
+                if (!draft.carriesUdp) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = L10n.get(Strings.network_proxy_protocol_http_note),
+                        fontSize = 11.sp,
+                        color = AdGuardOrangeWarning,
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
                     value = draft.host,
                     onValueChange = {

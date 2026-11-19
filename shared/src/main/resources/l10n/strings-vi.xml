@@ -490,6 +490,10 @@
     <string name="network_proxy_auto_subtitle">Chỉ lưu lượng internet (TCP và UDP) đi qua proxy; địa chỉ LAN đi trực tiếp</string>
     <string name="network_proxy_host_error">Chỉ hỗ trợ địa chỉ IPv4/IPv6, không dùng tên miền</string>
     <string name="network_proxy_port_error">Cổng phải trong khoảng 1–65535</string>
+    <string name="network_proxy_protocol_label">Giao thức</string>
+    <string name="network_proxy_protocol_socks5">SOCKS5</string>
+    <string name="network_proxy_protocol_http">HTTP CONNECT</string>
+    <string name="network_proxy_protocol_http_note">Proxy HTTP chỉ chở TCP. Luồng UDP đi trực tiếp, vì CONNECT không có dạng UDP.</string>
     <string name="network_proxy_host_label">Địa chỉ IP proxy</string>
     <string name="network_proxy_host_hint">192.168.1.10 hoặc [::1]</string>
     <string name="network_proxy_port_label">Cổng</string>

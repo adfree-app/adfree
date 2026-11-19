@@ -34,11 +34,11 @@ use crate::dns::{self, BlockMode, Query};
 use crate::events::{self, Event, EventLog};
 use crate::filter::{FilterEngine, FilterListInfo, HostVerdict};
 use crate::fxhash::{hash_str, FxHashMap};
+use crate::httpconnect::UpstreamHandshake;
 use crate::mitm::quic::bridge;
 use crate::mitm::quic::socket::{Datagram, TunUdpSocket};
 use crate::mitm::relay::{RelayPoll, TrafficSink};
 use crate::packet::{self, IpKey, Packet, PROTO_TCP, PROTO_UDP};
-use crate::socks5::Socks5Handshake;
 use crate::state::model::{FirewallAccess, ProxyAccess};
 use crate::stats::{self, Stats};
 use crate::sys::fd::RawFd;
@@ -642,7 +642,7 @@ struct UpstreamHalf {
     session: Option<crate::mitm::proxy::ProxySession>,
     app_packages: Vec<String>,
     proxy: Option<Arc<crate::socks5::ProxyEndpoint>>,
-    handshake: Option<Socks5Handshake>,
+    handshake: Option<UpstreamHandshake>,
 }
 
 /// What a relay's peer socket delivered.
@@ -2355,6 +2355,15 @@ impl Core {
         } else {
             None
         };
+        // An HTTP proxy carries TCP only: a UDP flow through one has nowhere to
+        // go, so it goes direct and the log says why instead of pretending.
+        let proxy = proxy.filter(|p| {
+            let carry = p.kind == crate::socks5::ProxyKind::Socks5;
+            if !carry {
+                crate::logbuf::push("proxy: an HTTP proxy has no UDP; this flow goes direct");
+            }
+            carry
+        });
         let proxied = proxy.is_some();
         let nat = self.udp_nat.lock().unwrap();
         if nat.len() >= UDP_MAX_FLOWS || (proxied && nat.proxied_len() >= UDP_MAX_PROXIED_FLOWS) {
@@ -3245,7 +3254,7 @@ impl Core {
             None
         };
         let handshake = match &proxy {
-            Some(p) => match Socks5Handshake::new(dst, pkt.dst_port, p.credentials()) {
+            Some(p) => match UpstreamHandshake::connect(p, dst, pkt.dst_port) {
                 Ok(h) => Some(h),
                 Err(e) => {
                     crate::logbuf::push(&format!("relay: {e}"));
@@ -5813,7 +5822,7 @@ impl Core {
             return false;
         }
         let handshake = match &proxy {
-            Some(p) => match Socks5Handshake::new(dst, dport, p.credentials()) {
+            Some(p) => match UpstreamHandshake::connect(p, dst, dport) {
                 Ok(h) => Some(h),
                 Err(e) => {
                     crate::logbuf::push(&format!("relay: {e}"));
@@ -5887,7 +5896,7 @@ impl Core {
             return false;
         }
         let handshake = match &proxy {
-            Some(p) => match Socks5Handshake::new(dst, dport, p.credentials()) {
+            Some(p) => match UpstreamHandshake::connect(p, dst, dport) {
                 Ok(h) => Some(h),
                 Err(e) => {
                     crate::logbuf::push(&format!("relay: {e}"));
@@ -6777,6 +6786,7 @@ mod tests {
                 username: String::new(),
                 password: String::new(),
                 automatic: false,
+                kind: crate::socks5::ProxyKind::Socks5,
             })),
             ..Config::default()
         });
@@ -8348,6 +8358,130 @@ mod tests {
         assert!(!core.retry_peer_connect(40000));
     }
 
+    /// Through an HTTP endpoint the same gate holds, on a different wire: the
+    /// proxy reads a `CONNECT` head instead of a greeting, answers with a
+    /// status line, and only the bytes after it are treated as the origin's.
+    #[test]
+    fn an_http_proxy_gates_client_bytes_until_the_status_line() {
+        use std::io::{Read, Write};
+        use std::os::fd::IntoRawFd;
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("proxy listener");
+        let proxy_port = listener.local_addr().expect("addr").port();
+        let (hold, wait) = std::sync::mpsc::channel::<()>();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("proxy accepts");
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .expect("timeout");
+
+            let mut head = Vec::new();
+            let mut byte = [0u8; 1];
+            while !head.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).expect("head bytes");
+                head.extend_from_slice(&byte);
+            }
+            let head = String::from_utf8_lossy(&head);
+            assert!(
+                head.starts_with("CONNECT 93.184.216.34:80 HTTP/1.1\r\n"),
+                "the head names the destination: {head:?}"
+            );
+
+            // Nothing readable before the status line is application data that
+            // escaped the gate.
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_millis(150)))
+                .expect("timeout");
+            let mut probe = [0u8; 1];
+            let early = match stream.read(&mut probe) {
+                Ok(n) => {
+                    assert_eq!(n, 0, "the engine wrote {n} bytes before the status line");
+                    true
+                }
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    false
+                }
+                Err(e) => panic!("proxy read failed: {e}"),
+            };
+
+            stream
+                .write_all(b"HTTP/1.1 200 Connection established\r\n\r\n")
+                .expect("status");
+            let mut hello = [0u8; 5];
+            stream.read_exact(&mut hello).expect("application bytes");
+            assert_eq!(&hello, b"hello", "the queued bytes follow the head");
+            stream.write_all(b"world").expect("origin echo");
+            let _ = wait.recv_timeout(std::time::Duration::from_secs(5));
+            early
+        });
+
+        let core = Core::new();
+        core.set_socket_protector(Arc::new(AllowAll));
+        let peer = std::net::TcpStream::connect(("127.0.0.1", proxy_port)).expect("connect");
+        let dst = crate::packet::IpKey::V4(u32::from_be_bytes([93, 184, 216, 34]));
+        let flow = crate::mitm::tcp::Flow::new(
+            crate::packet::IpKey::V4(u32::from_be_bytes([10, 0, 2, 15])),
+            40000,
+            80,
+            7,
+            7000,
+        );
+        let mut relay = crate::mitm::relay::Relay::new_plain(
+            flow,
+            peer.into_raw_fd(),
+            tcp_syn(40000, [93, 184, 216, 34], 80),
+            crate::mitm::relay::DEFAULT_MSS,
+            false,
+        );
+        relay.handshake = Some(
+            crate::httpconnect::UpstreamHandshake::connect(
+                &crate::socks5::ProxyEndpoint {
+                    addr: crate::packet::ip_key_from("127.0.0.1".parse().unwrap()),
+                    port: proxy_port,
+                    username: String::new(),
+                    password: String::new(),
+                    automatic: false,
+                    kind: crate::socks5::ProxyKind::Http,
+                },
+                dst,
+                80,
+            )
+            .expect("handshake"),
+        );
+        core.relays.lock().unwrap().insert(relay);
+        core.push_to_peer(40000, b"hello");
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let mut echoed = Vec::new();
+        while echoed.is_empty() && std::time::Instant::now() < deadline {
+            core.pump_once(20);
+            for raw in core.take_outbox() {
+                if raw.ends_with(b"world") {
+                    echoed.extend_from_slice(b"world");
+                }
+            }
+        }
+        assert_eq!(echoed, b"world", "the origin echo reached the client");
+        assert!(
+            core.relays
+                .lock()
+                .unwrap()
+                .get(40000)
+                .is_some_and(|r| r.handshake.as_ref().is_some_and(|h| h.is_done())),
+            "the negotiation completed before data flowed"
+        );
+        drop(hold);
+        assert!(
+            !server.join().expect("proxy thread"),
+            "application bytes arrived before CONNECT succeeded"
+        );
+    }
+
     /// Through a SOCKS5 endpoint the proxy speaks first: application bytes
     /// stay queued until its CONNECT reply, so a status byte can never be
     /// spliced to the origin and origin bytes can never be read as a reply.
@@ -8431,8 +8565,21 @@ mod tests {
             crate::mitm::relay::DEFAULT_MSS,
             false,
         );
-        relay.handshake =
-            Some(crate::socks5::Socks5Handshake::new(dst, 80, None).expect("handshake"));
+        relay.handshake = Some(
+            crate::httpconnect::UpstreamHandshake::connect(
+                &crate::socks5::ProxyEndpoint {
+                    addr: crate::packet::ip_key_from("127.0.0.1".parse().unwrap()),
+                    port: 1080,
+                    username: String::new(),
+                    password: String::new(),
+                    automatic: false,
+                    kind: crate::socks5::ProxyKind::Socks5,
+                },
+                dst,
+                80,
+            )
+            .expect("handshake"),
+        );
         core.relays.lock().unwrap().insert(relay);
 
         // The same queue the TCP path feeds. It must not reach the proxy until
@@ -8495,10 +8642,17 @@ mod tests {
             false,
         );
         relay.handshake = Some(
-            crate::socks5::Socks5Handshake::new(
+            crate::httpconnect::UpstreamHandshake::connect(
+                &crate::socks5::ProxyEndpoint {
+                    addr: crate::packet::ip_key_from("127.0.0.1".parse().unwrap()),
+                    port: 1080,
+                    username: String::new(),
+                    password: String::new(),
+                    automatic: false,
+                    kind: crate::socks5::ProxyKind::Socks5,
+                },
                 crate::packet::IpKey::V4(u32::from_be_bytes([93, 184, 216, 34])),
                 80,
-                None,
             )
             .expect("handshake"),
         );

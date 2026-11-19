@@ -3,11 +3,31 @@ package git.shin.adfree.model
 import java.net.InetAddress
 
 /**
- * Outbound SOCKS5 endpoint for TCP and UDP flows (routing mode).
+ * Which protocol the upstream proxy speaks.
+ *
+ * SOCKS5 carries TCP and UDP; an HTTP proxy carries TCP only, through
+ * `CONNECT`. The difference is not cosmetic: UDP flows have nowhere to go
+ * through an HTTP proxy, so they stay direct and say so.
+ */
+enum class ProxyProtocol(
+    val id: String,
+) {
+    SOCKS5("socks5"),
+    HTTP("http"),
+    ;
+
+    companion object {
+        fun of(id: String): ProxyProtocol = entries.firstOrNull { it.id == id } ?: SOCKS5
+    }
+}
+
+/**
+ * Outbound proxy endpoint for TCP flows (routing mode).
  *
  * The host stays an IP literal because the core dials it from the packet loop:
  * resolving a name there would stall every flow. Credentials are optional and
- * only sent when both halves are present (RFC 1929).
+ * only sent when both halves are present — RFC 1929 for SOCKS5, Basic
+ * `Proxy-Authorization` for HTTP.
  */
 data class ProxySettings(
     val enabled: Boolean = false,
@@ -16,7 +36,12 @@ data class ProxySettings(
     val port: Int = 1080,
     val username: String = "",
     val password: String = "",
+    val protocol: ProxyProtocol = ProxyProtocol.SOCKS5,
 ) {
+    /** SOCKS5 is the only one of the two that can carry UDP. */
+    val carriesUdp: Boolean
+        get() = protocol == ProxyProtocol.SOCKS5
+
     /** Ready to route: a literal address and a real port. */
     val isUsable: Boolean
         get() = normalizeProxyHost(host) != null && port in 1..65535

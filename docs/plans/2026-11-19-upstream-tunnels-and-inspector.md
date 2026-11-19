@@ -50,20 +50,24 @@ generated bridge as `coreDrainEvents`.
 
 ## 2. Custom proxy protocols (SOCKS5, HTTP CONNECT upstream)
 
-The tree already speaks SOCKS5 in one direction: `rust/src/socks5.rs` is the
-server the app offers to other programs. Routing *upstream* through a proxy is
-the other direction and does not exist: every connection the engine makes is
-direct, resolved locally by `dns.rs`/`upstream.rs`.
+The tree spoke SOCKS5 in one direction — `rust/src/socks5.rs` is the server
+the app offers to other programs — and the *other* direction already existed
+as `ProxyEndpoint`: SOCKS5 upstream for TCP and UDP (`socks5.rs`), selected in
+the Network screen and carried by the relay's `handshake` slot.
+
+**Built since this plan was written:** HTTP `CONNECT` upstream. `ProxyKind`
+joins `ProxyEndpoint` (`socks5`/`http`), `rust/src/httpconnect.rs` speaks the
+`CONNECT` half — status-line only, Basic `Proxy-Authorization`, no hidden
+chunking — behind one `UpstreamHandshake` the relay already knows how to
+drive, and a UDP flow has nowhere to go through an HTTP proxy, so it stays
+direct and the log says why.
 
 **Seam.** `mitm/relay.rs` opens the outbound socket; `mitm/tls.rs` wraps it.
-An upstream transport is a replacement for the connect half only, so it is one
-trait with two implementations:
-
+An upstream transport is a replacement for the connect half only:
 ```
-trait Upstream { fn connect(&self, host, port) -> Result<TcpStream> }
 struct Direct;
 struct Socks5Upstream { addr, credentials }
-struct HttpConnectUpstream { addr, credentials }
+struct HttpConnectUpstream { addr, credentials }   // built
 ```
 
 **What has to change beyond the trait.** DNS: a name that an upstream proxy

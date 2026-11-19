@@ -106,6 +106,10 @@ pub struct ProxyState {
     pub port: u16,
     pub username: String,
     pub password: String,
+    /// Which protocol the upstream speaks: `socks5` (the absence of this row
+    /// means that) or `http` for an HTTP `CONNECT` proxy.
+    #[serde(default)]
+    pub protocol: String,
 }
 
 fn proxy_automatic_default() -> bool {
@@ -121,6 +125,7 @@ impl Default for ProxyState {
             port: 1080,
             username: String::new(),
             password: String::new(),
+            protocol: String::new(),
         }
     }
 }

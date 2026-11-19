@@ -10,7 +10,7 @@
 
 use crate::mitm::proxy::ProxySession;
 use crate::mitm::tcp::{Flow, FlowState};
-use crate::socks5::{ProxyEndpoint, Socks5Handshake};
+use crate::socks5::ProxyEndpoint;
 use crate::sys::fd::RawFd;
 use crate::sys::libc;
 use crate::util::now_ms;
@@ -132,7 +132,7 @@ pub struct Relay {
     /// the flow opens so a settings change never rewrites a live connection.
     pub proxy: Option<Arc<ProxyEndpoint>>,
     /// SOCKS5 negotiation for this flow; `None` on direct connections.
-    pub handshake: Option<Socks5Handshake>,
+    pub handshake: Option<crate::httpconnect::UpstreamHandshake>,
     /// The SYN was answered, but the upstream half — app attribution, the
     /// protected socket, the TLS session — is still being built by the setup
     /// worker. The packet reader never runs that machinery inline, or every

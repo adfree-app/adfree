@@ -490,6 +490,10 @@
     <string name="network_proxy_auto_subtitle">インターネット向けの通信（TCP と UDP）だけをプロキシに通し、LAN のアドレスは直接にします</string>
     <string name="network_proxy_host_error">対応しているのは IPv4/IPv6 アドレスだけです。ホスト名は使えません</string>
     <string name="network_proxy_port_error">ポートは 1 から 65535 の範囲で指定してください</string>
+    <string name="network_proxy_protocol_label">プロトコル</string>
+    <string name="network_proxy_protocol_socks5">SOCKS5</string>
+    <string name="network_proxy_protocol_http">HTTP CONNECT</string>
+    <string name="network_proxy_protocol_http_note">HTTP プロキシは TCP のみです。CONNECT に UDP の形はないため、UDP の通信は直接つながります。</string>
     <string name="network_proxy_host_label">プロキシの IP アドレス</string>
     <string name="network_proxy_host_hint">192.168.1.10 または [::1]</string>
     <string name="network_proxy_port_label">ポート</string>

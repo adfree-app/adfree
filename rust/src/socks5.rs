@@ -20,6 +20,29 @@ const ATYP_IPV6: u8 = 0x04;
 /// this is not a SOCKS5 reply and must not grow the queue.
 const MAX_REPLY_BYTES: usize = 512;
 
+/// Which protocol the upstream proxy speaks.
+///
+/// SOCKS5 carries TCP and UDP and needs no address the client does not have;
+/// HTTP proxy form carries TCP only, with `CONNECT`. The config picks one and
+/// the flow machinery does not care which.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum ProxyKind {
+    #[default]
+    Socks5,
+    Http,
+}
+
+impl ProxyKind {
+    /// The name a config row carries. Anything unrecognised is SOCKS5, which is
+    /// what an older settings blob means when it says nothing.
+    pub fn from_config(value: &str) -> Self {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "http" | "https" | "connect" => Self::Http,
+            _ => Self::Socks5,
+        }
+    }
+}
+
 /// The SOCKS5 proxy TCP flows (and non-DNS UDP mappings) are sent through.
 #[derive(Clone, Debug)]
 pub struct ProxyEndpoint {
@@ -30,6 +53,8 @@ pub struct ProxyEndpoint {
     /// Automatic routing: destinations that are not on the public internet
     /// skip the proxy. Manual mode sends every flow through it.
     pub automatic: bool,
+    /// SOCKS5, or an HTTP `CONNECT` proxy.
+    pub kind: ProxyKind,
 }
 
 impl ProxyEndpoint {

@@ -463,6 +463,19 @@ object Strings {
     const val network_proxy_auto_subtitle = "network_proxy_auto_subtitle"
     const val network_proxy_host_error = "network_proxy_host_error"
     const val network_proxy_port_error = "network_proxy_port_error"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val network_proxy_protocol_label = "network_proxy_protocol_label"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val network_proxy_protocol_socks5 = "network_proxy_protocol_socks5"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val network_proxy_protocol_http = "network_proxy_protocol_http"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val network_proxy_protocol_http_note = "network_proxy_protocol_http_note"
+
     const val network_proxy_host_label = "network_proxy_host_label"
     const val network_proxy_host_hint = "network_proxy_host_hint"
     const val network_proxy_port_label = "network_proxy_port_label"

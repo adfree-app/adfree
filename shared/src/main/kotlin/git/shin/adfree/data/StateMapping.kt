@@ -28,6 +28,7 @@ import git.shin.adfree.model.LogLevel
 import git.shin.adfree.model.ProtectionSettings
 import git.shin.adfree.model.ProtocolType
 import git.shin.adfree.model.ProxyAccess
+import git.shin.adfree.model.ProxyProtocol
 import git.shin.adfree.model.ProxySettings
 import git.shin.adfree.model.ThemeMode
 
@@ -165,6 +166,7 @@ private fun ProxySettings.toCore(): CoreProxyState = CoreProxyState(
     port = port.coerceIn(0, 65535).toUShort(),
     username = username,
     password = password,
+    protocol = protocol.id,
 )
 
 private fun CoreProxyState.toModel(): ProxySettings = ProxySettings(
@@ -174,6 +176,7 @@ private fun CoreProxyState.toModel(): ProxySettings = ProxySettings(
     port = port.toInt(),
     username = username,
     password = password,
+    protocol = ProxyProtocol.of(protocol),
 )
 
 /**

@@ -5350,6 +5350,12 @@ data class ProxyState (
     var `username`: kotlin.String
     , 
     var `password`: kotlin.String
+    , 
+    /**
+     * Which protocol the upstream speaks: `socks5` (the absence of this row
+     * means that) or `http` for an HTTP `CONNECT` proxy.
+     */
+    var `protocol`: kotlin.String
     
 ){
     
@@ -5372,6 +5378,7 @@ public object FfiConverterTypeProxyState: FfiConverterRustBuffer<ProxyState> {
             FfiConverterUShort.read(buf),
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
         )
     }
 
@@ -5381,7 +5388,8 @@ public object FfiConverterTypeProxyState: FfiConverterRustBuffer<ProxyState> {
             FfiConverterString.allocationSize(value.`host`) +
             FfiConverterUShort.allocationSize(value.`port`) +
             FfiConverterString.allocationSize(value.`username`) +
-            FfiConverterString.allocationSize(value.`password`)
+            FfiConverterString.allocationSize(value.`password`) +
+            FfiConverterString.allocationSize(value.`protocol`)
     )
 
     override fun write(value: ProxyState, buf: ByteBuffer) {
@@ -5391,6 +5399,7 @@ public object FfiConverterTypeProxyState: FfiConverterRustBuffer<ProxyState> {
             FfiConverterUShort.write(value.`port`, buf)
             FfiConverterString.write(value.`username`, buf)
             FfiConverterString.write(value.`password`, buf)
+            FfiConverterString.write(value.`protocol`, buf)
     }
 }
 

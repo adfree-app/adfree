@@ -490,6 +490,10 @@
     <string name="network_proxy_auto_subtitle">Send only internet traffic (TCP and UDP) through the proxy; LAN addresses stay direct</string>
     <string name="network_proxy_host_error">Only IPv4/IPv6 addresses are supported; hostnames cannot be used</string>
     <string name="network_proxy_port_error">The port must be between 1 and 65535</string>
+    <string name="network_proxy_protocol_label">Protocol</string>
+    <string name="network_proxy_protocol_socks5">SOCKS5</string>
+    <string name="network_proxy_protocol_http">HTTP CONNECT</string>
+    <string name="network_proxy_protocol_http_note">An HTTP proxy carries TCP only. UDP flows stay direct, because CONNECT has no UDP form.</string>
     <string name="network_proxy_host_label">Proxy IP address</string>
     <string name="network_proxy_host_hint">192.168.1.10 or [::1]</string>
     <string name="network_proxy_port_label">Port</string>

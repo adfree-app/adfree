@@ -336,6 +336,7 @@ fn proxy(
                 username: state.username.clone(),
                 password: state.password.clone(),
                 automatic: state.automatic,
+                kind: crate::socks5::ProxyKind::from_config(&state.protocol),
             })),
             ConfigWarning::None,
         ),

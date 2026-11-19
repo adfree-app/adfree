@@ -490,6 +490,10 @@
     <string name="network_proxy_auto_subtitle">只有外网流量（TCP 与 UDP）走代理，局域网地址仍然直连</string>
     <string name="network_proxy_host_error">只支持 IPv4/IPv6 地址，不能用主机名</string>
     <string name="network_proxy_port_error">端口必须在 1 到 65535 之间</string>
+    <string name="network_proxy_protocol_label">协议</string>
+    <string name="network_proxy_protocol_socks5">SOCKS5</string>
+    <string name="network_proxy_protocol_http">HTTP CONNECT</string>
+    <string name="network_proxy_protocol_http_note">HTTP 代理只承载 TCP。UDP 流量将直连，因为 CONNECT 没有 UDP 形式。</string>
     <string name="network_proxy_host_label">代理 IP 地址</string>
     <string name="network_proxy_host_hint">192.168.1.10 或 [::1]</string>
     <string name="network_proxy_port_label">端口</string>

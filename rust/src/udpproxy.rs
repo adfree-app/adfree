@@ -11,8 +11,9 @@
 //! relay datagram can only belong to the flow that opened it.
 
 use crate::api::SocketProtector;
+use crate::httpconnect::UpstreamHandshake;
 use crate::packet::IpKey;
-use crate::socks5::{ProxyEndpoint, Socks5Handshake};
+use crate::socks5::{ProxyEndpoint, ProxyKind};
 use crate::sys::fd::RawFd;
 use crate::sys::libc;
 use std::sync::Arc;
@@ -94,8 +95,15 @@ fn associate(
         return Err("connect to the proxy failed".into());
     }
     set_blocking(control.0);
-    let mut handshake =
-        Socks5Handshake::new_udp_associate(proxy.credentials()).map_err(str::to_string)?;
+    // An HTTP proxy has no UDP: the caller does not get here, and if it does,
+    // refusing beats pretending a UDP highway exists through a TCP tunnel.
+    if proxy.kind == ProxyKind::Http {
+        return Err("an HTTP proxy cannot carry UDP".to_string());
+    }
+    let mut handshake = match UpstreamHandshake::udp_associate(proxy) {
+        Ok(h) => h,
+        Err(reason) => return Err(reason.to_string()),
+    };
     let mut buffer = [0u8; 1024];
     loop {
         if handshake.wants_write() {
@@ -479,6 +487,7 @@ mod tests {
             username: String::new(),
             password: String::new(),
             automatic: true,
+            kind: crate::socks5::ProxyKind::Socks5,
         });
         spawn(thread_end, proxy, Arc::new(AllowAll), server, 53).expect("spawn");
 

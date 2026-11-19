@@ -245,6 +245,8 @@ fn settings_from(blob: LegacySettings) -> LegacySettingsPart {
         port: blob.proxy_port.unwrap_or(defaults.proxy.port),
         username: blob.proxy_username.unwrap_or_default(),
         password: blob.proxy_password.unwrap_or_default(),
+        // The old blob only ever meant a SOCKS5 proxy.
+        protocol: String::new(),
     };
 
     let firewall = blob
