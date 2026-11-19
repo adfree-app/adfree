@@ -133,6 +133,11 @@ fun RequestInspectorScreen(
     var opened by remember { mutableStateOf<Long?>(null) }
     var query by remember { mutableStateOf("") }
     var kind by remember { mutableStateOf(Kind.ALL) }
+    // The tab belongs to the reader, not to the row: whatever they were reading
+    // is what the next request opens on. A tab a request cannot have — a
+    // socket's messages, asked of a plain answer — falls back to the headers
+    // for that request and is still remembered for the next one.
+    var tab by remember { mutableStateOf(Tab.HEADERS) }
     val clipboard = LocalClipboardManager.current
     var copied by remember { mutableStateOf(0) }
 
@@ -292,7 +297,7 @@ fun RequestInspectorScreen(
                                     )
                                 }
                             }
-                            DetailPane(openRecord, copy, Modifier.fillMaxWidth().weight(1f))
+                            DetailPane(openRecord, tab, { tab = it }, copy, Modifier.fillMaxWidth().weight(1f))
                         }
                     }
                 }
@@ -301,20 +306,20 @@ fun RequestInspectorScreen(
                     InspectorDock.BOTTOM -> {
                         RequestList(shown, current, { selected = it }, copy, Modifier.weight(1f))
                         SplitHandle(vertical = false, drag = drag)
-                        DetailSlot(current, copy, Modifier.fillMaxWidth().height(detail))
+                        DetailSlot(current, tab, { tab = it }, copy, Modifier.fillMaxWidth().height(detail))
                     }
 
                     InspectorDock.RIGHT -> {
                         Row(Modifier.fillMaxWidth().weight(1f)) {
                             RequestList(shown, current, { selected = it }, copy, Modifier.weight(1f).fillMaxHeight())
                             SplitHandle(vertical = true, drag = drag)
-                            DetailSlot(current, copy, Modifier.width(detail).fillMaxHeight())
+                            DetailSlot(current, tab, { tab = it }, copy, Modifier.width(detail).fillMaxHeight())
                         }
                     }
 
                     InspectorDock.LEFT -> {
                         Row(Modifier.fillMaxWidth().weight(1f)) {
-                            DetailSlot(current, copy, Modifier.width(detail).fillMaxHeight())
+                            DetailSlot(current, tab, { tab = it }, copy, Modifier.width(detail).fillMaxHeight())
                             SplitHandle(vertical = true, drag = drag)
                             RequestList(shown, current, { selected = it }, copy, Modifier.weight(1f).fillMaxHeight())
                         }
@@ -397,6 +402,8 @@ private fun SplitHandle(
 @Composable
 private fun DetailSlot(
     current: CaptureRecord?,
+    tab: Tab,
+    onTab: (Tab) -> Unit,
     onCopy: (String) -> Unit,
     modifier: Modifier,
 ) {
@@ -408,7 +415,7 @@ private fun DetailSlot(
             modifier = modifier.padding(14.dp),
         )
     } else {
-        DetailPane(current, onCopy, modifier)
+        DetailPane(current, tab, onTab, onCopy, modifier)
     }
 }
 
@@ -696,6 +703,11 @@ private fun RequestRow(
 ) {
     val failed = record.status == 0 || record.status >= 400
     var menu by remember { mutableStateOf(false) }
+    // A menu that opens at the row's left edge opens at the same place every
+    // time, however far along the row the pointer was. The press carries the
+    // position, so the menu can be put where the pointer already is.
+    var menuAt by remember { mutableStateOf(Offset.Zero) }
+    val density = LocalDensity.current
     Box(Modifier.fillMaxWidth()) {
         Row(
             Modifier
@@ -707,8 +719,9 @@ private fun RequestRow(
                     awaitPointerEventScope {
                         while (true) {
                             val event = awaitPointerEvent()
-                            if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) {
-                                menu = true
+                            if (event.type == PointerEventType.Press) {
+                                event.changes.firstOrNull()?.let { menuAt = it.position }
+                                if (event.buttons.isSecondaryPressed) menu = true
                             }
                         }
                     }
@@ -786,7 +799,14 @@ private fun RequestRow(
                 modifier = Modifier.width(timeWidth),
             )
         }
-        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+        DropdownMenu(
+            expanded = menu,
+            onDismissRequest = { menu = false },
+            offset =
+                with(density) {
+                    DpOffset(menuAt.x.toDp(), menuAt.y.toDp())
+                },
+        ) {
             DropdownMenuItem(
                 text = { Text(L10n.get(Strings.inspector_copy_fetch), fontSize = 12.sp, color = Dt.text) },
                 onClick = {
@@ -829,17 +849,19 @@ private fun RequestRow(
 @Composable
 private fun DetailPane(
     record: CaptureRecord,
+    tab: Tab,
+    onTab: (Tab) -> Unit,
     onCopy: (String) -> Unit,
     modifier: Modifier,
 ) {
-    var tab by remember(record.id) { mutableStateOf(Tab.HEADERS) }
     Column(modifier.background(Dt.panel)) {
-        val tabs = tab.tabs(record)
-        if (tab !in tabs) tab = Tab.HEADERS
-        TabStrip(tab, { tab = it }, tabs)
+        val tabs = tabsFor(record)
+        // What this request can show, which is not always what was asked for.
+        val shown = if (tab in tabs) tab else Tab.HEADERS
+        TabStrip(shown, onTab, tabs)
         Box(Modifier.fillMaxWidth().height(1.dp).background(Dt.border))
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp)) {
-            when (tab) {
+            when (shown) {
                 Tab.HEADERS -> {
                     Section(L10n.get(Strings.inspector_section_general))
                     Pair(L10n.get(Strings.inspector_general_url), record.url, Dt.link, onCopy)
@@ -969,7 +991,7 @@ private fun opcodeName(opcode: Int): String =
 
 private enum class Tab { HEADERS, REQUEST, RESPONSE, MESSAGES }
 
-private fun Tab.tabs(record: CaptureRecord): List<Tab> =
+private fun tabsFor(record: CaptureRecord): List<Tab> =
     if (record.status == 101) {
         listOf(Tab.HEADERS, Tab.REQUEST, Tab.MESSAGES, Tab.RESPONSE)
     } else {
