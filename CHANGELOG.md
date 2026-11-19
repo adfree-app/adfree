@@ -1,3 +1,9 @@
+# [1.28.0](https://github.com/adfree-app/adfree/compare/v1.27.0...v1.28.0) (2026-11-19)
+
+### Features
+
+* **desktop:** an update screen with the release notes, and the installer it picks ([bd5627d](https://github.com/adfree-app/adfree/commit/bd5627d38e3c4f22ca5e585d91258ba3d76a16a8))
+
 # [1.27.0](https://github.com/adfree-app/adfree/compare/v1.26.0...v1.27.0) (2026-11-19)
 
 ### Features
