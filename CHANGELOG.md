@@ -1,3 +1,9 @@
+# [1.27.0](https://github.com/adfree-app/adfree/compare/v1.26.0...v1.27.0) (2026-11-19)
+
+### Features
+
+* **desktop:** the log and the inspector, one click from the home screen ([f6534a8](https://github.com/adfree-app/adfree/commit/f6534a84a27ab3007a647e3718b4ab1a71cf484c))
+
 # [1.26.0](https://github.com/adfree-app/adfree/compare/v1.25.0...v1.26.0) (2026-11-19)
 
 ### Features
