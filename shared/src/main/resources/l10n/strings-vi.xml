@@ -955,6 +955,7 @@
     <string name="inspector_type_js">JS</string>
     <string name="inspector_type_css">CSS</string>
     <string name="inspector_type_doc">Doc</string>
+    <string name="inspector_type_ws">WS</string>
     <string name="inspector_type_img">Ảnh</string>
     <string name="inspector_type_font">Font</string>
     <string name="inspector_type_other">Khác</string>

@@ -955,6 +955,7 @@
     <string name="inspector_type_js">JS</string>
     <string name="inspector_type_css">CSS</string>
     <string name="inspector_type_doc">ドキュメント</string>
+    <string name="inspector_type_ws">WS</string>
     <string name="inspector_type_img">画像</string>
     <string name="inspector_type_font">フォント</string>
     <string name="inspector_type_other">その他</string>

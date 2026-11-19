@@ -418,7 +418,7 @@ private fun DetailSlot(
  * a tracker watching bytes only has the content type, which is why this is a
  * filter a reader narrows by hand rather than a fact the row states.
  */
-private enum class Kind { ALL, XHR, JS, CSS, DOC, IMG, FONT, OTHER }
+private enum class Kind { ALL, XHR, JS, CSS, DOC, WS, IMG, FONT, OTHER }
 
 @Composable
 private fun Toolbar(
@@ -535,6 +535,7 @@ private fun kindLabel(kind: Kind): String =
         Kind.JS -> Strings.inspector_type_js
         Kind.CSS -> Strings.inspector_type_css
         Kind.DOC -> Strings.inspector_type_doc
+        Kind.WS -> Strings.inspector_type_ws
         Kind.IMG -> Strings.inspector_type_img
         Kind.FONT -> Strings.inspector_type_font
         Kind.OTHER -> Strings.inspector_type_other
@@ -543,11 +544,14 @@ private fun kindLabel(kind: Kind): String =
 /**
  * What the answer claims to be carrying. A response with no head yet cannot be
  * filed, so it lands in `OTHER` until its own row updates — which is also what
- * a request still waiting to be answered looks like.
+ * a request still waiting to be answered looks like. A socket that switched
+ * protocols answered with no `Content-Type` at all: the status is the only
+ * thing that says what it is.
  */
 private fun kindOf(record: CaptureRecord): Kind {
     val type = mediaType(record.responseHead).lowercase()
     return when {
+        record.status == 101 -> Kind.WS
         record.responseHead.isEmpty() -> Kind.OTHER
         "javascript" in type || "ecmascript" in type -> Kind.JS
         "text/css" in type -> Kind.CSS
@@ -757,7 +761,7 @@ private fun RequestRow(
             )
             if (!compact) {
                 Text(
-                    mediaType(record.responseHead),
+                    typeName(record),
                     fontSize = 11.sp,
                     color = Dt.muted,
                     maxLines = 1,
@@ -1093,7 +1097,7 @@ private fun matches(
     if (needle.isEmpty()) return true
     return record.url.lowercase().contains(needle) ||
         "${record.status}".contains(needle) ||
-        mediaType(record.responseHead).lowercase().contains(needle)
+        typeName(record).lowercase().contains(needle)
 }
 
 /**
@@ -1121,6 +1125,13 @@ private fun headerRows(head: String): List<Pair<String, String>> =
             line.substring(0, colon).trim() to line.substring(colon + 1).trim()
         }
     }
+
+/**
+ * The type cell's word: an upgrade has no `Content-Type` to read, and a dash
+ * there reads as "nothing known" rather than as a socket.
+ */
+private fun typeName(record: CaptureRecord): String =
+    if (record.status == 101) "websocket" else mediaType(record.responseHead)
 
 /**
  * The resource kind DevTools would print, derived from the answer's own

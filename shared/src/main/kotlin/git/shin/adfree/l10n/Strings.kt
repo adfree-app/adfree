@@ -992,6 +992,7 @@ object Strings {
 
     @Suppress("ktlint:standard:property-naming")
     const val inspector_type_doc = "inspector_type_doc"
+    const val inspector_type_ws = "inspector_type_ws"
 
     @Suppress("ktlint:standard:property-naming")
     const val inspector_type_img = "inspector_type_img"

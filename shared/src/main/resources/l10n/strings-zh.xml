@@ -955,6 +955,7 @@
     <string name="inspector_type_js">JS</string>
     <string name="inspector_type_css">CSS</string>
     <string name="inspector_type_doc">文档</string>
+    <string name="inspector_type_ws">WS</string>
     <string name="inspector_type_img">图片</string>
     <string name="inspector_type_font">字体</string>
     <string name="inspector_type_other">其他</string>
