@@ -352,6 +352,7 @@
     <string name="home_stat_data_value">%1$s</string>
     <string name="home_stat_battery">Battery saved</string>
     <string name="home_stat_battery_value">+%1$.1f%%</string>
+    <string name="home_quick_log">Filtering log</string>
     <string name="home_quick_ads">Ads</string>
     <string name="home_quick_tracking">Tracking</string>
     <string name="home_quick_dns">DNS</string>

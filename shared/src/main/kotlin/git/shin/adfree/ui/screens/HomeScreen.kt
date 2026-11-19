@@ -32,14 +32,17 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.TrackChanges
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
@@ -63,6 +66,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
@@ -108,9 +113,23 @@ fun HomeScreen(
     val platform = currentPlatformHost()
     val scope = rememberCoroutineScope()
 
+    // Both of these are windows on a desktop and neither is one on a phone, so
+    // the host is asked first and the fallback is a surface over this screen:
+    // the same screens, reached the only way the platform has.
+    var quick by remember { mutableStateOf(QuickSurface.NONE) }
+
     // The switch lives in the system settings, so re-read it on every return;
     // the same call re-pushes the effective DoT policy to the core.
     OnResumeTick { viewModel.refreshPrivateDnsState() }
+
+    val quickRow: @Composable () -> Unit = {
+        QuickOpenRow(
+            onOpenLog = { if (!platform.openFilteringLog()) quick = QuickSurface.LOG },
+            onOpenInspector = {
+                if (!platform.openRequestInspector()) quick = QuickSurface.INSPECTOR
+            },
+        )
+    }
 
     if (isDesktopLayout) {
         DesktopHome(
@@ -127,6 +146,7 @@ fun HomeScreen(
                     AdGuardIntent.OpenProtectionSection(ProtectionSection.EXTENSIONS)
                 )
             },
+            quickOpenRow = quickRow,
             quickModuleRow = {
                 QuickModuleRow(
                     adBlocking = state.settings.isAdBlockingEnabled,
@@ -144,9 +164,7 @@ fun HomeScreen(
                 )
             },
         )
-        return
-    }
-
+    } else {
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -177,6 +195,10 @@ fun HomeScreen(
                 onFirewall = { viewModel.onIntent(AdGuardIntent.ToggleFirewall) },
                 onEco = { viewModel.onIntent(AdGuardIntent.ToggleEcoMode) },
             )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            quickRow()
 
             Spacer(modifier = Modifier.height(6.dp))
 
@@ -215,6 +237,117 @@ fun HomeScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
         }
+    }
+    }
+
+    if (quick != QuickSurface.NONE) {
+        QuickSurfacePopup(
+            surface = quick,
+            viewModel = viewModel,
+            onClose = { quick = QuickSurface.NONE },
+        )
+    }
+}
+
+/** Which of the two windows the home screen can also raise itself. */
+private enum class QuickSurface { NONE, LOG, INSPECTOR }
+
+/**
+ * The log and the inspector, on a screen that has no second window.
+ *
+ * Both already exist as windows on a desktop and as tabs nowhere; this is the
+ * surface that makes them reachable from the home screen on a phone, where the
+ * app is one window and the only thing it can open is a dialog.
+ */
+@Composable
+private fun QuickSurfacePopup(
+    surface: QuickSurface,
+    viewModel: AdGuardViewModel,
+    onClose: () -> Unit,
+) {
+    Dialog(
+        onDismissRequest = onClose,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .background(AdGuardDarkBg),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = L10n.get(
+                        if (surface == QuickSurface.LOG) Strings.home_quick_log
+                        else Strings.inspector_title
+                    ),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = AdGuardTextPrimary,
+                    modifier = Modifier.weight(1f),
+                )
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = null,
+                    tint = AdGuardTextMuted,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .clickable(onClick = onClose)
+                        .padding(8.dp)
+                        .size(18.dp),
+                )
+            }
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                when (surface) {
+                    QuickSurface.LOG -> FilteringLogScreen(viewModel = viewModel)
+                    QuickSurface.INSPECTOR -> RequestInspectorScreen()
+                    QuickSurface.NONE -> Unit
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The app's two visible surfaces, as two buttons on the home screen.
+ *
+ * AdGuard puts these in its own window chrome; here the app is a single window,
+ * so they sit where the user already is.
+ */
+@Composable
+private fun QuickOpenRow(onOpenLog: () -> Unit, onOpenInspector: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        QuickOpenButton(Icons.Filled.List, L10n.get(Strings.home_quick_log), onOpenLog)
+        Spacer(modifier = Modifier.width(10.dp))
+        QuickOpenButton(
+            Icons.Filled.SwapVert,
+            L10n.get(Strings.inspector_title),
+            onOpenInspector,
+        )
+    }
+}
+
+@Composable
+private fun QuickOpenButton(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0xFF1C2733))
+            .border(1.dp, AdGuardDarkOutline, RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = AdGuardGreenPrimary, modifier = Modifier.size(15.dp))
+        Spacer(modifier = Modifier.width(7.dp))
+        Text(label, fontSize = 12.sp, color = AdGuardTextPrimary, maxLines = 1)
     }
 }
 
@@ -807,6 +940,7 @@ private fun DesktopHome(
     onOpenStatistics: () -> Unit,
     onOpenPrivateDns: () -> Unit,
     onOpenScripts: () -> Unit,
+    quickOpenRow: @Composable () -> Unit,
     quickModuleRow: @Composable () -> Unit,
 ) {
     Column(
@@ -847,6 +981,12 @@ private fun DesktopHome(
         Spacer(modifier = Modifier.height(18.dp))
 
         ProtectionSwitch(isActive = state.isVpnActive, onToggle = onToggle)
+
+        Spacer(modifier = Modifier.height(22.dp))
+
+        Box(modifier = Modifier.widthIn(max = 560.dp)) {
+            quickOpenRow()
+        }
 
         Spacer(modifier = Modifier.height(30.dp))
 

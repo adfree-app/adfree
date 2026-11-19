@@ -269,7 +269,14 @@ fun main() {
                 showFilteringLog = true
                 true
             }
-            onDispose { container.onShowFilteringLog = { false } }
+            container.onShowInspector = {
+                showInspector = true
+                true
+            }
+            onDispose {
+                container.onShowFilteringLog = { false }
+                container.onShowInspector = { false }
+            }
         }
 
         // Pausing stops the filtering but not the listeners, and the flag the

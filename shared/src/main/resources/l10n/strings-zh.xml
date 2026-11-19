@@ -352,6 +352,7 @@
     <string name="home_stat_data_value">%1$s</string>
     <string name="home_stat_battery">节省电量</string>
     <string name="home_stat_battery_value">+%1$.1f%%</string>
+    <string name="home_quick_log">过滤日志</string>
     <string name="home_quick_ads">广告</string>
     <string name="home_quick_tracking">跟踪</string>
     <string name="home_quick_dns">DNS</string>

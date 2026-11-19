@@ -98,6 +98,9 @@ class DesktopContainer(
      */
     var onShowFilteringLog: () -> Boolean = { false }
 
+    /** The same door for the request inspector: open its window, or say no. */
+    var onShowInspector: () -> Boolean = { false }
+
     val platformHost = DesktopPlatformHost(
         File(dataRoot, "adfree-ca.pem"),
         privileges = privileges,
@@ -109,6 +112,7 @@ class DesktopContainer(
         privilegedPort = { repository.settings.value.localProxy.tcpPort },
         onRaiseWindow = { onShowWindow() },
         onOpenFilteringLog = { onShowFilteringLog() },
+        onOpenInspector = { onShowInspector() },
     )
     val fileHost = DesktopFileHost()
     val inventory = DesktopAppInventory()

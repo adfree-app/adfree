@@ -351,6 +351,7 @@
     <string name="home_stat_data_value">%1$s</string>
     <string name="home_stat_battery">Tiết kiệm pin</string>
     <string name="home_stat_battery_value">+%1$.1f%%</string>
+    <string name="home_quick_log">Nhật ký lọc</string>
     <string name="home_quick_ads">Quảng cáo</string>
     <string name="home_quick_tracking">Theo dõi</string>
     <string name="home_quick_dns">DNS</string>

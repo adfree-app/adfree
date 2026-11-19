@@ -331,6 +331,7 @@ object Strings {
     const val home_stat_data_value = "home_stat_data_value"
     const val home_stat_battery = "home_stat_battery"
     const val home_stat_battery_value = "home_stat_battery_value"
+    const val home_quick_log = "home_quick_log"
     const val home_quick_ads = "home_quick_ads"
     const val home_quick_tracking = "home_quick_tracking"
     const val home_quick_dns = "home_quick_dns"

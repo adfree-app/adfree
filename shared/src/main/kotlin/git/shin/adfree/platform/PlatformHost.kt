@@ -188,6 +188,16 @@ interface PlatformHost {
      * and the caller falls back to switching to it.
      */
     fun openFilteringLog(): Boolean = false
+
+    /**
+     * Opens the request inspector and says whether it opened a surface of its
+     * own.
+     *
+     * Same shape as [openFilteringLog], and for the same reason: AdGuard's
+     * network panel is a window beside the app on a desktop, and a phone has no
+     * window to put beside anything — the caller shows it over the app instead.
+     */
+    fun openRequestInspector(): Boolean = false
 }
 
 /** Kept separate from [PlatformHost] so a desktop host can reuse the parts it can honour. */

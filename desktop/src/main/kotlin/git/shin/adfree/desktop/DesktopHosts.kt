@@ -56,6 +56,7 @@ class DesktopPlatformHost(
     private val onRaiseWindow: () -> Unit = {},
     /** Opens the filtering log window; set by the shell once it exists. */
     private val onOpenFilteringLog: () -> Boolean = { false },
+    private val onOpenInspector: () -> Boolean = { false },
 ) : PlatformHost {
 
     /** Toasts the window pipes into the scaffold's snackbar host. */
@@ -126,6 +127,9 @@ class DesktopPlatformHost(
 
     // The desktop has the log AdGuard's extension means: its own window.
     override fun openFilteringLog() = onOpenFilteringLog()
+
+    // The inspector is its own window here, exactly like the log.
+    override fun openRequestInspector() = onOpenInspector()
 
     override fun installBrowserExtensionBridge(): String? {
         val host = NativeMessagingHosts.findHostBinary()
