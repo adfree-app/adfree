@@ -936,11 +936,13 @@
     <string name="log_title">日志</string>
     <string name="inspector_title">请求内容</string>
     <string name="inspector_clear">清空</string>
+    <string name="inspector_search">筛选</string>
     <string name="inspector_count">%1$d 个请求</string>
     <string name="inspector_col_name">名称</string>
     <string name="inspector_col_status">状态</string>
     <string name="inspector_col_type">类型</string>
     <string name="inspector_col_size">大小</string>
+    <string name="inspector_col_time">时间</string>
     <string name="inspector_tab_headers">标头</string>
     <string name="inspector_tab_request">请求</string>
     <string name="inspector_tab_response">响应</string>

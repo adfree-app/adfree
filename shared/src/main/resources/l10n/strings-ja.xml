@@ -936,11 +936,13 @@
     <string name="log_title">ログ</string>
     <string name="inspector_title">通信の中身</string>
     <string name="inspector_clear">消去</string>
+    <string name="inspector_search">フィルター</string>
     <string name="inspector_count">%1$d 件のリクエスト</string>
     <string name="inspector_col_name">名前</string>
     <string name="inspector_col_status">ステータス</string>
     <string name="inspector_col_type">種類</string>
     <string name="inspector_col_size">サイズ</string>
+    <string name="inspector_col_time">時刻</string>
     <string name="inspector_tab_headers">ヘッダー</string>
     <string name="inspector_tab_request">リクエスト</string>
     <string name="inspector_tab_response">レスポンス</string>

@@ -970,6 +970,9 @@ object Strings {
     const val inspector_col_size = "inspector_col_size"
 
     @Suppress("ktlint:standard:property-naming")
+    const val inspector_col_time = "inspector_col_time"
+
+    @Suppress("ktlint:standard:property-naming")
     const val inspector_tab_headers = "inspector_tab_headers"
 
     @Suppress("ktlint:standard:property-naming")
@@ -992,6 +995,9 @@ object Strings {
 
     @Suppress("ktlint:standard:property-naming")
     const val inspector_clear = "inspector_clear"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_search = "inspector_search"
 
     @Suppress("ktlint:standard:property-naming")
     const val inspector_empty = "inspector_empty"

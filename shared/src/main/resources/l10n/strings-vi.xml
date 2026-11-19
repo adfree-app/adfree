@@ -936,11 +936,13 @@
     <string name="log_title">Nhật ký</string>
     <string name="inspector_title">Xem lưu lượng</string>
     <string name="inspector_clear">Xoá</string>
+    <string name="inspector_search">Lọc</string>
     <string name="inspector_count">%1$d yêu cầu</string>
     <string name="inspector_col_name">Tên</string>
     <string name="inspector_col_status">Trạng thái</string>
     <string name="inspector_col_type">Loại</string>
     <string name="inspector_col_size">Kích thước</string>
+    <string name="inspector_col_time">Thời gian</string>
     <string name="inspector_tab_headers">Tiêu đề</string>
     <string name="inspector_tab_request">Yêu cầu</string>
     <string name="inspector_tab_response">Trả lời</string>
