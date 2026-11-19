@@ -1,3 +1,9 @@
+# [1.20.0](https://github.com/adfree-app/adfree/compare/v1.19.0...v1.20.0) (2026-11-19)
+
+### Features
+
+* **core:** the tracker sees every request, and the body too ([0bb7132](https://github.com/adfree-app/adfree/commit/0bb713298ad1ca788dc9e6fac06f3d9ed071afb9))
+
 # [1.19.0](https://github.com/adfree-app/adfree/compare/v1.18.0...v1.19.0) (2026-11-18)
 
 ### Features
