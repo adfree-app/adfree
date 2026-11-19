@@ -8,11 +8,11 @@ package git.shin.adfree.ui.screens
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.DraggableState
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -27,12 +27,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -52,7 +55,12 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isSecondaryPressed
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -61,19 +69,22 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpOffset
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import git.shin.adfree.core.CaptureRecord
 import git.shin.adfree.core.coreCaptureClear
 import git.shin.adfree.core.coreCaptureRecords
 import git.shin.adfree.core.coreCaptureSetEnabled
-import androidx.compose.ui.window.Dialog
 import git.shin.adfree.l10n.L10n
 import git.shin.adfree.l10n.Strings
+import git.shin.adfree.model.RequestCopy
+import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlinx.coroutines.delay
 
 /**
  * A connection panel shaped like a browser's own network dock: a toolbar, a
@@ -114,6 +125,23 @@ fun RequestInspectorScreen(modifier: Modifier = Modifier) {
     var selected by remember { mutableStateOf<Long?>(null) }
     var opened by remember { mutableStateOf<Long?>(null) }
     var query by remember { mutableStateOf("") }
+    val clipboard = LocalClipboardManager.current
+    var copied by remember { mutableStateOf(0) }
+
+    // The confirmation is the whole of the feedback: a copy leaves no other
+    // trace, and a value that silently lands on the clipboard is a value nobody
+    // trusts. The token retriggers the countdown when the same text is copied
+    // twice.
+    val copy: (String) -> Unit = { text ->
+        clipboard.setText(AnnotatedString(text))
+        copied += 1
+    }
+    LaunchedEffect(copied) {
+        if (copied > 0) {
+            delay(1500)
+            copied = 0
+        }
+    }
 
     DisposableEffect(Unit) {
         coreCaptureSetEnabled(true)
@@ -184,6 +212,7 @@ fun RequestInspectorScreen(modifier: Modifier = Modifier) {
                         selected = it
                         opened = it
                     },
+                    onCopy = copy,
                     modifier = Modifier.fillMaxWidth().weight(1f),
                     compact = true,
                 )
@@ -232,34 +261,46 @@ fun RequestInspectorScreen(modifier: Modifier = Modifier) {
                                     )
                                 }
                             }
-                            DetailPane(openRecord, Modifier.fillMaxWidth().weight(1f))
+                            DetailPane(openRecord, copy, Modifier.fillMaxWidth().weight(1f))
                         }
                     }
                 }
             } else {
                 when (dock) {
                     Dock.BOTTOM -> {
-                        RequestList(shown, current, { selected = it }, Modifier.weight(1f))
+                        RequestList(shown, current, { selected = it }, copy, Modifier.weight(1f))
                         SplitHandle(vertical = false, drag = drag)
-                        DetailSlot(current, Modifier.fillMaxWidth().height(detail))
+                        DetailSlot(current, copy, Modifier.fillMaxWidth().height(detail))
                     }
 
                     Dock.RIGHT -> {
                         Row(Modifier.fillMaxWidth().weight(1f)) {
-                            RequestList(shown, current, { selected = it }, Modifier.weight(1f).fillMaxHeight())
+                            RequestList(shown, current, { selected = it }, copy, Modifier.weight(1f).fillMaxHeight())
                             SplitHandle(vertical = true, drag = drag)
-                            DetailSlot(current, Modifier.width(detail).fillMaxHeight())
+                            DetailSlot(current, copy, Modifier.width(detail).fillMaxHeight())
                         }
                     }
 
                     Dock.LEFT -> {
                         Row(Modifier.fillMaxWidth().weight(1f)) {
-                            DetailSlot(current, Modifier.width(detail).fillMaxHeight())
+                            DetailSlot(current, copy, Modifier.width(detail).fillMaxHeight())
                             SplitHandle(vertical = true, drag = drag)
-                            RequestList(shown, current, { selected = it }, Modifier.weight(1f).fillMaxHeight())
+                            RequestList(shown, current, { selected = it }, copy, Modifier.weight(1f).fillMaxHeight())
                         }
                     }
                 }
+            }
+        }
+        if (copied > 0) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 18.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Dt.rowSelected)
+                    .padding(horizontal = 14.dp, vertical = 7.dp),
+            ) {
+                Text(L10n.get(Strings.inspector_copied), fontSize = 11.sp, color = Dt.text)
             }
         }
     }
@@ -271,6 +312,7 @@ private fun RequestList(
     records: List<CaptureRecord>,
     current: CaptureRecord?,
     onSelect: (Long) -> Unit,
+    onCopy: (String) -> Unit,
     modifier: Modifier,
     compact: Boolean = false,
 ) {
@@ -282,6 +324,7 @@ private fun RequestList(
                     record = record,
                     selected = record.id == current?.id,
                     onClick = { onSelect(record.id) },
+                    onCopy = onCopy,
                     compact = compact,
                 )
             }
@@ -323,6 +366,7 @@ private fun SplitHandle(
 @Composable
 private fun DetailSlot(
     current: CaptureRecord?,
+    onCopy: (String) -> Unit,
     modifier: Modifier,
 ) {
     if (current == null) {
@@ -333,7 +377,7 @@ private fun DetailSlot(
             modifier = modifier.padding(14.dp),
         )
     } else {
-        DetailPane(current, modifier)
+        DetailPane(current, onCopy, modifier)
     }
 }
 
@@ -524,76 +568,120 @@ private fun RequestRow(
     record: CaptureRecord,
     selected: Boolean,
     onClick: () -> Unit,
+    onCopy: (String) -> Unit,
     compact: Boolean = false,
 ) {
     val failed = record.status == 0 || record.status >= 400
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .height(24.dp)
-            .background(if (selected) Dt.rowSelected else Color.Transparent)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        // DevTools marks a failed request with a red left edge; here it is the
-        // one stripe that survives a narrow window.
-        Box(Modifier.width(2.dp).fillMaxHeight().background(if (failed) Dt.bad else Color.Transparent))
-        Text(
-            nameCell(record.url),
-            fontSize = 12.sp,
-            color = Dt.text,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        Text(
-            if (record.status == 0) "pending" else "${record.status}",
-            fontSize = 11.sp,
-            fontFamily = FontFamily.Monospace,
-            color =
-                when {
-                    record.status == 0 -> Dt.muted
-                    record.status >= 400 -> Dt.bad
-                    record.status >= 300 -> Dt.warn
-                    else -> Dt.ok
-                },
-            maxLines = 1,
-            modifier = Modifier.width(statusWidth),
-        )
-        if (!compact) {
+    var menu by remember { mutableStateOf(false) }
+    Box(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(24.dp)
+                .background(if (selected) Dt.rowSelected else Color.Transparent)
+                .combinedClickable(onClick = onClick, onLongClick = { menu = true })
+                .pointerInput(record.id) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) {
+                                menu = true
+                            }
+                        }
+                    }
+                }.padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            // DevTools marks a failed request with a red left edge; here it is
+            // the one stripe that survives a narrow window.
+            Box(Modifier.width(2.dp).fillMaxHeight().background(if (failed) Dt.bad else Color.Transparent))
             Text(
-                mediaType(record.responseHead),
-                fontSize = 11.sp,
-                color = Dt.muted,
+                nameCell(record.url),
+                fontSize = 12.sp,
+                color = Dt.text,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.width(typeWidth),
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                if (record.status == 0) "pending" else "${record.status}",
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                color =
+                    when {
+                        record.status == 0 -> Dt.muted
+                        record.status >= 400 -> Dt.bad
+                        record.status >= 300 -> Dt.warn
+                        else -> Dt.ok
+                    },
+                maxLines = 1,
+                modifier = Modifier.width(statusWidth),
+            )
+            if (!compact) {
+                Text(
+                    mediaType(record.responseHead),
+                    fontSize = 11.sp,
+                    color = Dt.muted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.width(typeWidth),
+                )
+            }
+            Text(
+                bytes(record.bodyLen),
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                color = Dt.muted,
+                maxLines = 1,
+                modifier = Modifier.width(sizeWidth),
+            )
+            Text(
+                clock(record.tsMs),
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                color = Dt.muted,
+                maxLines = 1,
+                modifier = Modifier.width(timeWidth),
             )
         }
-        Text(
-            bytes(record.bodyLen),
-            fontSize = 11.sp,
-            fontFamily = FontFamily.Monospace,
-            color = Dt.muted,
-            maxLines = 1,
-            modifier = Modifier.width(sizeWidth),
-        )
-        Text(
-            clock(record.tsMs),
-            fontSize = 11.sp,
-            fontFamily = FontFamily.Monospace,
-            color = Dt.muted,
-            maxLines = 1,
-            modifier = Modifier.width(timeWidth),
-        )
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            DropdownMenuItem(
+                text = { Text(L10n.get(Strings.inspector_copy_fetch), fontSize = 12.sp, color = Dt.text) },
+                onClick = {
+                    menu = false
+                    onCopy(RequestCopy.fetch(record.url, record.requestHead))
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(L10n.get(Strings.inspector_copy_curl), fontSize = 12.sp, color = Dt.text) },
+                onClick = {
+                    menu = false
+                    onCopy(RequestCopy.curlBash(record.url, record.requestHead))
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(L10n.get(Strings.inspector_copy_curl_cmd), fontSize = 12.sp, color = Dt.text) },
+                onClick = {
+                    menu = false
+                    onCopy(RequestCopy.curlCmd(record.url, record.requestHead))
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(L10n.get(Strings.inspector_copy_head), fontSize = 12.sp, color = Dt.text) },
+                onClick = {
+                    menu = false
+                    onCopy(record.requestHead)
+                },
+            )
+        }
     }
 }
 
 @Composable
 private fun DetailPane(
     record: CaptureRecord,
+    onCopy: (String) -> Unit,
     modifier: Modifier,
 ) {
     var tab by remember(record.id) { mutableStateOf(Tab.HEADERS) }
@@ -604,31 +692,34 @@ private fun DetailPane(
             when (tab) {
                 Tab.HEADERS -> {
                     Section(L10n.get(Strings.inspector_section_general))
-                    Pair(L10n.get(Strings.inspector_general_url), record.url, Dt.link)
+                    Pair(L10n.get(Strings.inspector_general_url), record.url, Dt.link, onCopy)
                     Pair(
                         L10n.get(Strings.inspector_general_status),
                         if (record.status == 0) "pending" else "${record.status}",
                         if (record.status >= 400) Dt.bad else Dt.text,
+                        onCopy,
                     )
                     HeaderSection(
                         L10n.get(Strings.inspector_section_response_headers),
                         headerRows(record.responseHead),
+                        onCopy,
                     )
                 }
 
                 Tab.REQUEST -> {
-                    HeaderSection(null, headerRows(record.requestHead))
+                    HeaderSection(null, headerRows(record.requestHead), onCopy)
                 }
 
                 Tab.RESPONSE -> {
                     if (record.bodyPreview.isEmpty()) {
-                        Pair(L10n.get(Strings.inspector_col_size), bytes(record.bodyLen), Dt.text)
+                        Pair(L10n.get(Strings.inspector_col_size), bytes(record.bodyLen), Dt.text, onCopy)
                     } else {
                         Text(
                             record.bodyPreview,
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
                             color = Dt.text,
+                            modifier = Modifier.clickable { onCopy(record.bodyPreview) },
                         )
                         Text(
                             bytes(record.bodyLen),
@@ -709,14 +800,15 @@ private fun Section(title: String) {
 private fun HeaderSection(
     title: String?,
     rows: List<Pair<String, String>>,
+    onCopy: (String) -> Unit,
 ) {
     if (rows.isEmpty()) {
         if (title != null) Section(title)
-        Pair("—", "—", Dt.muted)
+        Pair("—", "—", Dt.muted, onCopy)
         return
     }
     if (title != null) Section(title)
-    rows.forEach { (name, value) -> Pair(name, value, Dt.text) }
+    rows.forEach { (name, value) -> Pair(name, value, Dt.text, onCopy) }
 }
 
 /** One name/value row: the name stays quiet, the value carries the text. */
@@ -725,6 +817,7 @@ private fun Pair(
     name: String,
     value: String,
     valueColor: Color,
+    onCopy: (String) -> Unit,
 ) {
     Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
         Text(
@@ -735,12 +828,17 @@ private fun Pair(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.width(150.dp),
         )
+        // The value is the thing a reader wants out of the window, so it is the
+        // thing that copies: one click, and the pill says so.
         Text(
             value,
             fontSize = 11.sp,
             fontFamily = FontFamily.Monospace,
             color = valueColor,
-            modifier = Modifier.weight(1f),
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .clickable { onCopy(value) },
         )
     }
 }

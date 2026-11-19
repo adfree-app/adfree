@@ -937,6 +937,11 @@
     <string name="inspector_title">通信の中身</string>
     <string name="inspector_clear">消去</string>
     <string name="inspector_search">フィルター</string>
+    <string name="inspector_copied">コピーしました</string>
+    <string name="inspector_copy_fetch">fetch としてコピー</string>
+    <string name="inspector_copy_curl">cURL (bash) としてコピー</string>
+    <string name="inspector_copy_curl_cmd">cURL (cmd) としてコピー</string>
+    <string name="inspector_copy_head">リクエストヘッドをコピー</string>
     <string name="inspector_count">%1$d 件のリクエスト</string>
     <string name="inspector_col_name">名前</string>
     <string name="inspector_col_status">ステータス</string>

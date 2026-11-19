@@ -937,6 +937,11 @@
     <string name="inspector_title">请求内容</string>
     <string name="inspector_clear">清空</string>
     <string name="inspector_search">筛选</string>
+    <string name="inspector_copied">已复制</string>
+    <string name="inspector_copy_fetch">复制为 fetch</string>
+    <string name="inspector_copy_curl">复制为 cURL (bash)</string>
+    <string name="inspector_copy_curl_cmd">复制为 cURL (cmd)</string>
+    <string name="inspector_copy_head">复制请求头</string>
     <string name="inspector_count">%1$d 个请求</string>
     <string name="inspector_col_name">名称</string>
     <string name="inspector_col_status">状态</string>

@@ -937,6 +937,11 @@
     <string name="inspector_title">Xem lưu lượng</string>
     <string name="inspector_clear">Xoá</string>
     <string name="inspector_search">Lọc</string>
+    <string name="inspector_copied">Đã copy</string>
+    <string name="inspector_copy_fetch">Copy dạng fetch</string>
+    <string name="inspector_copy_curl">Copy dạng cURL (bash)</string>
+    <string name="inspector_copy_curl_cmd">Copy dạng cURL (cmd)</string>
+    <string name="inspector_copy_head">Copy phần đầu request</string>
     <string name="inspector_count">%1$d yêu cầu</string>
     <string name="inspector_col_name">Tên</string>
     <string name="inspector_col_status">Trạng thái</string>

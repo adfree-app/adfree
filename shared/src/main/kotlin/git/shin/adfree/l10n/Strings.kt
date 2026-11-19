@@ -1000,6 +1000,21 @@ object Strings {
     const val inspector_search = "inspector_search"
 
     @Suppress("ktlint:standard:property-naming")
+    const val inspector_copied = "inspector_copied"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_copy_fetch = "inspector_copy_fetch"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_copy_curl = "inspector_copy_curl"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_copy_curl_cmd = "inspector_copy_curl_cmd"
+
+    @Suppress("ktlint:standard:property-naming")
+    const val inspector_copy_head = "inspector_copy_head"
+
+    @Suppress("ktlint:standard:property-naming")
     const val inspector_empty = "inspector_empty"
 
     @Suppress("ktlint:standard:property-naming")
