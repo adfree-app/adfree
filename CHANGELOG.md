@@ -1,3 +1,12 @@
+# [1.26.0](https://github.com/adfree-app/adfree/compare/v1.25.0...v1.26.0) (2026-11-19)
+
+### Features
+
+* **desktop:** a body tab, labels on one line, and the top that stays the top ([4b2e40a](https://github.com/adfree-app/adfree/commit/4b2e40aeadad2ee1e76f66d4466dfebbc2069b2c))
+* **desktop:** a socket says it is one, and the filter can pick it ([02ade9e](https://github.com/adfree-app/adfree/commit/02ade9e1afa783461a822d81e856f7a10335dcd5))
+* **desktop:** a socket's frames, from the wire to the row ([7dbf63d](https://github.com/adfree-app/adfree/commit/7dbf63d9743a0d707544fa5bdaa7681baf8ee39a))
+* **desktop:** the menu opens at the pointer, the tab outlives the row ([3e1706d](https://github.com/adfree-app/adfree/commit/3e1706d2aa7411658cc6f98fe555ce4cb9d7128f))
+
 # [1.25.0](https://github.com/adfree-app/adfree/compare/v1.24.0...v1.25.0) (2026-11-19)
 
 ### Features
