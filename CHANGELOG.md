@@ -1,3 +1,9 @@
+# [1.24.0](https://github.com/adfree-app/adfree/compare/v1.23.0...v1.24.0) (2026-11-19)
+
+### Features
+
+* **desktop:** a value copies when clicked, a row copies when asked ([28b8da6](https://github.com/adfree-app/adfree/commit/28b8da65fd75eb326501168b9af1c453caded61e))
+
 # [1.23.0](https://github.com/adfree-app/adfree/compare/v1.22.0...v1.23.0) (2026-11-19)
 
 ### Features
