@@ -1271,6 +1271,14 @@
     <string name="settings_dns_add">Thêm và chọn</string>
     <string name="settings_engine_title">Trạng thái engine</string>
     <string name="settings_engine_build">Biên dịch bộ lọc: %1$d ms</string>
+    <string name="update_current_version">Phiên bản %1$s</string>
+    <string name="update_up_to_date">Đã là bản mới nhất</string>
+    <string name="update_notes_title">Có gì mới</string>
+    <string name="update_notes_empty">Bản phát hành này không kèm ghi chú.</string>
+    <string name="update_notes_none_current">Chưa có bản mới hơn trên kênh phát hành.</string>
+    <string name="update_release_page">Trang phát hành</string>
+    <string name="update_check_again">Kiểm tra lại</string>
+    <string name="update_install">Tải và cài đặt</string>
     <string name="settings_update_title">Cập nhật ứng dụng</string>
     <string name="settings_update_idle">Tự động kiểm tra theo lịch cập nhật bộ lọc</string>
     <string name="settings_update_check">Kiểm tra ngay</string>

@@ -113,6 +113,7 @@ class DesktopContainer(
         onRaiseWindow = { onShowWindow() },
         onOpenFilteringLog = { onShowFilteringLog() },
         onOpenInspector = { onShowInspector() },
+        versionOf = { coreEngine.version },
     )
     val fileHost = DesktopFileHost()
     val inventory = DesktopAppInventory()

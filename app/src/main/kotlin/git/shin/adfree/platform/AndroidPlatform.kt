@@ -166,6 +166,8 @@ class AndroidPlatformHost(private val context: Context) : PlatformHost {
 
     override fun packageName(): String = context.packageName
 
+    override fun appVersion(): String = git.shin.adfree.BuildConfig.VERSION_NAME
+
     private companion object {
         const val MIUI_NO_RESTRICT_APPS = "MILLET_NO_RESTRICT_APP"
     }

@@ -131,6 +131,16 @@ fun HomeScreen(
         )
     }
 
+    // A dialog is its own surface, so it can be asked for before the body is
+    // laid out; it does not take a slot in the column below.
+    if (quick != QuickSurface.NONE) {
+        QuickSurfacePopup(
+            surface = quick,
+            viewModel = viewModel,
+            onClose = { quick = QuickSurface.NONE },
+        )
+    }
+
     if (isDesktopLayout) {
         DesktopHome(
             state = state,
@@ -164,7 +174,9 @@ fun HomeScreen(
                 )
             },
         )
-    } else {
+        return
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -230,22 +242,13 @@ fun HomeScreen(
                 },
                 onOpenScripts = {
                     viewModel.onIntent(
-                        AdGuardIntent.OpenProtectionSection(ProtectionSection.EXTENSIONS)
+                        AdGuardIntent.OpenProtectionSection(ProtectionSection.EXTENSIONS),
                     )
                 },
             )
 
             Spacer(modifier = Modifier.height(16.dp))
         }
-    }
-    }
-
-    if (quick != QuickSurface.NONE) {
-        QuickSurfacePopup(
-            surface = quick,
-            viewModel = viewModel,
-            onClose = { quick = QuickSurface.NONE },
-        )
     }
 }
 
@@ -260,6 +263,7 @@ private enum class QuickSurface { NONE, LOG, INSPECTOR }
  * app is one window and the only thing it can open is a dialog.
  */
 @Composable
+@Suppress("ktlint:standard:function-naming")
 private fun QuickSurfacePopup(
     surface: QuickSurface,
     viewModel: AdGuardViewModel,
@@ -275,16 +279,21 @@ private fun QuickSurfacePopup(
                 .background(AdGuardDarkBg),
         ) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 6.dp),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = L10n.get(
-                        if (surface == QuickSurface.LOG) Strings.home_quick_log
-                        else Strings.inspector_title
-                    ),
+                    text =
+                        L10n.get(
+                            if (surface == QuickSurface.LOG) {
+                                Strings.home_quick_log
+                            } else {
+                                Strings.inspector_title
+                            },
+                        ),
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = AdGuardTextPrimary,
@@ -294,11 +303,12 @@ private fun QuickSurfacePopup(
                     imageVector = Icons.Filled.Close,
                     contentDescription = null,
                     tint = AdGuardTextMuted,
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .clickable(onClick = onClose)
-                        .padding(8.dp)
-                        .size(18.dp),
+                    modifier =
+                        Modifier
+                            .clip(CircleShape)
+                            .clickable(onClick = onClose)
+                            .padding(8.dp)
+                            .size(18.dp),
                 )
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -319,33 +329,52 @@ private fun QuickSurfacePopup(
  * so they sit where the user already is.
  */
 @Composable
-private fun QuickOpenRow(onOpenLog: () -> Unit, onOpenInspector: () -> Unit) {
+@Suppress("ktlint:standard:function-naming")
+private fun QuickOpenRow(
+    onOpenLog: () -> Unit,
+    onOpenInspector: () -> Unit,
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.Center,
     ) {
-        QuickOpenButton(Icons.Filled.List, L10n.get(Strings.home_quick_log), onOpenLog)
+        QuickOpenButton(
+            icon = Icons.Filled.List,
+            label = L10n.get(Strings.home_quick_log),
+            onClick = onOpenLog,
+        )
         Spacer(modifier = Modifier.width(10.dp))
         QuickOpenButton(
-            Icons.Filled.SwapVert,
-            L10n.get(Strings.inspector_title),
-            onOpenInspector,
+            icon = Icons.Filled.SwapVert,
+            label = L10n.get(Strings.inspector_title),
+            onClick = onOpenInspector,
         )
     }
 }
 
 @Composable
-private fun QuickOpenButton(icon: ImageVector, label: String, onClick: () -> Unit) {
+@Suppress("ktlint:standard:function-naming")
+private fun QuickOpenButton(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+) {
     Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(Color(0xFF1C2733))
-            .border(1.dp, AdGuardDarkOutline, RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 7.dp),
+        modifier =
+            Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color(0xFF1C2733))
+                .border(1.dp, AdGuardDarkOutline, RoundedCornerShape(8.dp))
+                .clickable(onClick = onClick)
+                .padding(horizontal = 12.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = null, tint = AdGuardGreenPrimary, modifier = Modifier.size(15.dp))
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = AdGuardGreenPrimary,
+            modifier = Modifier.size(15.dp),
+        )
         Spacer(modifier = Modifier.width(7.dp))
         Text(label, fontSize = 12.sp, color = AdGuardTextPrimary, maxLines = 1)
     }
@@ -962,8 +991,12 @@ private fun DesktopHome(
         Spacer(modifier = Modifier.height(26.dp))
 
         Text(
-            text = if (state.isVpnActive) L10n.get(Strings.home_shield_protected)
-            else L10n.get(Strings.home_shield_off),
+            text =
+                if (state.isVpnActive) {
+                    L10n.get(Strings.home_shield_protected)
+                } else {
+                    L10n.get(Strings.home_shield_off)
+                },
             fontSize = 26.sp,
             fontWeight = FontWeight.Bold,
             color = if (state.isVpnActive) AdGuardTextPrimary else AdGuardTextMuted,

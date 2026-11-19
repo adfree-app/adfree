@@ -138,6 +138,14 @@ fun SettingsScreen(
     val platform = currentPlatformHost()
     val backupScope = rememberCoroutineScope()
     var pendingRestoreUri by remember { mutableStateOf<String?>(null) }
+    // The update row is a door: the notes are paragraphs and a settings row is
+    // one line.
+    var updateOpen by remember { mutableStateOf(false) }
+
+    if (updateOpen) {
+        UpdateScreen(viewModel = viewModel, onBack = { updateOpen = false }, modifier = modifier)
+        return
+    }
 
     // The header lives outside the scrolling column on purpose: it describes
     // where you are, and should not slide away as soon as the list moves.
@@ -297,8 +305,7 @@ fun SettingsScreen(
 
             AppUpdateSection(
                 state = appUpdateState,
-                onCheck = { viewModel.checkAppUpdateManually() },
-                onInstall = { viewModel.installAppUpdate(it) },
+                onOpen = { updateOpen = true },
             )
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -1895,13 +1902,13 @@ private fun EngineInfoSection(buildMs: Long) {
 @Composable
 private fun AppUpdateSection(
     state: UpdateUiState,
-    onCheck: () -> Unit,
-    onInstall: (UpdateInfo) -> Unit,
+    onOpen: () -> Unit,
 ) {
     SurfaceCard {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .clickable(onClick = onOpen)
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -1911,56 +1918,31 @@ private fun AppUpdateSection(
             ) {
                 Text(
                     text = L10n.get(Strings.settings_update_title),
+                    fontSize = 12.sp,
+                    color = AdGuardTextPrimary,
+                )
+                Text(
+                    text =
+                        when (state) {
+                            UpdateUiState.Idle -> L10n.get(Strings.update_up_to_date)
+                            UpdateUiState.Checking -> L10n.get(Strings.settings_update_checking)
+                            is UpdateUiState.Available ->
+                                L10n.format(Strings.settings_update_available, state.info.version)
+                            is UpdateUiState.Downloading ->
+                                L10n.format(Strings.settings_update_downloading, state.progress)
+                        },
                     fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = AdGuardTextSecondary,
-                )
-                when (state) {
-                    UpdateUiState.Idle -> Text(
-                        text = L10n.get(Strings.settings_update_idle),
-                        fontSize = 12.sp,
-                        color = AdGuardTextPrimary,
-                    )
-                    UpdateUiState.Checking -> Text(
-                        text = L10n.get(Strings.settings_update_checking),
-                        fontSize = 12.sp,
-                        color = AdGuardTextPrimary,
-                    )
-                    is UpdateUiState.Available -> Text(
-                        text = L10n.format(Strings.settings_update_available, state.info.version),
-                        fontSize = 12.sp,
-                        color = AdGuardGreenPrimary,
-                    )
-                    is UpdateUiState.Downloading -> Text(
-                        text = L10n.format(Strings.settings_update_downloading, state.progress),
-                        fontSize = 12.sp,
-                        color = AdGuardTextPrimary,
-                    )
-                }
-                if (state is UpdateUiState.Downloading) {
-                    LinearProgressIndicator(
-                        progress = { state.progress / 100f },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            when (state) {
-                UpdateUiState.Idle -> OutlinedButton(onClick = onCheck) {
-                    Text(L10n.get(Strings.settings_update_check))
-                }
-                UpdateUiState.Checking -> CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    strokeWidth = 2.dp,
-                )
-                is UpdateUiState.Available -> Button(onClick = { onInstall(state.info) }) {
-                    Text(L10n.get(Strings.settings_update_install))
-                }
-                is UpdateUiState.Downloading -> CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    strokeWidth = 2.dp,
+                    color =
+                        if (state is UpdateUiState.Available) AdGuardGreenPrimary
+                        else AdGuardTextMuted,
                 )
             }
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = AdGuardTextMuted,
+                modifier = Modifier.size(16.dp),
+            )
         }
     }
 }

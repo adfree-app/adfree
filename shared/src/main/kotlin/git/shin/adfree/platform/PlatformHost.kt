@@ -198,6 +198,14 @@ interface PlatformHost {
      * window to put beside anything — the caller shows it over the app instead.
      */
     fun openRequestInspector(): Boolean = false
+
+    /**
+     * The version string this build carries, as the update screen shows it.
+     *
+     * Empty where the host cannot name itself; the screen then says nothing
+     * about the version rather than inventing one.
+     */
+    fun appVersion(): String = ""
 }
 
 /** Kept separate from [PlatformHost] so a desktop host can reuse the parts it can honour. */

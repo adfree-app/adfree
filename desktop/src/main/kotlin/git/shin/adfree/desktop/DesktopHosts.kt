@@ -57,6 +57,12 @@ class DesktopPlatformHost(
     /** Opens the filtering log window; set by the shell once it exists. */
     private val onOpenFilteringLog: () -> Boolean = { false },
     private val onOpenInspector: () -> Boolean = { false },
+    /**
+     * What this build calls itself; the update feed is compared against it.
+     * Read at the ask: the core it comes from is built on first use, and the
+     * window is built before anything needs a version.
+     */
+    private val versionOf: () -> String = { "" },
 ) : PlatformHost {
 
     /** Toasts the window pipes into the scaffold's snackbar host. */
@@ -127,6 +133,8 @@ class DesktopPlatformHost(
 
     // The desktop has the log AdGuard's extension means: its own window.
     override fun openFilteringLog() = onOpenFilteringLog()
+
+    override fun appVersion(): String = versionOf()
 
     // The inspector is its own window here, exactly like the log.
     override fun openRequestInspector() = onOpenInspector()

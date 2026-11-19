@@ -1274,6 +1274,14 @@
     <string name="settings_dns_add">Add and select</string>
     <string name="settings_engine_title">Engine status</string>
     <string name="settings_engine_build">Filter compile: %1$d ms</string>
+    <string name="update_current_version">Version %1$s</string>
+    <string name="update_up_to_date">This is the newest version</string>
+    <string name="update_notes_title">What's new</string>
+    <string name="update_notes_empty">This release has no notes.</string>
+    <string name="update_notes_none_current">Nothing newer is on the release feed.</string>
+    <string name="update_release_page">Release page</string>
+    <string name="update_check_again">Check again</string>
+    <string name="update_install">Download and install</string>
     <string name="settings_update_title">App update</string>
     <string name="settings_update_idle">Automatic checks follow the filter schedule</string>
     <string name="settings_update_check">Check now</string>

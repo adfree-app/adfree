@@ -331,7 +331,10 @@ object Strings {
     const val home_stat_data_value = "home_stat_data_value"
     const val home_stat_battery = "home_stat_battery"
     const val home_stat_battery_value = "home_stat_battery_value"
+
+    @Suppress("ktlint:standard:property-naming")
     const val home_quick_log = "home_quick_log"
+
     const val home_quick_ads = "home_quick_ads"
     const val home_quick_tracking = "home_quick_tracking"
     const val home_quick_dns = "home_quick_dns"
@@ -1378,6 +1381,14 @@ object Strings {
     const val settings_dns_add = "settings_dns_add"
     const val settings_engine_title = "settings_engine_title"
     const val settings_engine_build = "settings_engine_build"
+    const val update_current_version = "update_current_version"
+    const val update_up_to_date = "update_up_to_date"
+    const val update_notes_title = "update_notes_title"
+    const val update_notes_empty = "update_notes_empty"
+    const val update_notes_none_current = "update_notes_none_current"
+    const val update_release_page = "update_release_page"
+    const val update_check_again = "update_check_again"
+    const val update_install = "update_install"
     const val settings_update_title = "settings_update_title"
     const val settings_update_idle = "settings_update_idle"
     const val settings_update_check = "settings_update_check"

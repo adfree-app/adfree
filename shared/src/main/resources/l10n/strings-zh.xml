@@ -1274,6 +1274,14 @@
     <string name="settings_dns_add">添加并选用</string>
     <string name="settings_engine_title">引擎状态</string>
     <string name="settings_engine_build">列表编译：%1$d 毫秒</string>
+    <string name="update_current_version">版本 %1$s</string>
+    <string name="update_up_to_date">已是最新版本</string>
+    <string name="update_notes_title">更新内容</string>
+    <string name="update_notes_empty">此版本没有说明。</string>
+    <string name="update_notes_none_current">发布源上没有更新的版本。</string>
+    <string name="update_release_page">发布页面</string>
+    <string name="update_check_again">重新检查</string>
+    <string name="update_install">下载并安装</string>
     <string name="settings_update_title">应用更新</string>
     <string name="settings_update_idle">自动检查跟着列表更新的时间表走</string>
     <string name="settings_update_check">立即检查</string>
