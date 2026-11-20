@@ -366,6 +366,41 @@ pub fn record_stream_event(id: u64, event: &crate::sse::Event) {
     });
 }
 
+/// Decodes standard base64, ignoring whitespace, or `None` when the text is not
+/// base64 at all.
+///
+/// Written here rather than pulled in: the core takes a base64 body from one
+/// caller, and a dependency for forty lines of table lookup is a dependency to
+/// keep patched for a decade.
+pub fn base64_decode(text: &str) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(text.len() / 4 * 3);
+    let mut acc = 0u32;
+    let mut bits = 0u32;
+    for byte in text.bytes() {
+        if byte.is_ascii_whitespace() {
+            continue;
+        }
+        if byte == b'=' {
+            break;
+        }
+        let value = match byte {
+            b'A'..=b'Z' => byte - b'A',
+            b'a'..=b'z' => byte - b'a' + 26,
+            b'0'..=b'9' => byte - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return None,
+        };
+        acc = (acc << 6) | value as u32;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+        }
+    }
+    Some(out)
+}
+
 /// A body is binary, so the preview is lossy and never longer than
 /// [`MAX_BODY`].
 fn clip_body(body: &[u8]) -> String {
@@ -670,6 +705,41 @@ mod tests {
             assert_eq!(len(), 1);
             assert!(record_request("https://example.com/later", b"GET / HTTP/1.1\r\n").is_none());
             assert_eq!(len(), 1);
+        });
+    }
+
+    #[test]
+    fn base64_decodes_to_the_bytes_it_names() {
+        assert_eq!(base64_decode("aGVsbG8=").unwrap(), b"hello".to_vec());
+        assert_eq!(base64_decode("aGVs bG8h").unwrap(), b"hello!".to_vec());
+        assert_eq!(base64_decode("").unwrap(), Vec::<u8>::new());
+        assert_eq!(base64_decode("AAEC").unwrap(), vec![0u8, 1, 2]);
+    }
+
+    #[test]
+    fn a_body_that_is_not_base64_is_not_decoded() {
+        assert!(base64_decode("{\"a\":1}").is_none());
+    }
+
+    /// The whole path a binary replacement takes: saved as base64, matched by
+    /// URL and verb, and handed to the proxy as bytes.
+    #[test]
+    fn a_binary_replacement_is_matched_and_decoded() {
+        serial(|| {
+            set_rules(vec![Rule {
+                pattern: "example.com/logo".to_string(),
+                method: "GET".to_string(),
+                status: 200,
+                headers: vec![("content-type".to_string(), "image/png".to_string())],
+                body: base64_decode("iVBORw0KGgo=").unwrap(),
+            }]);
+            let rule = match_rule("GET", "https://example.com/logo.png?x=1").expect("matched");
+            assert_eq!(rule.status, 200);
+            assert_eq!(rule.headers[0].0, "content-type");
+            assert_eq!(&rule.body[..4], b"\x89PNG");
+            // The verb is part of the match, and the URL is not a method.
+            assert!(match_rule("POST", "https://example.com/logo.png").is_none());
+            set_rules(Vec::new());
         });
     }
 }

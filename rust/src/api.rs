@@ -702,9 +702,11 @@ pub struct OverrideRule {
     pub status: i32,
     /// Headers as `Name: value` lines, as the editor showed them.
     pub headers: Vec<String>,
-    /// The body, as text: a replacement is written by a person, and a person
-    /// writes JSON or HTML.
+    /// The body, as typed: text, or base64 when `body_base64` says so.
     pub body: String,
+    /// True when the body is base64 and stands for bytes no editor could hold
+    /// — an image, a font, a wasm module.
+    pub body_base64: bool,
 }
 
 /// Replaces the set of answers the reader has written.
@@ -735,7 +737,11 @@ pub fn core_capture_set_overrides(rules: Vec<OverrideRule>) {
                             Some((name.to_string(), value.trim().to_string()))
                         })
                         .collect(),
-                    body: rule.body.into_bytes(),
+                    body: if rule.body_base64 {
+                        crate::capture::base64_decode(&rule.body).unwrap_or_default()
+                    } else {
+                        rule.body.into_bytes()
+                    },
                 })
                 .collect(),
         )

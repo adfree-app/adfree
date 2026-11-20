@@ -18,6 +18,8 @@ data class ResponseOverride(
     val status: String = "200",
     val headers: String = "",
     val body: String = "",
+    /** The body is base64 and stands for bytes no editor could hold. */
+    val binary: Boolean = false,
 ) {
     /** The status as a number, or 200 when it is not one yet. */
     fun statusCode(): Int = status.trim().toIntOrNull()?.coerceIn(100, 599) ?: 200
@@ -49,6 +51,7 @@ data class ResponseOverride(
             status = statusCode().toUInt().toInt(),
             headers = headerLines(),
             body = body,
+            bodyBase64 = binary,
         )
 
     /**
@@ -63,6 +66,7 @@ data class ResponseOverride(
             appendLine("1 " + pattern.replace("\n", " "))
             appendLine("2 " + method.replace("\n", " "))
             appendLine("3 " + status.replace("\n", " "))
+            if (binary) appendLine("6 base64")
             headerLines().forEach { line -> appendLine("4 $line") }
             body.split("\n").forEach { line -> appendLine("5 $line") }
         }
@@ -74,10 +78,17 @@ data class ResponseOverride(
             val headers = mutableListOf<String>()
             val body = mutableListOf<String>()
             var current: ResponseOverride? = null
+            var binary = false
 
             fun flush() {
                 val done = current ?: return
-                out += done.copy(headers = headers.joinToString("\n"), body = body.joinToString("\n"))
+                out +=
+                    done.copy(
+                        headers = headers.joinToString("\n"),
+                        body = body.joinToString("\n"),
+                        binary = binary,
+                    )
+                binary = false
                 headers.clear()
                 body.clear()
             }
@@ -96,6 +107,12 @@ data class ResponseOverride(
 
                     "3" -> {
                         current = current?.copy(status = value.ifEmpty { "200" })
+                    }
+
+                    // The body's kind is written before the headers, so a
+                    // header that reads like this format cannot set it.
+                    "6" -> {
+                        binary = value == "base64"
                     }
 
                     "4" -> {

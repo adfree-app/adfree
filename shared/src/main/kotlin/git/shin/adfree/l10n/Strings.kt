@@ -1023,6 +1023,9 @@ object Strings {
 
     @Suppress("ktlint:standard:property-naming")
     const val inspector_tab_body = "inspector_tab_body"
+    const val inspector_override_text = "inspector_override_text"
+    const val inspector_override_binary = "inspector_override_binary"
+    const val inspector_override_preview = "inspector_override_preview"
     const val inspector_block_host = "inspector_block_host"
     const val inspector_allow_host = "inspector_allow_host"
     const val inspector_override_add = "inspector_override_add"

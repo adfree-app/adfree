@@ -5022,10 +5022,15 @@ data class OverrideRule (
     var `headers`: List<kotlin.String>
     , 
     /**
-     * The body, as text: a replacement is written by a person, and a person
-     * writes JSON or HTML.
+     * The body, as typed: text, or base64 when `body_base64` says so.
      */
     var `body`: kotlin.String
+    , 
+    /**
+     * True when the body is base64 and stands for bytes no editor could hold
+     * — an image, a font, a wasm module.
+     */
+    var `bodyBase64`: kotlin.Boolean
     
 ){
     
@@ -5047,6 +5052,7 @@ public object FfiConverterTypeOverrideRule: FfiConverterRustBuffer<OverrideRule>
             FfiConverterInt.read(buf),
             FfiConverterSequenceString.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
         )
     }
 
@@ -5055,7 +5061,8 @@ public object FfiConverterTypeOverrideRule: FfiConverterRustBuffer<OverrideRule>
             FfiConverterString.allocationSize(value.`method`) +
             FfiConverterInt.allocationSize(value.`status`) +
             FfiConverterSequenceString.allocationSize(value.`headers`) +
-            FfiConverterString.allocationSize(value.`body`)
+            FfiConverterString.allocationSize(value.`body`) +
+            FfiConverterBoolean.allocationSize(value.`bodyBase64`)
     )
 
     override fun write(value: OverrideRule, buf: ByteBuffer) {
@@ -5064,6 +5071,7 @@ public object FfiConverterTypeOverrideRule: FfiConverterRustBuffer<OverrideRule>
             FfiConverterInt.write(value.`status`, buf)
             FfiConverterSequenceString.write(value.`headers`, buf)
             FfiConverterString.write(value.`body`, buf)
+            FfiConverterBoolean.write(value.`bodyBase64`, buf)
     }
 }
 

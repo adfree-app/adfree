@@ -964,6 +964,9 @@
     <string name="inspector_tab_headers">Headers</string>
     <string name="inspector_tab_request">Request</string>
     <string name="inspector_tab_body">Body</string>
+    <string name="inspector_override_text">Text</string>
+    <string name="inspector_override_binary">Base64</string>
+    <string name="inspector_override_preview">What goes out</string>
     <string name="inspector_block_host">Block host</string>
     <string name="inspector_allow_host">Allow host</string>
     <string name="inspector_override_add">Replace answer</string>

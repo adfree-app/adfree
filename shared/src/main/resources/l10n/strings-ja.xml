@@ -964,6 +964,9 @@
     <string name="inspector_tab_headers">ヘッダー</string>
     <string name="inspector_tab_request">リクエスト</string>
     <string name="inspector_tab_body">本文</string>
+    <string name="inspector_override_text">テキスト</string>
+    <string name="inspector_override_binary">Base64</string>
+    <string name="inspector_override_preview">送信内容</string>
     <string name="inspector_block_host">ホストをブロック</string>
     <string name="inspector_allow_host">ホストを許可</string>
     <string name="inspector_override_add">応答を置き換え</string>

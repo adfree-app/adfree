@@ -1778,6 +1778,22 @@ private fun OverrideDialog(
             Field(L10n.get(Strings.inspector_override_body), rule.body, lines = 8) {
                 rule = rule.copy(body = it)
             }
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ViewChip(L10n.get(Strings.inspector_override_text), !rule.binary) {
+                    rule = rule.copy(binary = false)
+                }
+                ViewChip(L10n.get(Strings.inspector_override_binary), rule.binary) {
+                    rule = rule.copy(binary = true)
+                }
+            }
+            // What will go out, before it goes out: a replacement that breaks
+            // the page it was written for is the one thing this form exists to
+            // prevent, and a status line and a byte count say most of whether
+            // it will.
+            OverridePreview(rule)
             ActionChip(L10n.get(Strings.inspector_override_save)) { onSave(rule) }
         }
     }
@@ -1808,3 +1824,80 @@ private fun Field(
         )
     }
 }
+
+/**
+ * The answer this replacement will produce, as the client will read it.
+ *
+ * The status line, the headers, the byte count and the body itself — laid out
+ * and coloured when it is a format the viewer knows. A form that only shows its
+ * own fields makes the reader save, switch tabs and look up what they wrote.
+ */
+@Composable
+private fun OverridePreview(rule: ResponseOverride) {
+    val body =
+        if (rule.binary) {
+            // Base64 is what the field holds; what the client reads is the
+            // bytes, and those are shown as bytes.
+            rule.body
+        } else {
+            rule.body
+        }
+    val kind = BodyFormats.of(BodyFormats.mediaType("content-type: " + rule.headerLines().joinToString(" ")), body)
+    Section(L10n.get(Strings.inspector_override_preview))
+    Text(
+        "HTTP/1.1 ${rule.statusCode()} ${reasonOf(rule.statusCode())}",
+        fontSize = 11.sp,
+        fontFamily = FontFamily.Monospace,
+        color = Dt.link,
+    )
+    if (rule.headerLines().isEmpty()) {
+        Text(
+            "content-length: ${body.length}",
+            fontSize = 11.sp,
+            fontFamily = FontFamily.Monospace,
+            color = Dt.muted,
+        )
+    } else {
+        rule.headerLines().forEach { line ->
+            Text(line, fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = Dt.text)
+        }
+    }
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(120.dp)
+            .verticalScroll(rememberScrollState()),
+    ) {
+        if (rule.binary) {
+            HexRows(body)
+        } else {
+            val pretty = if (kind == BodyKind.JSON) JsonText.pretty(body) else null
+            if (pretty != null) Highlighted(pretty, BodyKind.JSON) {} else Highlighted(body, kind) {}
+        }
+    }
+}
+
+/** The reason phrase the core will write, so the preview can show the line. */
+private fun reasonOf(status: Int): String =
+    when (status) {
+        200 -> "OK"
+        201 -> "Created"
+        202 -> "Accepted"
+        204 -> "No Content"
+        206 -> "Partial Content"
+        301 -> "Moved Permanently"
+        302 -> "Found"
+        304 -> "Not Modified"
+        400 -> "Bad Request"
+        401 -> "Unauthorized"
+        403 -> "Forbidden"
+        404 -> "Not Found"
+        405 -> "Method Not Allowed"
+        418 -> "I'm a teapot"
+        429 -> "Too Many Requests"
+        500 -> "Internal Server Error"
+        502 -> "Bad Gateway"
+        503 -> "Service Unavailable"
+        504 -> "Gateway Timeout"
+        else -> "Replaced"
+    }

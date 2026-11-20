@@ -40,6 +40,19 @@ class ResponseOverridesTest {
     }
 
     @Test
+    fun aBinaryBodyIsSavedAsBinary() {
+        val rule = ResponseOverride(pattern = "logo.png", status = "200", body = "iVBORw0KGgo=", binary = true)
+        val back = ResponseOverride.decode(rule.encode())[0]
+        assertTrue(back.binary)
+        assertEquals("iVBORw0KGgo=", back.body)
+        assertTrue(back.toRule().bodyBase64)
+        // And a text body stays text.
+        val text = ResponseOverride.decode(ResponseOverride(pattern = "x", body = "hi").encode())[0]
+        assertFalse(text.binary)
+        assertFalse(text.toRule().bodyBase64)
+    }
+
+    @Test
     fun aHeaderLineIsNotMistakenForTheStatus() {
         val rule = ResponseOverride(pattern = "x", headers = "200: not a status")
         val back = ResponseOverride.decode(rule.encode())[0]

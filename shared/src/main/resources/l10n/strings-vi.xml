@@ -964,6 +964,9 @@
     <string name="inspector_tab_headers">Tiêu đề</string>
     <string name="inspector_tab_request">Yêu cầu</string>
     <string name="inspector_tab_body">Nội dung</string>
+    <string name="inspector_override_text">Chữ</string>
+    <string name="inspector_override_binary">Base64</string>
+    <string name="inspector_override_preview">Sẽ gửi đi</string>
     <string name="inspector_block_host">Chặn host</string>
     <string name="inspector_allow_host">Bỏ chặn host</string>
     <string name="inspector_override_add">Ghi đè trả lời</string>
