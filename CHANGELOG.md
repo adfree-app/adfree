@@ -1,3 +1,9 @@
+## [1.31.3](https://github.com/adfree-app/adfree/compare/v1.31.2...v1.31.3) (2026-11-20)
+
+### Bug Fixes
+
+* **desktop:** the package carries a whole JDK, and an install is this build's ([38b97a2](https://github.com/adfree-app/adfree/commit/38b97a2e29d7555bee7627646eedf476b859235c))
+
 ## [1.31.2](https://github.com/adfree-app/adfree/compare/v1.31.1...v1.31.2) (2026-11-20)
 
 ### Bug Fixes
