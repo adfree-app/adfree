@@ -347,8 +347,18 @@ class DesktopPrivilegesTest {
         stamp.writeText("1")
         assertFalse("an older stamp is an old install", fresh.privilegedServiceInstalled())
 
+        val own = fresh.selfArgv().orEmpty().joinToString(" ")
+        stamp.writeText("${DesktopPrivileges.SETUP_VERSION} ${fresh.lineHash(own)}")
+        assertTrue("the unit plus this build's stamp is installed", fresh.privilegedServiceInstalled())
+
+        stamp.writeText("${DesktopPrivileges.SETUP_VERSION} ${fresh.lineHash("java -cp elsewhere MainKt")}")
+        assertFalse(
+            "a unit pinned to another command line is not this build's install",
+            fresh.privilegedServiceInstalled(),
+        )
+
         stamp.writeText(DesktopPrivileges.SETUP_VERSION.toString())
-        assertTrue("the unit plus this version's stamp is installed", fresh.privilegedServiceInstalled())
+        assertFalse("a stamp with no line to compare is not this build's", fresh.privilegedServiceInstalled())
 
         unit.delete()
         assertFalse("no unit, no install", fresh.privilegedServiceInstalled())
@@ -679,8 +689,11 @@ class DesktopPrivilegesTest {
         val dir = File(System.getProperty("java.io.tmpdir"), "adfree-install-${System.nanoTime()}")
         dir.mkdirs()
         val unit = File(dir, "adfree-desktop.service").apply { writeText("[Unit]\n") }
+        // The stamp names the command line it was written for, so a helper that
+        // wrote it for this process is the only helper that counts as installed.
+        val own = DesktopPrivileges().selfArgv().orEmpty().joinToString(" ")
         val stamp = File(dir, "privileged-setup.version").apply {
-            writeText(DesktopPrivileges.SETUP_VERSION.toString())
+            writeText("${DesktopPrivileges.SETUP_VERSION} ${DesktopPrivileges().lineHash(own)}")
         }
         return unit.absolutePath to stamp
     }

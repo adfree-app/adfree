@@ -162,11 +162,29 @@ class DesktopPrivileges(
         // Nothing is installed ahead of time on Windows: the driver is written
         // by the driver's own loader on first use, and the app is already
         // elevated, so there is no one-time step that could be missing.
-        isWindows || (File(servicePath).isFile && installStamp() == SETUP_VERSION)
+        isWindows || (File(servicePath).isFile && stampMatchesThisBuild())
 
-    /** What the last successful install wrote, or 0 when nothing did. */
-    private fun installStamp(): Int =
-        runCatching { stamp.readText().trim().toInt() }.getOrDefault(0)
+    /**
+     * Whether the unit on disk was written by this build, not merely by some
+     * AdFree.
+     *
+     * A version number alone was not enough, and the failure is silent: a
+     * machine that had been running a development build keeps a unit whose
+     * `ExecStart` is that development script, and the release build reads the
+     * stamp, decides it is installed, starts the *other* binary and closes its
+     * own window. The recorded line is what makes "installed" mean "installed
+     * for this command line" — the unit pins one, so a different one is a
+     * different app.
+     */
+    private fun stampMatchesThisBuild(): Boolean {
+        val text = runCatching { stamp.readText().trim() }.getOrDefault("")
+        if (text.substringBefore(' ').toIntOrNull() != SETUP_VERSION) return false
+        val recorded = text.substringAfter(' ', "")
+        // An install that could not read its own command line records only the
+        // version; there is nothing to compare it against, so it stands.
+        val own = startLine() ?: return recorded.isEmpty()
+        return recorded == lineHash(own)
+    }
 
     /**
      * Bumped when the install's format changes — a rule that polkitd could not
@@ -175,11 +193,23 @@ class DesktopPrivileges(
      * every start.
      */
     private fun writeInstallStamp() {
+        val line = startLine()
         runCatching {
             stamp.parentFile?.mkdirs()
-            stamp.writeText(SETUP_VERSION.toString())
+            stamp.writeText(
+                if (line == null) SETUP_VERSION.toString() else "$SETUP_VERSION ${lineHash(line)}",
+            )
         }.onFailure { log("could not record the install: ${it.message}") }
     }
+
+    /** The command line this build would pin in the unit, or null if it cannot say. */
+    private fun startLine(): String? = selfArgv()?.joinToString(" ")
+
+    /** A digest rather than the line itself: a Gradle classpath is 7 KB of paths. */
+    internal fun lineHash(line: String): String =
+        java.security.MessageDigest.getInstance("SHA-256")
+            .digest(line.toByteArray())
+            .joinToString("") { "%02x".format(it) }
 
     /**
      * The protection unit, as a file the system starts rather than a transient
@@ -904,7 +934,7 @@ class DesktopPrivileges(
         const val POLKIT_PATH = "/etc/polkit-1/rules.d/50-adfree-desktop.rules"
         const val SETUP_MAIN = "git.shin.adfree.desktop.PrivilegedSetupKt"
         /** Written into [stamp]; an older stamp means the install is redone. */
-        const val SETUP_VERSION = 3
+        const val SETUP_VERSION = 4
         const val PKEXEC_DENIED = 126
         // A unit is "active" from the fork, not from the moment its listeners
         // answer, and a JVM takes several seconds to load the core, hydrate
