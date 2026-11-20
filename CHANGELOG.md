@@ -1,3 +1,9 @@
+# [1.30.0](https://github.com/adfree-app/adfree/compare/v1.29.0...v1.30.0) (2026-11-20)
+
+### Features
+
+* **desktop:** a stream read as it arrives, answers replaced, and a readable body ([57a9649](https://github.com/adfree-app/adfree/commit/57a9649b6503f09c352d463782ad441bfce0dde4))
+
 # [1.29.0](https://github.com/adfree-app/adfree/compare/v1.28.1...v1.29.0) (2026-11-20)
 
 ### Features
