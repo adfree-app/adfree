@@ -1,3 +1,9 @@
+## [1.31.1](https://github.com/adfree-app/adfree/compare/v1.31.0...v1.31.1) (2026-11-20)
+
+### Bug Fixes
+
+* **desktop:** the record's buttons sit above its data, and the preview shows bytes ([35f39af](https://github.com/adfree-app/adfree/commit/35f39afec4c091e2185c37b63bdf1d924c3b631b))
+
 # [1.31.0](https://github.com/adfree-app/adfree/compare/v1.30.0...v1.31.0) (2026-11-20)
 
 ### Features
