@@ -1,5 +1,6 @@
 package git.shin.adfree.data
 
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -50,6 +51,18 @@ class ResponseOverridesTest {
         val text = ResponseOverride.decode(ResponseOverride(pattern = "x", body = "hi").encode())[0]
         assertFalse(text.binary)
         assertFalse(text.toRule().bodyBase64)
+    }
+
+    @Test
+    fun aBase64BodyIsPreviewedAsTheBytesItNames() {
+        val bytes = base64Bytes("aGVsbG8h")!!
+        assertEquals("hello!", bytes.decodeToString())
+        assertEquals(3, base64Bytes("AAEC")!!.size)
+        // Whitespace is not a byte, and a body that is not base64 has no bytes
+        // to show.
+        assertEquals("hello", base64Bytes("aGVs\n bG8=")!!.decodeToString())
+        assertNull(base64Bytes("{\"a\":1}"))
+        assertNull(base64Bytes("iVBORw0KGg*="))
     }
 
     @Test

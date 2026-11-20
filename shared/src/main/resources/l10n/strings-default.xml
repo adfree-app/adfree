@@ -967,6 +967,7 @@
     <string name="inspector_override_text">Text</string>
     <string name="inspector_override_binary">Base64</string>
     <string name="inspector_override_preview">What goes out</string>
+    <string name="inspector_override_not_base64">not base64</string>
     <string name="inspector_block_host">Block host</string>
     <string name="inspector_allow_host">Allow host</string>
     <string name="inspector_override_add">Replace answer</string>

@@ -85,6 +85,7 @@ import git.shin.adfree.core.coreCaptureSetEnabled
 import git.shin.adfree.data.InspectorDock
 import git.shin.adfree.data.InspectorLayout
 import git.shin.adfree.data.ResponseOverride
+import git.shin.adfree.data.base64Bytes
 import git.shin.adfree.l10n.L10n
 import git.shin.adfree.l10n.Strings
 import git.shin.adfree.model.BodyFormats
@@ -995,19 +996,6 @@ private fun DetailPane(
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp)) {
             when (shown) {
                 Tab.HEADERS -> {
-                    Section(L10n.get(Strings.inspector_section_general))
-                    Pair(L10n.get(Strings.inspector_general_url), record.url, Dt.link, onCopy)
-                    Pair(
-                        L10n.get(Strings.inspector_general_status),
-                        if (record.status == 0) "pending" else "${record.status}",
-                        if (record.status >= 400) Dt.bad else Dt.text,
-                        onCopy,
-                    )
-                    HeaderSection(
-                        L10n.get(Strings.inspector_section_response_headers),
-                        headerRows(record.responseHead),
-                        onCopy,
-                    )
                     Row(
                         Modifier.padding(top = 10.dp),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1036,6 +1024,19 @@ private fun DetailPane(
                             )
                         }
                     }
+                    Section(L10n.get(Strings.inspector_section_general))
+                    Pair(L10n.get(Strings.inspector_general_url), record.url, Dt.link, onCopy)
+                    Pair(
+                        L10n.get(Strings.inspector_general_status),
+                        if (record.status == 0) "pending" else "${record.status}",
+                        if (record.status >= 400) Dt.bad else Dt.text,
+                        onCopy,
+                    )
+                    HeaderSection(
+                        L10n.get(Strings.inspector_section_response_headers),
+                        headerRows(record.responseHead),
+                        onCopy,
+                    )
                 }
 
                 Tab.REQUEST -> {
@@ -1566,7 +1567,12 @@ private fun toneOf(tone: Tone): Color =
 /** The bytes of a body the tracker could not keep as text, sixteen a row. */
 @Composable
 private fun HexRows(text: String) {
-    val rows = remember(text) { HexView.rowsOfPreview(text) }
+    HexLines(remember(text) { HexView.rowsOfPreview(text) })
+}
+
+/** The same rows, drawn from bytes: a replacement's body is bytes already. */
+@Composable
+private fun HexLines(rows: List<HexView.Row>) {
     Column(Modifier.fillMaxWidth()) {
         rows.forEach { row ->
             Row(
@@ -1715,7 +1721,7 @@ private fun OverrideDialog(
         Column(
             Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.86f)
+                .fillMaxHeight(0.92f)
                 .background(Dt.panel)
                 .clip(RoundedCornerShape(10.dp))
                 .padding(14.dp)
@@ -1775,7 +1781,7 @@ private fun OverrideDialog(
             Field(L10n.get(Strings.inspector_override_headers), rule.headers, lines = 3) {
                 rule = rule.copy(headers = it)
             }
-            Field(L10n.get(Strings.inspector_override_body), rule.body, lines = 8) {
+            Field(L10n.get(Strings.inspector_override_body), rule.body, lines = 4) {
                 rule = rule.copy(body = it)
             }
             Row(
@@ -1834,15 +1840,23 @@ private fun Field(
  */
 @Composable
 private fun OverridePreview(rule: ResponseOverride) {
-    val body =
+    // Base64 is what the field holds; what the client reads is the bytes, and
+    // those are shown as bytes.
+    val decoded = if (rule.binary) base64Bytes(rule.body) else null
+    val length = if (rule.binary) decoded?.size ?: 0 else rule.body.toByteArray().size
+    val media =
+        rule
+            .headerLines()
+            .firstOrNull { it.substringBefore(':').trim().equals("content-type", ignoreCase = true) }
+            ?.substringAfter(':')
+            ?.trim()
+            .orEmpty()
+    val kind =
         if (rule.binary) {
-            // Base64 is what the field holds; what the client reads is the
-            // bytes, and those are shown as bytes.
-            rule.body
+            BodyKind.BINARY
         } else {
-            rule.body
+            BodyFormats.of(BodyFormats.mediaType("content-type: $media"), rule.body)
         }
-    val kind = BodyFormats.of(BodyFormats.mediaType("content-type: " + rule.headerLines().joinToString(" ")), body)
     Section(L10n.get(Strings.inspector_override_preview))
     Text(
         "HTTP/1.1 ${rule.statusCode()} ${reasonOf(rule.statusCode())}",
@@ -1852,7 +1866,7 @@ private fun OverridePreview(rule: ResponseOverride) {
     )
     if (rule.headerLines().isEmpty()) {
         Text(
-            "content-length: ${body.length}",
+            "content-length: $length",
             fontSize = 11.sp,
             fontFamily = FontFamily.Monospace,
             color = Dt.muted,
@@ -1865,14 +1879,27 @@ private fun OverridePreview(rule: ResponseOverride) {
     Box(
         Modifier
             .fillMaxWidth()
-            .height(120.dp)
+            .height(84.dp)
             .verticalScroll(rememberScrollState()),
     ) {
-        if (rule.binary) {
-            HexRows(body)
-        } else {
-            val pretty = if (kind == BodyKind.JSON) JsonText.pretty(body) else null
-            if (pretty != null) Highlighted(pretty, BodyKind.JSON) {} else Highlighted(body, kind) {}
+        when {
+            decoded != null -> {
+                HexLines(remember(decoded) { HexView.rows(decoded, 12) })
+            }
+
+            rule.binary -> {
+                Text(
+                    L10n.get(Strings.inspector_override_not_base64),
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = Dt.bad,
+                )
+            }
+
+            else -> {
+                val pretty = if (kind == BodyKind.JSON) JsonText.pretty(rule.body) else null
+                Highlighted(pretty ?: rule.body, if (pretty != null) BodyKind.JSON else kind) {}
+            }
         }
     }
 }

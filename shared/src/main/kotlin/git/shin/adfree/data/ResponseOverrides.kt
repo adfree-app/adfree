@@ -131,6 +131,39 @@ data class ResponseOverride(
 }
 
 /**
+ * The bytes a base64 body names, or `None` when the text is not base64.
+ *
+ * The core decodes the same text when the rule is handed over; this copy is for
+ * the preview, which has to show the reader the bytes they are about to stand
+ * behind before they stand behind them.
+ */
+fun base64Bytes(text: String): ByteArray? {
+    val out = java.io.ByteArrayOutputStream(text.length / 4 * 3)
+    var acc = 0
+    var bits = 0
+    for (c in text) {
+        if (c.isWhitespace()) continue
+        if (c == '=') break
+        val value =
+            when (c) {
+                in 'A'..'Z' -> c - 'A'
+                in 'a'..'z' -> c - 'a' + 26
+                in '0'..'9' -> c - '0' + 52
+                '+' -> 62
+                '/' -> 63
+                else -> return null
+            }
+        acc = (acc shl 6) or value
+        bits += 6
+        if (bits >= 8) {
+            bits -= 8
+            out.write((acc shr bits) and 0xFF)
+        }
+    }
+    return out.toByteArray()
+}
+
+/**
  * The replacements the reader wrote, kept where the pane's own position is
  * kept, and handed to the core while the window that applies them is open.
  */
