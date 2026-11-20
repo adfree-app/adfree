@@ -964,6 +964,19 @@
     <string name="inspector_tab_headers">标头</string>
     <string name="inspector_tab_request">请求</string>
     <string name="inspector_tab_body">正文</string>
+    <string name="inspector_block_host">屏蔽主机</string>
+    <string name="inspector_allow_host">允许主机</string>
+    <string name="inspector_override_add">替换响应</string>
+    <string name="inspector_override_title">你写的响应</string>
+    <string name="inspector_override_pattern">URL 包含</string>
+    <string name="inspector_override_method">方法（空=全部）</string>
+    <string name="inspector_override_status">状态</string>
+    <string name="inspector_override_headers">头，每行一个</string>
+    <string name="inspector_override_body">正文</string>
+    <string name="inspector_override_save">保存</string>
+    <string name="inspector_override_none">还没有替换。</string>
+    <string name="inspector_tab_stream">事件</string>
+    <string name="inspector_stream_empty">还没有事件。</string>
     <string name="inspector_view_pretty">Đẹp</string>
     <string name="inspector_view_raw">Nguyên bản</string>
     <string name="inspector_view_binary">Nhị phân</string>

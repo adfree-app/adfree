@@ -332,6 +332,14 @@ pub struct ProxySession {
     /// boxed because the two frame readers are two hundred bytes that only an
     /// upgraded socket has any use for.
     ws: Option<Box<WsRelay>>,
+    /// An event stream being answered, with the record its events belong to.
+    /// `None` for every other response; boxed for the same reason a socket's
+    /// reader is.
+    sse: Option<Box<(u64, crate::sse::Stream)>>,
+    /// The origin's answer to a request the reader replaced: everything after
+    /// the replacement head must be swallowed, and this is what keeps the
+    /// pass-through from handing it to the client.
+    discard: bool,
     /// The body bytes of a request this proxy answered itself, still to be
     /// swallowed before anything is parsed again (see [`swallow_body`]). A
     /// body may look like a request line at any offset, so nothing after the
@@ -520,6 +528,13 @@ struct ResponseEdit {
     /// that there is nothing to record — a request that never reached the
     /// rules, or one the rules answered here, which was logged as a block.
     log_url: String,
+    /// The URL off the head, whether the log has a row for it or not: a
+    /// replacement the reader wrote is matched against this, and a request the
+    /// rules never named has no `log_url` to match.
+    capture_url: String,
+    /// The method from the request line: a replacement can be written for one
+    /// verb, and the URL does not carry one.
+    capture_method: String,
     log_type: &'static str,
     log_source: String,
     /// The tracker's id for this request, when the tracker is on: the request
@@ -776,6 +791,8 @@ impl ProxySession {
             resp_phase: RespPhase::Head,
             head_requests: VecDeque::new(),
             ws: None,
+            sse: None,
+            discard: false,
             peer_buffer: Vec::new(),
             client_buffer: Vec::new(),
             script_src,
@@ -834,7 +851,9 @@ impl ProxySession {
             resp_pending: Vec::new(),
             resp_phase: RespPhase::Head,
             head_requests: VecDeque::new(),
+            discard: false,
             ws: None,
+            sse: None,
             peer_buffer: Vec::new(),
             client_buffer: Vec::new(),
             script_src,
@@ -932,7 +951,9 @@ impl ProxySession {
             resp_pending: Vec::new(),
             resp_phase: RespPhase::Head,
             head_requests: VecDeque::new(),
+            discard: false,
             ws: None,
+            sse: None,
             peer_buffer: Vec::new(),
             client_buffer: Vec::new(),
             script_src,
@@ -1666,6 +1687,14 @@ impl ProxySession {
                 || plan.jsonprune.is_some()
                 || plan.hls.is_some()
                 || plan.html.is_some();
+            // The URL, for the reader's own replacements: the log's copy may be
+            // empty and the capture's copy is gone by the time an answer comes
+            // back, so it rides on the edit.
+            let url_for_override = if plan.log_url.is_empty() {
+                crate::capture::url_for(session_host.unwrap_or(""), buffer)
+            } else {
+                plan.log_url.clone()
+            };
             head_requests.push_back(ResponseEdit {
                 info,
                 replace: plan.replace,
@@ -1690,7 +1719,9 @@ impl ProxySession {
                 } else {
                     None
                 },
-                log_url: plan.log_url,
+                log_url: plan.log_url.clone(),
+                capture_url: url_for_override,
+                capture_method: crate::capture::method_of(buffer),
                 log_type: plan.log_type,
                 log_source: plan.log_source,
             });
@@ -2450,11 +2481,68 @@ impl ProxySession {
                         continue;
                     }
                     let req = self.head_requests.pop_front().unwrap_or_default();
+                    // An event stream is read while it arrives, not after: the
+                    // tap is opened here, where the media type first exists,
+                    // and fed wherever the body bytes go past untouched.
+                    self.sse = None;
+                    if let Some(id) = req.capture_id {
+                        if http::response_mime(&head)
+                            .map(|mime| mime.eq_ignore_ascii_case("text/event-stream"))
+                            .unwrap_or(false)
+                        {
+                            self.sse = Some(Box::new((id, crate::sse::Stream::new())));
+                        }
+                    }
                     if let Some(id) = req.capture_id {
                         // The body this read carried, still as the origin
                         // framed it: the rewriter has not touched it yet, and
                         // what it did with it is not what arrived.
                         crate::capture::record_response(id, info.status, &head, &self.resp_pending);
+                    }
+                    // A replacement the reader wrote answers in the origin's
+                    // place: status, headers and body go out now, and the
+                    // origin's own answer is swallowed so the client never
+                    // sees as much of its head.
+                    if let Some(rule) =
+                        crate::capture::match_rule(&req.capture_method, &req.capture_url)
+                    {
+                        let mut replaced =
+                            format!("HTTP/1.1 {} {}\r\n", rule.status, reason_of(rule.status));
+                        for (name, value) in &rule.headers {
+                            replaced.push_str(&format!("{name}: {value}\r\n"));
+                        }
+                        replaced.push_str(&format!(
+                            "content-length: {}\r\nconnection: keep-alive\r\n\r\n",
+                            rule.body.len(),
+                        ));
+                        out.extend_from_slice(replaced.as_bytes());
+                        out.extend_from_slice(&rule.body);
+                        let framing = if info.chunked {
+                            Some(Framing::Chunked)
+                        } else {
+                            info.content_length.map(Framing::Length)
+                        };
+                        self.discard = true;
+                        self.sse = None;
+                        crate::logbuf::push(&format!(
+                            "mitm {}: {}{} {} replaced by a reader rule ({} bytes)",
+                            self.captured.as_deref().unwrap_or("?"),
+                            &req.capture_url[..req.capture_url.len().min(80)],
+                            if req.info.head { " (HEAD)" } else { "" },
+                            info.status,
+                            rule.body.len(),
+                        ));
+                        self.resp_phase = RespPhase::Pass {
+                            left: match framing {
+                                Some(Framing::Length(n)) => Left::Length(n),
+                                Some(Framing::Chunked) => Left::Chunked(ChunkPass {
+                                    tail: Vec::new(),
+                                    framing: http::DechunkState::new(),
+                                }),
+                                None => Left::End,
+                            },
+                        };
+                        continue;
                     }
                     // The request this answer belongs to is a log row of its
                     // own: AdGuard's Filtering Log lists what it forwarded
@@ -2907,7 +2995,15 @@ impl ProxySession {
                 RespPhase::Pass { left } => match left {
                     Left::Length(n) => {
                         let take = n.min(self.resp_pending.len());
-                        out.extend(self.resp_pending.drain(..take));
+                        if self.discard {
+                            // The reader's answer is already out: the origin's
+                            // is fuel for the sink, not bytes for the client.
+                            self.resp_pending.drain(..take);
+                        } else {
+                            let chunk: Vec<u8> = self.resp_pending.drain(..take).collect();
+                            self.read_stream(&chunk);
+                            out.extend_from_slice(&chunk);
+                        }
                         if n > take {
                             self.resp_phase = RespPhase::Pass {
                                 left: Left::Length(n - take),
@@ -2915,6 +3011,8 @@ impl ProxySession {
                             break;
                         }
                         // This response is done: the next bytes are a head.
+                        self.sse = None;
+                        self.discard = false;
                         self.resp_phase = RespPhase::Head;
                         continue;
                     }
@@ -2925,9 +3023,15 @@ impl ProxySession {
                         match pass.framing.walk(&fresh) {
                             Ok(done) => {
                                 let eaten = pass.framing.consumed() - before;
-                                out.extend_from_slice(&pass.tail[..eaten]);
+                                if !self.discard {
+                                    let chunk: Vec<u8> = pass.tail[..eaten].to_vec();
+                                    self.read_stream(&chunk);
+                                    out.extend_from_slice(&chunk);
+                                }
                                 pass.tail.drain(..eaten);
                                 if done {
+                                    self.sse = None;
+                                    self.discard = false;
                                     // What followed the terminating chunk is
                                     // the next response's head — and this
                                     // connection is back to reading heads.
@@ -2955,7 +3059,13 @@ impl ProxySession {
                         }
                     }
                     Left::End => {
-                        out.append(&mut self.resp_pending);
+                        let chunk = std::mem::take(&mut self.resp_pending);
+                        if self.discard {
+                            drop(chunk);
+                        } else {
+                            self.read_stream(&chunk);
+                            out.extend_from_slice(&chunk);
+                        }
                         self.resp_phase = RespPhase::Pass { left: Left::End };
                         break;
                     }
@@ -2963,6 +3073,21 @@ impl ProxySession {
             }
         }
         (out, injected)
+    }
+
+    /// Feeds body bytes that are going out untouched to the open event stream,
+    /// if there is one, and records every event they completed.
+    ///
+    /// The bytes are read from a copy: the stream is watched, never rewritten,
+    /// and what the client gets is what the origin sent.
+    fn read_stream(&mut self, chunk: &[u8]) {
+        let Some(tap) = self.sse.as_mut() else {
+            return;
+        };
+        let (id, stream) = tap.as_mut();
+        for event in stream.feed(chunk) {
+            crate::capture::record_stream_event(*id, &event);
+        }
     }
 
     /// Removes and returns the complete body of the response being collected,
@@ -4176,6 +4301,35 @@ pub fn open(
     let _ = ca;
     let session = tls::open_session(resolver, real_server)?;
     Ok(ProxySession::new(session, script_src, script_body))
+}
+
+/// The reason phrase for a status a replacement answers with.
+///
+/// Clients ignore it, and a person reads it: `204 No Content` says what a bare
+/// `204` leaves them to look up.
+fn reason_of(status: u16) -> &'static str {
+    match status {
+        200 => "OK",
+        201 => "Created",
+        202 => "Accepted",
+        204 => "No Content",
+        206 => "Partial Content",
+        301 => "Moved Permanently",
+        302 => "Found",
+        304 => "Not Modified",
+        400 => "Bad Request",
+        401 => "Unauthorized",
+        403 => "Forbidden",
+        404 => "Not Found",
+        405 => "Method Not Allowed",
+        418 => "I'm a teapot",
+        429 => "Too Many Requests",
+        500 => "Internal Server Error",
+        502 => "Bad Gateway",
+        503 => "Service Unavailable",
+        504 => "Gateway Timeout",
+        _ => "Replaced",
+    }
 }
 
 #[cfg(test)]

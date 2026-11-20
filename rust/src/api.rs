@@ -596,6 +596,24 @@ pub struct CaptureRecord {
     pub body_len: i64,
     /// The frames this connection carried after a `101`, oldest first.
     pub frames: Vec<WsFrame>,
+    /// The events this answer streamed, oldest first: an `text/event-stream`
+    /// response is read while it arrives, so a page that never stops still
+    /// shows what it has said so far.
+    pub stream: Vec<StreamEvent>,
+}
+
+/// One event of a streamed answer, at the moment it was dispatched.
+#[derive(uniffi::Record, Clone, Debug, Default)]
+pub struct StreamEvent {
+    pub ts_ms: i64,
+    /// The `event:` field, or `message` when the stream named none.
+    pub name: String,
+    /// The payload, up to two kilobytes of it.
+    pub data: String,
+    /// How many bytes the event occupied on the wire.
+    pub len: i64,
+    /// True when the payload was longer than the preview kept.
+    pub truncated: bool,
 }
 
 /// One WebSocket frame, for the socket's row in the tracker.
@@ -658,8 +676,69 @@ pub fn core_capture_records() -> Vec<CaptureRecord> {
                         preview: frame.preview,
                     })
                     .collect(),
+                stream: record
+                    .stream
+                    .into_iter()
+                    .map(|event| StreamEvent {
+                        ts_ms: event.ts_ms as i64,
+                        name: event.name,
+                        data: event.data,
+                        len: event.len as i64,
+                        truncated: event.truncated,
+                    })
+                    .collect(),
             })
             .collect()
+    })
+}
+
+/// One answer the reader has replaced with their own.
+#[derive(uniffi::Record, Clone, Debug, Default)]
+pub struct OverrideRule {
+    /// Matched against the request URL, case-insensitively.
+    pub pattern: String,
+    /// The method it applies to, or empty for any.
+    pub method: String,
+    pub status: i32,
+    /// Headers as `Name: value` lines, as the editor showed them.
+    pub headers: Vec<String>,
+    /// The body, as text: a replacement is written by a person, and a person
+    /// writes JSON or HTML.
+    pub body: String,
+}
+
+/// Replaces the set of answers the reader has written.
+///
+/// The inspector sets these while its window is open and clears them when it
+/// closes: a replacement is traffic the reader asked for, not a rule that
+/// outlives the window showing it. What outlives the window is the saved list,
+/// which the screen reads back into the core on the next open.
+#[uniffi::export]
+pub fn core_capture_set_overrides(rules: Vec<OverrideRule>) {
+    guard((), || {
+        crate::capture::set_rules(
+            rules
+                .into_iter()
+                .map(|rule| crate::capture::Rule {
+                    pattern: rule.pattern,
+                    method: rule.method,
+                    status: rule.status.clamp(100, 599) as u16,
+                    headers: rule
+                        .headers
+                        .into_iter()
+                        .filter_map(|line| {
+                            let (name, value) = line.split_once(':')?;
+                            let name = name.trim();
+                            if name.is_empty() {
+                                return None;
+                            }
+                            Some((name.to_string(), value.trim().to_string()))
+                        })
+                        .collect(),
+                    body: rule.body.into_bytes(),
+                })
+                .collect(),
+        )
     })
 }
 

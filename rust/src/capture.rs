@@ -32,6 +32,11 @@ pub const MAX_BODY: usize = 2048;
 /// Records kept before the oldest is dropped.
 pub const CAPACITY: usize = 300;
 
+/// Events kept per stream. A stream is a conversation — a page that talks for
+/// an hour sends thousands — and its own ring is what keeps one page from
+/// filling the tracker.
+pub const MAX_STREAM_EVENTS: usize = 200;
+
 /// Frames kept per socket. A chat or a multiplayer game speaks for as long as
 /// it is open, and a ring of its own is what keeps one socket from filling the
 /// tracker: the oldest frame goes before the row it belongs to.
@@ -49,6 +54,20 @@ pub struct Frame {
     pub len: usize,
     /// The first [`crate::ws::MAX_PAYLOAD`] bytes, unmasked.
     pub preview: String,
+}
+
+/// One event of a `text/event-stream` answer, as it was dispatched.
+#[derive(Clone, Debug, Default)]
+pub struct StreamEvent {
+    pub ts_ms: u64,
+    /// The `event:` field, or `message` when the stream named none.
+    pub name: String,
+    /// The payload, up to [`crate::sse::MAX_DATA`] bytes of it.
+    pub data: String,
+    /// How many bytes the event occupied on the wire.
+    pub len: usize,
+    /// True when the payload was longer than the preview kept.
+    pub truncated: bool,
 }
 
 /// One request and its answer, as they crossed the connection.
@@ -83,9 +102,60 @@ pub struct Record {
     /// The frames this connection carried after a protocol switch, the newest
     /// last, up to [`MAX_FRAMES`].
     pub frames: Vec<Frame>,
+    /// The events this answer streamed, oldest first, up to
+    /// [`MAX_STREAM_EVENTS`].
+    pub stream: Vec<StreamEvent>,
+}
+
+/// One answer the reader asked to replace.
+///
+/// The inspector is the only writer: a row shows what the origin said, and this
+/// is what the reader says instead — a status, some headers and a body, matched
+/// to the request by a substring of its URL. It is applied while its window is
+/// open, so a replacement outlives its window as a saved rule but not as traffic.
+#[derive(Clone, Debug, Default)]
+pub struct Rule {
+    /// Matched against the request URL, case-insensitively. Empty matches
+    /// nothing, which is how a half-written rule stays inert.
+    pub pattern: String,
+    /// The method it applies to, or empty for any.
+    pub method: String,
+    pub status: u16,
+    pub headers: Vec<(String, String)>,
+    pub body: Vec<u8>,
 }
 
 static ENABLED: AtomicBool = AtomicBool::new(false);
+static RULES: OnceLock<Mutex<Vec<Rule>>> = OnceLock::new();
+
+fn rules() -> &'static Mutex<Vec<Rule>> {
+    RULES.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+/// Replaces the whole set of replacements.
+pub fn set_rules(list: Vec<Rule>) {
+    if let Ok(mut rules) = rules().lock() {
+        *rules = list;
+    }
+}
+
+/// The replacement that answers this request, if the reader wrote one.
+///
+/// Last match wins: the newest rule the reader wrote is the one they meant,
+/// and a URL that two rules name is the one case where the order is visible.
+pub fn match_rule(method: &str, url: &str) -> Option<Rule> {
+    let rules = rules().lock().ok()?;
+    let url_owned = url.to_lowercase();
+    rules
+        .iter()
+        .rev()
+        .find(|rule| {
+            !rule.pattern.is_empty()
+                && url_owned.contains(&rule.pattern.to_lowercase())
+                && (rule.method.is_empty() || rule.method.eq_ignore_ascii_case(method))
+        })
+        .cloned()
+}
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 static RING: OnceLock<Mutex<VecDeque<Record>>> = OnceLock::new();
 
@@ -213,6 +283,7 @@ pub fn record_request(url: &str, head: &[u8]) -> Option<u64> {
         body_preview: String::new(),
         body_len: 0,
         frames: Vec::new(),
+        stream: Vec::new(),
     };
     let mut ring = ring().lock().ok()?;
     if ring.len() == CAPACITY {
@@ -265,6 +336,33 @@ pub fn record_frame(id: u64, frame: &crate::ws::Frame, outgoing: bool) {
         opcode: frame.opcode,
         len: frame.len,
         preview: String::from_utf8_lossy(&frame.payload).into_owned(),
+    });
+}
+
+/// Records one event of a streamed answer.
+///
+/// Matched by id like a frame: the row may have been pushed out of the ring by
+/// the time the stream speaks, and an event with no row to belong to is
+/// dropped rather than misfiled.
+pub fn record_stream_event(id: u64, event: &crate::sse::Event) {
+    if !enabled() {
+        return;
+    }
+    let Ok(mut ring) = ring().lock() else {
+        return;
+    };
+    let Some(record) = ring.iter_mut().find(|record| record.id == id) else {
+        return;
+    };
+    if record.stream.len() == MAX_STREAM_EVENTS {
+        record.stream.remove(0);
+    }
+    record.stream.push(StreamEvent {
+        ts_ms: now_ms(),
+        name: event.name.clone(),
+        data: event.data.clone(),
+        len: event.len,
+        truncated: event.truncated,
     });
 }
 

@@ -964,6 +964,19 @@
     <string name="inspector_tab_headers">ヘッダー</string>
     <string name="inspector_tab_request">リクエスト</string>
     <string name="inspector_tab_body">本文</string>
+    <string name="inspector_block_host">ホストをブロック</string>
+    <string name="inspector_allow_host">ホストを許可</string>
+    <string name="inspector_override_add">応答を置き換え</string>
+    <string name="inspector_override_title">あなたが書いた応答</string>
+    <string name="inspector_override_pattern">URL に含む</string>
+    <string name="inspector_override_method">メソッド（空=すべて）</string>
+    <string name="inspector_override_status">ステータス</string>
+    <string name="inspector_override_headers">ヘッダー（1行1つ）</string>
+    <string name="inspector_override_body">本文</string>
+    <string name="inspector_override_save">保存</string>
+    <string name="inspector_override_none">置き換えはまだありません。</string>
+    <string name="inspector_tab_stream">イベント</string>
+    <string name="inspector_stream_empty">イベントはまだありません。</string>
     <string name="inspector_view_pretty">Đẹp</string>
     <string name="inspector_view_raw">Nguyên bản</string>
     <string name="inspector_view_binary">Nhị phân</string>

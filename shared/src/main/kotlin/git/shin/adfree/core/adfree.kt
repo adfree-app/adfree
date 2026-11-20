@@ -775,6 +775,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_adfree_core_checksum_func_core_capture_set_enabled(
     ): Int
+    external fun uniffi_adfree_core_checksum_func_core_capture_set_overrides(
+    ): Int
     external fun uniffi_adfree_core_checksum_func_core_check_host(
     ): Int
     external fun uniffi_adfree_core_checksum_func_core_clear_dns_cache(
@@ -1045,6 +1047,8 @@ internal object UniffiLib {
     external fun uniffi_adfree_core_fn_func_core_capture_records(uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_adfree_core_fn_func_core_capture_set_enabled(`on`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_adfree_core_fn_func_core_capture_set_overrides(`rules`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_adfree_core_fn_func_core_check_host(`host`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1398,6 +1402,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_adfree_core_checksum_func_core_capture_set_enabled() and 0xFFFF) != 12518) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_adfree_core_checksum_func_core_capture_set_overrides() and 0xFFFF) != 21865) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_adfree_core_checksum_func_core_check_host() and 0xFFFF) != 22170) {
@@ -3450,6 +3457,13 @@ data class CaptureRecord (
      * The frames this connection carried after a `101`, oldest first.
      */
     var `frames`: List<WsFrame>
+    , 
+    /**
+     * The events this answer streamed, oldest first: an `text/event-stream`
+     * response is read while it arrives, so a page that never stops still
+     * shows what it has said so far.
+     */
+    var `stream`: List<StreamEvent>
     
 ){
     
@@ -3478,6 +3492,7 @@ public object FfiConverterTypeCaptureRecord: FfiConverterRustBuffer<CaptureRecor
             FfiConverterString.read(buf),
             FfiConverterLong.read(buf),
             FfiConverterSequenceTypeWsFrame.read(buf),
+            FfiConverterSequenceTypeStreamEvent.read(buf),
         )
     }
 
@@ -3493,7 +3508,8 @@ public object FfiConverterTypeCaptureRecord: FfiConverterRustBuffer<CaptureRecor
             FfiConverterString.allocationSize(value.`responseHead`) +
             FfiConverterString.allocationSize(value.`bodyPreview`) +
             FfiConverterLong.allocationSize(value.`bodyLen`) +
-            FfiConverterSequenceTypeWsFrame.allocationSize(value.`frames`)
+            FfiConverterSequenceTypeWsFrame.allocationSize(value.`frames`) +
+            FfiConverterSequenceTypeStreamEvent.allocationSize(value.`stream`)
     )
 
     override fun write(value: CaptureRecord, buf: ByteBuffer) {
@@ -3509,6 +3525,7 @@ public object FfiConverterTypeCaptureRecord: FfiConverterRustBuffer<CaptureRecor
             FfiConverterString.write(value.`bodyPreview`, buf)
             FfiConverterLong.write(value.`bodyLen`, buf)
             FfiConverterSequenceTypeWsFrame.write(value.`frames`, buf)
+            FfiConverterSequenceTypeStreamEvent.write(value.`stream`, buf)
     }
 }
 
@@ -4984,6 +5001,75 @@ public object FfiConverterTypeNodeCaEditBinding: FfiConverterRustBuffer<NodeCaEd
 
 
 /**
+ * One answer the reader has replaced with their own.
+ */
+data class OverrideRule (
+    /**
+     * Matched against the request URL, case-insensitively.
+     */
+    var `pattern`: kotlin.String
+    , 
+    /**
+     * The method it applies to, or empty for any.
+     */
+    var `method`: kotlin.String
+    , 
+    var `status`: kotlin.Int
+    , 
+    /**
+     * Headers as `Name: value` lines, as the editor showed them.
+     */
+    var `headers`: List<kotlin.String>
+    , 
+    /**
+     * The body, as text: a replacement is written by a person, and a person
+     * writes JSON or HTML.
+     */
+    var `body`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeOverrideRule: FfiConverterRustBuffer<OverrideRule> {
+    override fun read(buf: ByteBuffer): OverrideRule {
+        return OverrideRule(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterSequenceString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: OverrideRule) = (
+            FfiConverterString.allocationSize(value.`pattern`) +
+            FfiConverterString.allocationSize(value.`method`) +
+            FfiConverterInt.allocationSize(value.`status`) +
+            FfiConverterSequenceString.allocationSize(value.`headers`) +
+            FfiConverterString.allocationSize(value.`body`)
+    )
+
+    override fun write(value: OverrideRule, buf: ByteBuffer) {
+            FfiConverterString.write(value.`pattern`, buf)
+            FfiConverterString.write(value.`method`, buf)
+            FfiConverterInt.write(value.`status`, buf)
+            FfiConverterSequenceString.write(value.`headers`, buf)
+            FfiConverterString.write(value.`body`, buf)
+    }
+}
+
+
+
+/**
  * Everything the switches screen edits.
  *
  * This mirrors the UI model one-to-one; `Default` is the only definition of
@@ -6026,6 +6112,74 @@ public object FfiConverterTypeStatsSnapshot: FfiConverterRustBuffer<StatsSnapsho
             FfiConverterLong.write(value.`pendingDns`, buf)
             FfiConverterLong.write(value.`uptimeMs`, buf)
             FfiConverterBoolean.write(value.`isBuilding`, buf)
+    }
+}
+
+
+
+/**
+ * One event of a streamed answer, at the moment it was dispatched.
+ */
+data class StreamEvent (
+    var `tsMs`: kotlin.Long
+    , 
+    /**
+     * The `event:` field, or `message` when the stream named none.
+     */
+    var `name`: kotlin.String
+    , 
+    /**
+     * The payload, up to two kilobytes of it.
+     */
+    var `data`: kotlin.String
+    , 
+    /**
+     * How many bytes the event occupied on the wire.
+     */
+    var `len`: kotlin.Long
+    , 
+    /**
+     * True when the payload was longer than the preview kept.
+     */
+    var `truncated`: kotlin.Boolean
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeStreamEvent: FfiConverterRustBuffer<StreamEvent> {
+    override fun read(buf: ByteBuffer): StreamEvent {
+        return StreamEvent(
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: StreamEvent) = (
+            FfiConverterLong.allocationSize(value.`tsMs`) +
+            FfiConverterString.allocationSize(value.`name`) +
+            FfiConverterString.allocationSize(value.`data`) +
+            FfiConverterLong.allocationSize(value.`len`) +
+            FfiConverterBoolean.allocationSize(value.`truncated`)
+    )
+
+    override fun write(value: StreamEvent, buf: ByteBuffer) {
+            FfiConverterLong.write(value.`tsMs`, buf)
+            FfiConverterString.write(value.`name`, buf)
+            FfiConverterString.write(value.`data`, buf)
+            FfiConverterLong.write(value.`len`, buf)
+            FfiConverterBoolean.write(value.`truncated`, buf)
     }
 }
 
@@ -7381,6 +7535,34 @@ public object FfiConverterSequenceTypeNodeCaEditBinding: FfiConverterRustBuffer<
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeOverrideRule: FfiConverterRustBuffer<List<OverrideRule>> {
+    override fun read(buf: ByteBuffer): List<OverrideRule> {
+        val len = buf.getInt()
+        return List<OverrideRule>(len) {
+            FfiConverterTypeOverrideRule.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<OverrideRule>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeOverrideRule.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<OverrideRule>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeOverrideRule.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeScriptBinding: FfiConverterRustBuffer<List<ScriptBinding>> {
     override fun read(buf: ByteBuffer): List<ScriptBinding> {
         val len = buf.getInt()
@@ -7427,6 +7609,34 @@ public object FfiConverterSequenceTypeScriptRecord: FfiConverterRustBuffer<List<
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeScriptRecord.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeStreamEvent: FfiConverterRustBuffer<List<StreamEvent>> {
+    override fun read(buf: ByteBuffer): List<StreamEvent> {
+        val len = buf.getInt()
+        return List<StreamEvent>(len) {
+            FfiConverterTypeStreamEvent.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<StreamEvent>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeStreamEvent.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<StreamEvent>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeStreamEvent.write(it, buf)
         }
     }
 }
@@ -7723,6 +7933,24 @@ public object FfiConverterSequenceTypeWsFrame: FfiConverterRustBuffer<List<WsFra
     
         
         FfiConverterBoolean.lower(`on`),_status)
+}
+    
+    
+
+        /**
+         * Replaces the set of answers the reader has written.
+         *
+         * The inspector sets these while its window is open and clears them when it
+         * closes: a replacement is traffic the reader asked for, not a rule that
+         * outlives the window showing it. What outlives the window is the saved list,
+         * which the screen reads back into the core on the next open.
+         */ fun `coreCaptureSetOverrides`(`rules`: List<OverrideRule>)
+        = 
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_adfree_core_fn_func_core_capture_set_overrides(
+    
+        
+        FfiConverterSequenceTypeOverrideRule.lower(`rules`),_status)
 }
     
     

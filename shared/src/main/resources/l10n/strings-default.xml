@@ -964,6 +964,19 @@
     <string name="inspector_tab_headers">Headers</string>
     <string name="inspector_tab_request">Request</string>
     <string name="inspector_tab_body">Body</string>
+    <string name="inspector_block_host">Block host</string>
+    <string name="inspector_allow_host">Allow host</string>
+    <string name="inspector_override_add">Replace answer</string>
+    <string name="inspector_override_title">Answers you wrote</string>
+    <string name="inspector_override_pattern">URL contains</string>
+    <string name="inspector_override_method">Method (empty = any)</string>
+    <string name="inspector_override_status">Status</string>
+    <string name="inspector_override_headers">Headers, one per line</string>
+    <string name="inspector_override_body">Body</string>
+    <string name="inspector_override_save">Save</string>
+    <string name="inspector_override_none">No replacements yet.</string>
+    <string name="inspector_tab_stream">Events</string>
+    <string name="inspector_stream_empty">No events yet.</string>
     <string name="inspector_view_pretty">整形</string>
     <string name="inspector_view_raw">生</string>
     <string name="inspector_view_binary">バイナリ</string>

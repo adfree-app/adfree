@@ -480,7 +480,17 @@ fun main() {
                             onClose = { showInspector = false },
                         )
                         Box(Modifier.weight(1f).fillMaxWidth()) {
-                            RequestInspectorScreen(layout = InspectorLayout(container.store))
+                            RequestInspectorScreen(
+                                layout = InspectorLayout(container.store),
+                                // A rule the reader writes from the tracker goes
+                                // where every other rule goes: the user's own
+                                // list, applied by the engine at once.
+                                onRule = { host, block ->
+                                    container.repository.addCustomRule(
+                                        if (block) "||$host^" else "@@||$host^",
+                                    )
+                                },
+                            )
                         }
                     }
                     ResizeHandles()

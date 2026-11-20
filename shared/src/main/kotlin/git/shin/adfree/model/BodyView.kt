@@ -78,22 +78,32 @@ object BodyFormats {
         if (text.isEmpty()) return null
         return when {
             text.startsWith("{") || text.startsWith("[") -> BodyKind.JSON
+
             text.startsWith("<!doctype", true) || text.startsWith("<html", true) -> BodyKind.HTML
+
             text.startsWith("<?xml", true) -> BodyKind.XML
+
             // An event stream is blocks separated by a blank line, each with at
             // least one `data:` line.
             text.startsWith("data:") || text.startsWith("event:") || text.startsWith(":\n") -> BodyKind.SSE
+
             text.startsWith("<") -> BodyKind.HTML
+
             '\u0000' in body.drop(0).take(2048) -> BodyKind.BINARY
+
             else -> null
         }
     }
 }
 
 /** One coloured stretch of a body. */
-data class Span(val start: Int, val end: Int, val tone: Tone)
+data class Span(
+    val start: Int,
+    val end: Int,
+    val tone: Tone,
+)
 
-enum class Tone { KEY, STRING, NUMBER, LITERAL, COMMENT, TAG, ATTR, SELECTOR, PROPERTY }
+enum class Tone { KEY, STRING, NUMBER, LITERAL, COMMENT, TAG, ATTR, SELECTOR, PROPERTY, PUNCT }
 
 /**
  * Enough of a tokenizer to make a body readable.
@@ -105,6 +115,7 @@ enum class Tone { KEY, STRING, NUMBER, LITERAL, COMMENT, TAG, ATTR, SELECTOR, PR
  */
 object BodySyntax {
     private val JSON_KEY = Regex(""""([^"\\]|\\.)*"\s*:""")
+    private val PUNCT = Regex("""[{}\[\],:]""")
     private val STRING = Regex(""""([^"\\]|\\.)*"""")
     private val NUMBER = Regex("""-?\b\d+(\.\d+)?([eE][+-]?\d+)?\b""")
     private val LITERAL = Regex("""\b(true|false|null)\b""")
@@ -119,7 +130,9 @@ object BodySyntax {
     private val SSE_FIELD = Regex("""^(data|event|id|retry):""", RegexOption.MULTILINE)
     private val WORD = Regex("""[A-Za-z_$][\w$]*""")
     private val JS_KEYWORD =
-        Regex("""\b(function|const|let|var|return|if|else|for|while|new|class|import|export|await|async|null|true|false|undefined|this)\b""")
+        Regex(
+            """\b(function|const|let|var|return|if|else|for|while|new|class|import|export|await|async|null|true|false|undefined|this)\b""",
+        )
 
     /** Coloured spans, in order, with no overlaps. */
     fun spans(
@@ -127,13 +140,18 @@ object BodySyntax {
         text: String,
     ): List<Span> {
         val found = mutableListOf<Span>()
-        fun add(regex: Regex, tone: Tone) {
+
+        fun add(
+            regex: Regex,
+            tone: Tone,
+        ) {
             regex.findAll(text).forEach { match ->
                 found += Span(match.range.first, match.range.last + 1, tone)
             }
         }
         when (kind) {
             BodyKind.JSON -> {
+                add(PUNCT, Tone.PUNCT)
                 add(STRING, Tone.STRING)
                 add(NUMBER, Tone.NUMBER)
                 add(LITERAL, Tone.LITERAL)
@@ -141,6 +159,7 @@ object BodySyntax {
                 // string it also is.
                 add(JSON_KEY, Tone.KEY)
             }
+
             BodyKind.XML,
             BodyKind.HTML,
             -> {
@@ -149,6 +168,7 @@ object BodySyntax {
                 add(STRING, Tone.STRING)
                 add(ATTR, Tone.ATTR)
             }
+
             BodyKind.CSS -> {
                 add(BLOCK_COMMENT, Tone.COMMENT)
                 add(CSS_SELECTOR, Tone.SELECTOR)
@@ -156,6 +176,7 @@ object BodySyntax {
                 add(STRING, Tone.STRING)
                 add(NUMBER, Tone.NUMBER)
             }
+
             BodyKind.JAVASCRIPT -> {
                 add(BLOCK_COMMENT, Tone.COMMENT)
                 add(LINE_COMMENT, Tone.COMMENT)
@@ -163,27 +184,33 @@ object BodySyntax {
                 add(JS_KEYWORD, Tone.LITERAL)
                 add(NUMBER, Tone.NUMBER)
             }
+
             BodyKind.YAML -> {
                 add(YAML_KEY, Tone.KEY)
                 add(STRING, Tone.STRING)
                 add(NUMBER, Tone.NUMBER)
                 add(LITERAL, Tone.LITERAL)
             }
+
             BodyKind.SSE -> {
                 add(SSE_FIELD, Tone.KEY)
                 add(STRING, Tone.STRING)
                 add(NUMBER, Tone.NUMBER)
             }
+
             BodyKind.FORM -> {
                 add(Regex("""^[^=&\n]+="""), Tone.KEY)
                 add(NUMBER, Tone.NUMBER)
             }
+
             BodyKind.TEXT,
             BodyKind.IMAGE,
             BodyKind.MEDIA,
             BodyKind.FONT,
             BodyKind.BINARY,
-            -> Unit
+            -> {
+                Unit
+            }
         }
         return flatten(found, text.length)
     }
@@ -244,26 +271,38 @@ object JsonText {
                     inString = true
                     out.append(char)
                 }
+
                 '{', '[' -> {
                     depth++
                     out.append(char)
                     out.append('\n')
                     out.append("  ".repeat(depth))
                 }
+
                 '}', ']' -> {
                     depth--
                     out.append('\n')
                     out.append("  ".repeat(depth.coerceAtLeast(0)))
                     out.append(char)
                 }
+
                 ',' -> {
                     out.append(char)
                     out.append('\n')
                     out.append("  ".repeat(depth.coerceAtLeast(0)))
                 }
-                ':' -> out.append(": ")
-                ' ', '\n', '\r', '\t' -> Unit
-                else -> out.append(char)
+
+                ':' -> {
+                    out.append(": ")
+                }
+
+                ' ', '\n', '\r', '\t' -> {
+                    Unit
+                }
+
+                else -> {
+                    out.append(char)
+                }
             }
         }
         val text = out.toString()
@@ -276,7 +315,11 @@ object JsonText {
 
 /** A hex viewer, because a body that is not text still has to be looked at. */
 object HexView {
-    data class Row(val offset: Int, val hex: String, val ascii: String)
+    data class Row(
+        val offset: Int,
+        val hex: String,
+        val ascii: String,
+    )
 
     fun rows(
         bytes: ByteArray,
@@ -330,9 +373,10 @@ object HexView {
             Row(
                 start,
                 chunk.joinToString(" "),
-                chunk.map { token ->
-                    if (token == "--") '.' else token.toInt(16).toChar().takeIf { it.code in 0x20..0x7E } ?: '.'
-                }.joinToString(""),
+                chunk
+                    .map { token ->
+                        if (token == "--") '.' else token.toInt(16).toChar().takeIf { it.code in 0x20..0x7E } ?: '.'
+                    }.joinToString(""),
             )
         }
     }

@@ -6,7 +6,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BodyViewTest {
-
     @Test
     fun theLabelDecidesWhenItNamesSomething() {
         assertEquals(BodyKind.JSON, BodyFormats.of("application/json", "{}"))
@@ -41,6 +40,14 @@ class BodyViewTest {
         assertTrue("keys were $keys", keys.any { it.startsWith("\"name\"") })
         assertTrue(spans.any { it.tone == Tone.NUMBER })
         assertTrue(spans.any { it.tone == Tone.LITERAL })
+    }
+
+    @Test
+    fun theBracesOfAJsonBodyAreNotLeftUncoloured() {
+        val text = """{"a":1}"""
+        val spans = BodySyntax.spans(BodyKind.JSON, text)
+        val painted = spans.flatMap { it.start until it.end }.toSet()
+        assertTrue("braces were unclaimed", 0 in painted && text.lastIndex in painted)
     }
 
     @Test

@@ -47,6 +47,7 @@ pub mod services;
 pub mod shell_trust;
 pub mod smart;
 pub mod socks5;
+pub mod sse;
 pub mod state;
 pub mod stats;
 pub mod store;

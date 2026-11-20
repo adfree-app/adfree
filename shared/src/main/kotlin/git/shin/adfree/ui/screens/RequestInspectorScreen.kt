@@ -77,12 +77,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import git.shin.adfree.core.CaptureRecord
+import git.shin.adfree.core.StreamEvent
 import git.shin.adfree.core.WsFrame
 import git.shin.adfree.core.coreCaptureClear
 import git.shin.adfree.core.coreCaptureRecords
 import git.shin.adfree.core.coreCaptureSetEnabled
 import git.shin.adfree.data.InspectorDock
 import git.shin.adfree.data.InspectorLayout
+import git.shin.adfree.data.ResponseOverride
 import git.shin.adfree.l10n.L10n
 import git.shin.adfree.l10n.Strings
 import git.shin.adfree.model.BodyFormats
@@ -137,6 +139,11 @@ private object Dt {
 fun RequestInspectorScreen(
     modifier: Modifier = Modifier,
     layout: InspectorLayout? = null,
+    /**
+     * Adds `||host^` or `@@||host^` to the user's own rules, or `null` where
+     * there is nothing to write rules to — a preview or a test.
+     */
+    onRule: ((host: String, block: Boolean) -> Unit)? = null,
 ) {
     var records by remember { mutableStateOf(emptyList<CaptureRecord>()) }
     var selected by remember { mutableStateOf<Long?>(null) }
@@ -151,6 +158,23 @@ fun RequestInspectorScreen(
     // How a body is read, not which body: someone who wants the wire wants it
     // for the next request too, so the choice is one for the whole window.
     var viewMode by remember { mutableStateOf(ViewMode.PRETTY) }
+    // The answers the reader wrote. In force while this window is open, saved
+    // so the next open has them again.
+    var overrides by remember { mutableStateOf(layout?.overrides?.load().orEmpty()) }
+    var editing by remember { mutableStateOf(false) }
+    var editingIndex by remember { mutableStateOf(-1) }
+    DisposableEffect(layout) {
+        layout?.overrides?.apply(overrides)
+        onDispose { layout?.overrides?.apply(emptyList()) }
+    }
+    var editingRule by remember { mutableStateOf<ResponseOverride?>(null) }
+    val actions =
+        remember(onRule) {
+            InspectorActions(
+                onRule = onRule,
+                onOverride = { rule: ResponseOverride -> editingRule = rule },
+            )
+        }
     val clipboard = LocalClipboardManager.current
     var copied by remember { mutableStateOf(0) }
 
@@ -317,6 +341,7 @@ fun RequestInspectorScreen(
                                 copy,
                                 viewMode,
                                 { viewMode = it },
+                                actions,
                                 Modifier.fillMaxWidth().weight(1f),
                             )
                         }
@@ -327,20 +352,47 @@ fun RequestInspectorScreen(
                     InspectorDock.BOTTOM -> {
                         RequestList(shown, current, { selected = it }, copy, Modifier.weight(1f))
                         SplitHandle(vertical = false, drag = drag)
-                        DetailSlot(current, tab, { tab = it }, copy, viewMode, { viewMode = it }, Modifier.fillMaxWidth().height(detail))
+                        DetailSlot(
+                            current,
+                            tab,
+                            { tab = it },
+                            copy,
+                            viewMode,
+                            { viewMode = it },
+                            actions,
+                            Modifier.fillMaxWidth().height(detail),
+                        )
                     }
 
                     InspectorDock.RIGHT -> {
                         Row(Modifier.fillMaxWidth().weight(1f)) {
                             RequestList(shown, current, { selected = it }, copy, Modifier.weight(1f).fillMaxHeight())
                             SplitHandle(vertical = true, drag = drag)
-                            DetailSlot(current, tab, { tab = it }, copy, viewMode, { viewMode = it }, Modifier.width(detail).fillMaxHeight())
+                            DetailSlot(
+                                current,
+                                tab,
+                                { tab = it },
+                                copy,
+                                viewMode,
+                                { viewMode = it },
+                                actions,
+                                Modifier.width(detail).fillMaxHeight(),
+                            )
                         }
                     }
 
                     InspectorDock.LEFT -> {
                         Row(Modifier.fillMaxWidth().weight(1f)) {
-                            DetailSlot(current, tab, { tab = it }, copy, viewMode, { viewMode = it }, Modifier.width(detail).fillMaxHeight())
+                            DetailSlot(
+                                current,
+                                tab,
+                                { tab = it },
+                                copy,
+                                viewMode,
+                                { viewMode = it },
+                                actions,
+                                Modifier.width(detail).fillMaxHeight(),
+                            )
                             SplitHandle(vertical = true, drag = drag)
                             RequestList(shown, current, { selected = it }, copy, Modifier.weight(1f).fillMaxHeight())
                         }
@@ -360,6 +412,27 @@ fun RequestInspectorScreen(
                 Text(L10n.get(Strings.inspector_copied), fontSize = 11.sp, color = Dt.text)
             }
         }
+    }
+    editingRule?.let { rule ->
+        // The replacement goes into force the moment it is saved, and the
+        // window that wrote it is the one it answers in.
+        OverrideDialog(
+            initial = rule,
+            saved = overrides,
+            onSave = { updated ->
+                val at = overrides.indexOfFirst { it.pattern == rule.pattern && it.method == rule.method }
+                overrides = if (at < 0) overrides + updated else overrides.toMutableList().also { it[at] = updated }
+                layout?.overrides?.save(overrides)
+                layout?.overrides?.apply(overrides)
+                editingRule = null
+            },
+            onDelete = { victim ->
+                overrides = overrides.filterNot { it == victim }
+                layout?.overrides?.save(overrides)
+                layout?.overrides?.apply(overrides)
+            },
+            onClose = { editingRule = null },
+        )
     }
 }
 
@@ -446,6 +519,7 @@ private fun DetailSlot(
     onCopy: (String) -> Unit,
     mode: ViewMode,
     onMode: (ViewMode) -> Unit,
+    actions: InspectorActions,
     modifier: Modifier,
 ) {
     if (current == null) {
@@ -456,7 +530,7 @@ private fun DetailSlot(
             modifier = modifier.padding(14.dp),
         )
     } else {
-        DetailPane(current, tab, onTab, onCopy, mode, onMode, modifier)
+        DetailPane(current, tab, onTab, onCopy, mode, onMode, actions, modifier)
     }
 }
 
@@ -909,6 +983,7 @@ private fun DetailPane(
     onCopy: (String) -> Unit,
     mode: ViewMode,
     onMode: (ViewMode) -> Unit,
+    actions: InspectorActions,
     modifier: Modifier,
 ) {
     Column(modifier.background(Dt.panel)) {
@@ -933,6 +1008,34 @@ private fun DetailPane(
                         headerRows(record.responseHead),
                         onCopy,
                     )
+                    Row(
+                        Modifier.padding(top = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        val host = hostOf(record.url)
+                        ActionChip(L10n.get(Strings.inspector_block_host)) {
+                            host.takeIf { it.isNotEmpty() }?.let { actions.onRule?.invoke(it, true) }
+                        }
+                        ActionChip(L10n.get(Strings.inspector_allow_host)) {
+                            host.takeIf { it.isNotEmpty() }?.let { actions.onRule?.invoke(it, false) }
+                        }
+                        ActionChip(L10n.get(Strings.inspector_override_add)) {
+                            actions.onOverride(
+                                ResponseOverride(
+                                    pattern = host,
+                                    method = record.method,
+                                    status = if (record.status == 0) "200" else "${record.status}",
+                                    headers =
+                                        if (record.bodyPreview.startsWith("{")) {
+                                            "content-type: application/json"
+                                        } else {
+                                            ""
+                                        },
+                                    body = record.bodyPreview,
+                                ),
+                            )
+                        }
+                    }
                 }
 
                 Tab.REQUEST -> {
@@ -955,6 +1058,14 @@ private fun DetailPane(
                     if (body.isNotEmpty()) {
                         Section(L10n.get(Strings.inspector_section_request_body))
                         BodyPane(body, record.requestHead, record.requestBodyLen, mode, onMode, onCopy)
+                    }
+                }
+
+                Tab.STREAM -> {
+                    if (record.stream.isEmpty()) {
+                        Text(L10n.get(Strings.inspector_stream_empty), fontSize = 11.sp, color = Dt.muted)
+                    } else {
+                        record.stream.forEach { event -> StreamRow(event, onCopy) }
                     }
                 }
 
@@ -1044,14 +1155,22 @@ private fun opcodeName(opcode: Int): String =
         else -> "Op $opcode"
     }
 
-private enum class Tab { HEADERS, REQUEST, BODY, RESPONSE, MESSAGES }
+private enum class Tab { HEADERS, REQUEST, BODY, RESPONSE, MESSAGES, STREAM }
 
-private fun tabsFor(record: CaptureRecord): List<Tab> =
-    if (record.status == 101) {
-        listOf(Tab.HEADERS, Tab.REQUEST, Tab.BODY, Tab.MESSAGES, Tab.RESPONSE)
-    } else {
-        listOf(Tab.HEADERS, Tab.REQUEST, Tab.BODY, Tab.RESPONSE)
-    }
+/**
+ * The tabs a request can have.
+ *
+ * A socket has messages and a stream has events, and neither is offered to a
+ * request that has none: a tab that opens on an empty pane teaches a reader
+ * nothing about what this row is.
+ */
+private fun tabsFor(record: CaptureRecord): List<Tab> {
+    val tabs = mutableListOf(Tab.HEADERS, Tab.REQUEST, Tab.BODY)
+    if (record.status == 101) tabs += Tab.MESSAGES
+    if (record.stream.isNotEmpty()) tabs += Tab.STREAM
+    tabs += Tab.RESPONSE
+    return tabs
+}
 
 @Composable
 private fun TabStrip(
@@ -1081,6 +1200,7 @@ private fun TabStrip(
                         Tab.REQUEST -> Strings.inspector_tab_request
                         Tab.BODY -> Strings.inspector_tab_body
                         Tab.MESSAGES -> Strings.inspector_tab_messages
+                        Tab.STREAM -> Strings.inspector_tab_stream
                         Tab.RESPONSE -> Strings.inspector_tab_response
                     },
                 ),
@@ -1219,8 +1339,7 @@ private fun headerRows(head: String): List<Pair<String, String>> =
  * The type cell's word: an upgrade has no `Content-Type` to read, and a dash
  * there reads as "nothing known" rather than as a socket.
  */
-private fun typeName(record: CaptureRecord): String =
-    if (record.status == 101) "websocket" else mediaType(record.responseHead)
+private fun typeName(record: CaptureRecord): String = if (record.status == 101) "websocket" else mediaType(record.responseHead)
 
 /**
  * The resource kind DevTools would print, derived from the answer's own
@@ -1267,6 +1386,26 @@ private fun bytes(count: Long): String =
         count < 1024 * 1024 -> "${(count / 102.4).toInt() / 10.0} kB"
         else -> "${(count / 104857.6).toInt() / 10.0} MB"
     }
+
+/**
+ * What a row can do to the rest of the app.
+ *
+ * Held together so the pane and the list are handed one thing rather than
+ * three, and so a preview with no repository behind it passes `null` once.
+ */
+private data class InspectorActions(
+    val onRule: ((String, Boolean) -> Unit)?,
+    val onOverride: (ResponseOverride) -> Unit,
+)
+
+/** The host of a URL, which is what a blocking rule names. */
+private fun hostOf(url: String): String =
+    url
+        .substringAfter("://", url)
+        .substringBefore('/')
+        .substringBefore('?')
+        .substringAfter('@')
+        .substringBefore(':')
 
 /** How a body is read: laid out, as the wire sent it, or as bytes. */
 private enum class ViewMode { PRETTY, RAW, BINARY }
@@ -1318,10 +1457,13 @@ private fun BodyPane(
     }
     when {
         mode == ViewMode.BINARY -> HexRows(text)
+
         // A stream laid out is a list of what arrived, not one long block: the
         // events are the thing being read, and there is one per line.
         mode == ViewMode.PRETTY && kind == BodyKind.SSE -> SseRows(text, onCopy)
+
         mode == ViewMode.PRETTY && pretty != null -> Highlighted(pretty, BodyKind.JSON, onCopy)
+
         else -> Highlighted(text, kind, onCopy)
     }
     Text(
@@ -1330,6 +1472,26 @@ private fun BodyPane(
         color = Dt.muted,
         modifier = Modifier.padding(top = 8.dp),
     )
+}
+
+/** A boxed label that does something, at the size of a chip rather than a
+ * button: three of them sit under a section of pairs. */
+@Composable
+private fun ActionChip(
+    label: String,
+    onClick: () -> Unit,
+) {
+    Box(
+        Modifier
+            .height(22.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .background(Dt.toolbar)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 9.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, fontSize = 10.sp, lineHeight = 11.sp, color = Dt.text, maxLines = 1)
+    }
 }
 
 @Composable
@@ -1376,6 +1538,10 @@ private fun Highlighted(
         }
     Text(
         coloured,
+        // A body is read against a dark panel, so the characters no rule claimed
+        // — a brace, a bracket, a comma — still have to be drawn in the text
+        // colour rather than left to the platform default, which is black.
+        color = Dt.text,
         fontSize = 11.sp,
         fontFamily = FontFamily.Monospace,
         modifier =
@@ -1394,6 +1560,7 @@ private fun toneOf(tone: Tone): Color =
         Tone.COMMENT -> Dt.comment
         Tone.TAG -> Dt.bad
         Tone.SELECTOR -> Dt.ok
+        Tone.PUNCT -> Dt.muted
     }
 
 /** The bytes of a body the tracker could not keep as text, sixteen a row. */
@@ -1479,5 +1646,165 @@ private fun SseRows(
             )
             Text(bytes(event.bytes.toLong()), fontSize = 10.sp, color = Dt.muted)
         }
+    }
+}
+
+/**
+ * One event of a stream: when it arrived, what it was called, what it said and
+ * how long it was.
+ *
+ * The time is the point of the tab. A stream that answers for minutes has a
+ * rhythm — a token every forty milliseconds, a heartbeat every fifteen seconds
+ * — and a list of payloads without their times cannot show it.
+ */
+@Composable
+private fun StreamRow(
+    event: StreamEvent,
+    onCopy: (String) -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable { onCopy(event.data) }
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            clock(event.tsMs),
+            fontSize = 10.sp,
+            fontFamily = FontFamily.Monospace,
+            color = Dt.muted,
+            modifier = Modifier.width(84.dp),
+        )
+        Text(event.name, fontSize = 10.sp, color = Dt.link, maxLines = 1)
+        Text(
+            event.data.replace('\n', ' ').trim(),
+            fontSize = 11.sp,
+            fontFamily = FontFamily.Monospace,
+            color = Dt.text,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (event.truncated) {
+            Text("…", fontSize = 11.sp, color = Dt.muted)
+        }
+        Text(bytes(event.len), fontSize = 10.sp, color = Dt.muted)
+    }
+}
+
+/**
+ * The replacement editor: what the origin said, replaced by what the reader
+ * writes.
+ *
+ * Fields rather than a request builder, because the point is to try what a page
+ * does with a different answer — a 418, an empty body, a header the page checks
+ * — and that is a form, not a debugger.
+ */
+@Composable
+private fun OverrideDialog(
+    initial: ResponseOverride,
+    saved: List<ResponseOverride>,
+    onSave: (ResponseOverride) -> Unit,
+    onDelete: (ResponseOverride) -> Unit,
+    onClose: () -> Unit,
+) {
+    var rule by remember(initial) { mutableStateOf(initial) }
+    Dialog(onDismissRequest = onClose) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.86f)
+                .background(Dt.panel)
+                .clip(RoundedCornerShape(10.dp))
+                .padding(14.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    L10n.get(Strings.inspector_override_title),
+                    fontSize = 12.sp,
+                    color = Dt.text,
+                    modifier = Modifier.weight(1f),
+                )
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = L10n.get(Strings.common_close),
+                    tint = Dt.muted,
+                    modifier = Modifier.size(15.dp).clickable(onClick = onClose),
+                )
+            }
+            if (saved.isEmpty()) {
+                Text(L10n.get(Strings.inspector_override_none), fontSize = 11.sp, color = Dt.muted)
+            } else {
+                // What is already in force, newest first, each deletable: a
+                // replacement left behind by a test is traffic the reader has
+                // to be able to take back.
+                saved.asReversed().forEach { item ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "${item.method.ifEmpty { "ALL" }} ${item.pattern} → ${item.status}",
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = Dt.link,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        ActionChip(L10n.get(Strings.ext_delete)) { onDelete(item) }
+                    }
+                }
+            }
+            Field(L10n.get(Strings.inspector_override_pattern), rule.pattern) {
+                rule = rule.copy(pattern = it)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.weight(1f)) {
+                    Field(L10n.get(Strings.inspector_override_method), rule.method) {
+                        rule = rule.copy(method = it)
+                    }
+                }
+                Box(Modifier.weight(1f)) {
+                    Field(L10n.get(Strings.inspector_override_status), rule.status) {
+                        rule = rule.copy(status = it)
+                    }
+                }
+            }
+            Field(L10n.get(Strings.inspector_override_headers), rule.headers, lines = 3) {
+                rule = rule.copy(headers = it)
+            }
+            Field(L10n.get(Strings.inspector_override_body), rule.body, lines = 8) {
+                rule = rule.copy(body = it)
+            }
+            ActionChip(L10n.get(Strings.inspector_override_save)) { onSave(rule) }
+        }
+    }
+}
+
+/** A labelled text field at the panel's own scale. */
+@Composable
+private fun Field(
+    label: String,
+    value: String,
+    lines: Int = 1,
+    onChange: (String) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth()) {
+        Text(label, fontSize = 10.sp, color = Dt.muted)
+        BasicTextField(
+            value = value,
+            onValueChange = onChange,
+            textStyle = TextStyle(fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = Dt.text),
+            cursorBrush = SolidColor(Dt.text),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .height((14 * lines + 8).dp)
+                    .background(Dt.toolbar)
+                    .clip(RoundedCornerShape(4.dp))
+                    .padding(6.dp),
+        )
     }
 }

@@ -18,6 +18,9 @@ enum class InspectorDock { BOTTOM, RIGHT, LEFT }
 class InspectorLayout(
     private val store: KeyValueStore,
 ) {
+    /** The answers the reader wrote, kept beside the pane's own position. */
+    val overrides = OverrideStore(store)
+
     fun dock(): InspectorDock =
         when (store.getString(KEY_DOCK)) {
             "RIGHT" -> InspectorDock.RIGHT
