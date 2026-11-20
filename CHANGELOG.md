@@ -1,3 +1,9 @@
+## [1.31.2](https://github.com/adfree-app/adfree/compare/v1.31.1...v1.31.2) (2026-11-20)
+
+### Bug Fixes
+
+* **desktop:** the package carries the module the update screen asks for ([9620cfe](https://github.com/adfree-app/adfree/commit/9620cfe8c8e06879a04620b29d7d551439b7ccc7))
+
 ## [1.31.1](https://github.com/adfree-app/adfree/compare/v1.31.0...v1.31.1) (2026-11-20)
 
 ### Bug Fixes
