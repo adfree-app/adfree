@@ -85,7 +85,14 @@ import git.shin.adfree.data.InspectorDock
 import git.shin.adfree.data.InspectorLayout
 import git.shin.adfree.l10n.L10n
 import git.shin.adfree.l10n.Strings
+import git.shin.adfree.model.BodyFormats
+import git.shin.adfree.model.BodyKind
+import git.shin.adfree.model.BodySyntax
+import git.shin.adfree.model.HexView
+import git.shin.adfree.model.JsonText
 import git.shin.adfree.model.RequestCopy
+import git.shin.adfree.model.SseText
+import git.shin.adfree.model.Tone
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -122,6 +129,8 @@ private object Dt {
     val ok = Color(0xFF81C995)
     val bad = Color(0xFFF28B82)
     val warn = Color(0xFFFDD663)
+    val keyword = Color(0xFFC58AF9)
+    val comment = Color(0xFF7F8B96)
 }
 
 @Composable
@@ -139,6 +148,9 @@ fun RequestInspectorScreen(
     // socket's messages, asked of a plain answer — falls back to the headers
     // for that request and is still remembered for the next one.
     var tab by remember { mutableStateOf(Tab.HEADERS) }
+    // How a body is read, not which body: someone who wants the wire wants it
+    // for the next request too, so the choice is one for the whole window.
+    var viewMode by remember { mutableStateOf(ViewMode.PRETTY) }
     val clipboard = LocalClipboardManager.current
     var copied by remember { mutableStateOf(0) }
 
@@ -298,7 +310,15 @@ fun RequestInspectorScreen(
                                     )
                                 }
                             }
-                            DetailPane(openRecord, tab, { tab = it }, copy, Modifier.fillMaxWidth().weight(1f))
+                            DetailPane(
+                                openRecord,
+                                tab,
+                                { tab = it },
+                                copy,
+                                viewMode,
+                                { viewMode = it },
+                                Modifier.fillMaxWidth().weight(1f),
+                            )
                         }
                     }
                 }
@@ -307,20 +327,20 @@ fun RequestInspectorScreen(
                     InspectorDock.BOTTOM -> {
                         RequestList(shown, current, { selected = it }, copy, Modifier.weight(1f))
                         SplitHandle(vertical = false, drag = drag)
-                        DetailSlot(current, tab, { tab = it }, copy, Modifier.fillMaxWidth().height(detail))
+                        DetailSlot(current, tab, { tab = it }, copy, viewMode, { viewMode = it }, Modifier.fillMaxWidth().height(detail))
                     }
 
                     InspectorDock.RIGHT -> {
                         Row(Modifier.fillMaxWidth().weight(1f)) {
                             RequestList(shown, current, { selected = it }, copy, Modifier.weight(1f).fillMaxHeight())
                             SplitHandle(vertical = true, drag = drag)
-                            DetailSlot(current, tab, { tab = it }, copy, Modifier.width(detail).fillMaxHeight())
+                            DetailSlot(current, tab, { tab = it }, copy, viewMode, { viewMode = it }, Modifier.width(detail).fillMaxHeight())
                         }
                     }
 
                     InspectorDock.LEFT -> {
                         Row(Modifier.fillMaxWidth().weight(1f)) {
-                            DetailSlot(current, tab, { tab = it }, copy, Modifier.width(detail).fillMaxHeight())
+                            DetailSlot(current, tab, { tab = it }, copy, viewMode, { viewMode = it }, Modifier.width(detail).fillMaxHeight())
                             SplitHandle(vertical = true, drag = drag)
                             RequestList(shown, current, { selected = it }, copy, Modifier.weight(1f).fillMaxHeight())
                         }
@@ -424,6 +444,8 @@ private fun DetailSlot(
     tab: Tab,
     onTab: (Tab) -> Unit,
     onCopy: (String) -> Unit,
+    mode: ViewMode,
+    onMode: (ViewMode) -> Unit,
     modifier: Modifier,
 ) {
     if (current == null) {
@@ -434,7 +456,7 @@ private fun DetailSlot(
             modifier = modifier.padding(14.dp),
         )
     } else {
-        DetailPane(current, tab, onTab, onCopy, modifier)
+        DetailPane(current, tab, onTab, onCopy, mode, onMode, modifier)
     }
 }
 
@@ -885,6 +907,8 @@ private fun DetailPane(
     tab: Tab,
     onTab: (Tab) -> Unit,
     onCopy: (String) -> Unit,
+    mode: ViewMode,
+    onMode: (ViewMode) -> Unit,
     modifier: Modifier,
 ) {
     Column(modifier.background(Dt.panel)) {
@@ -930,19 +954,7 @@ private fun DetailPane(
                     }
                     if (body.isNotEmpty()) {
                         Section(L10n.get(Strings.inspector_section_request_body))
-                        Text(
-                            body,
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            color = Dt.text,
-                            modifier = Modifier.clickable { onCopy(body) },
-                        )
-                        Text(
-                            bytes(record.requestBodyLen),
-                            fontSize = 11.sp,
-                            color = Dt.muted,
-                            modifier = Modifier.padding(top = 8.dp),
-                        )
+                        BodyPane(body, record.requestHead, record.requestBodyLen, mode, onMode, onCopy)
                     }
                 }
 
@@ -958,18 +970,13 @@ private fun DetailPane(
                     if (record.bodyPreview.isEmpty()) {
                         Pair(L10n.get(Strings.inspector_col_size), bytes(record.bodyLen), Dt.text, onCopy)
                     } else {
-                        Text(
+                        BodyPane(
                             record.bodyPreview,
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            color = Dt.text,
-                            modifier = Modifier.clickable { onCopy(record.bodyPreview) },
-                        )
-                        Text(
-                            bytes(record.bodyLen),
-                            fontSize = 11.sp,
-                            color = Dt.muted,
-                            modifier = Modifier.padding(top = 8.dp),
+                            record.responseHead,
+                            record.bodyLen,
+                            mode,
+                            onMode,
+                            onCopy,
                         )
                     }
                 }
@@ -1260,3 +1267,217 @@ private fun bytes(count: Long): String =
         count < 1024 * 1024 -> "${(count / 102.4).toInt() / 10.0} kB"
         else -> "${(count / 104857.6).toInt() / 10.0} MB"
     }
+
+/** How a body is read: laid out, as the wire sent it, or as bytes. */
+private enum class ViewMode { PRETTY, RAW, BINARY }
+
+/**
+ * A body, in whichever of the three readings the reader asked for.
+ *
+ * The kind comes off the `Content-Type` first and the bytes second, because a
+ * server that labels a JSON answer `application/octet-stream` is common enough
+ * — Next.js does it — that the label alone would send the reader to the raw
+ * view for nothing.
+ *
+ * The binary view exists because the preview is a lossy decode: a font or an
+ * image arrives as replacement characters, and the only honest way to show
+ * what was on the wire is the bytes, one row at a time. It is drawn here rather
+ * than by anything external so a body never leaves the process it was captured
+ * in.
+ */
+@Composable
+private fun BodyPane(
+    text: String,
+    head: String,
+    length: Long,
+    mode: ViewMode,
+    onMode: (ViewMode) -> Unit,
+    onCopy: (String) -> Unit,
+) {
+    val kind = remember(text, head) { BodyFormats.of(BodyFormats.mediaType(head), text) }
+    val pretty = remember(text) { if (kind == BodyKind.JSON) JsonText.pretty(text) else null }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            kind.name.lowercase(),
+            fontSize = 10.sp,
+            fontFamily = FontFamily.Monospace,
+            color = Dt.muted,
+        )
+        Box(Modifier.weight(1f))
+        ViewChip(L10n.get(Strings.inspector_view_pretty), mode == ViewMode.PRETTY) { onMode(ViewMode.PRETTY) }
+        ViewChip(L10n.get(Strings.inspector_view_raw), mode == ViewMode.RAW) { onMode(ViewMode.RAW) }
+        ViewChip(L10n.get(Strings.inspector_view_binary), mode == ViewMode.BINARY) {
+            onMode(ViewMode.BINARY)
+        }
+    }
+    when {
+        mode == ViewMode.BINARY -> HexRows(text)
+        // A stream laid out is a list of what arrived, not one long block: the
+        // events are the thing being read, and there is one per line.
+        mode == ViewMode.PRETTY && kind == BodyKind.SSE -> SseRows(text, onCopy)
+        mode == ViewMode.PRETTY && pretty != null -> Highlighted(pretty, BodyKind.JSON, onCopy)
+        else -> Highlighted(text, kind, onCopy)
+    }
+    Text(
+        bytes(length),
+        fontSize = 11.sp,
+        color = Dt.muted,
+        modifier = Modifier.padding(top = 8.dp),
+    )
+}
+
+@Composable
+private fun ViewChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Box(
+        Modifier
+            .height(20.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (selected) Dt.rowSelected else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            fontSize = 10.sp,
+            lineHeight = 11.sp,
+            color = if (selected) Dt.text else Dt.muted,
+            maxLines = 1,
+        )
+    }
+}
+
+/** A body with its keys, strings and tags coloured, still on the wire's lines. */
+@Composable
+private fun Highlighted(
+    text: String,
+    kind: BodyKind,
+    onCopy: (String) -> Unit,
+) {
+    val spans = remember(text, kind) { BodySyntax.spans(kind, text) }
+    val coloured =
+        remember(text, spans) {
+            buildAnnotatedString {
+                append(text)
+                spans.forEach { span ->
+                    addStyle(SpanStyle(color = toneOf(span.tone)), span.start, span.end)
+                }
+            }
+        }
+    Text(
+        coloured,
+        fontSize = 11.sp,
+        fontFamily = FontFamily.Monospace,
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable { onCopy(text) },
+    )
+}
+
+private fun toneOf(tone: Tone): Color =
+    when (tone) {
+        Tone.KEY, Tone.ATTR, Tone.PROPERTY -> Dt.link
+        Tone.STRING -> Dt.warn
+        Tone.NUMBER -> Dt.ok
+        Tone.LITERAL -> Dt.keyword
+        Tone.COMMENT -> Dt.comment
+        Tone.TAG -> Dt.bad
+        Tone.SELECTOR -> Dt.ok
+    }
+
+/** The bytes of a body the tracker could not keep as text, sixteen a row. */
+@Composable
+private fun HexRows(text: String) {
+    val rows = remember(text) { HexView.rowsOfPreview(text) }
+    Column(Modifier.fillMaxWidth()) {
+        rows.forEach { row ->
+            Row(
+                Modifier.padding(vertical = 1.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    row.offset.toString(16).padStart(6, '0'),
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = Dt.muted,
+                )
+                Text(
+                    row.hex,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = Dt.text,
+                    softWrap = false,
+                    modifier = Modifier.width(330.dp),
+                )
+                Text(
+                    row.ascii,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = Dt.muted,
+                    softWrap = false,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * An event stream as its events: a number, a name, the payload and its size.
+ *
+ * A page that streams for minutes would otherwise show one wall of text where
+ * one chunk cannot be told from the next. The timestamps are not here because
+ * the tracker keeps the first two kilobytes once, not a log — the rows are what
+ * the preview contains, in the order it arrived.
+ */
+@Composable
+private fun SseRows(
+    text: String,
+    onCopy: (String) -> Unit,
+) {
+    val events = remember(text) { SseText.events(text) }
+    if (events.isEmpty()) {
+        Highlighted(text, BodyKind.SSE, onCopy)
+        return
+    }
+    Section(L10n.get(Strings.inspector_section_sse))
+    events.forEach { event ->
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable { onCopy(event.data) }
+                .padding(vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                "#${event.index}",
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace,
+                color = Dt.muted,
+                modifier = Modifier.width(28.dp),
+            )
+            Text(event.event, fontSize = 10.sp, color = Dt.link, maxLines = 1)
+            Text(
+                event.preview,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                color = Dt.text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Text(bytes(event.bytes.toLong()), fontSize = 10.sp, color = Dt.muted)
+        }
+    }
+}

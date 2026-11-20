@@ -964,6 +964,10 @@
     <string name="inspector_tab_headers">标头</string>
     <string name="inspector_tab_request">请求</string>
     <string name="inspector_tab_body">正文</string>
+    <string name="inspector_view_pretty">Đẹp</string>
+    <string name="inspector_view_raw">Nguyên bản</string>
+    <string name="inspector_view_binary">Nhị phân</string>
+    <string name="inspector_section_sse">Sự kiện</string>
     <string name="inspector_section_query">查询参数</string>
     <string name="inspector_body_none">没有参数，也没有正文</string>
     <string name="inspector_tab_messages">消息</string>

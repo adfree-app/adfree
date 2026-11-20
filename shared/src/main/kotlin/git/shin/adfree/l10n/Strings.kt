@@ -1023,6 +1023,10 @@ object Strings {
 
     @Suppress("ktlint:standard:property-naming")
     const val inspector_tab_body = "inspector_tab_body"
+    const val inspector_view_pretty = "inspector_view_pretty"
+    const val inspector_view_raw = "inspector_view_raw"
+    const val inspector_view_binary = "inspector_view_binary"
+    const val inspector_section_sse = "inspector_section_sse"
 
 
     @Suppress("ktlint:standard:property-naming")

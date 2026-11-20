@@ -964,6 +964,10 @@
     <string name="inspector_tab_headers">Tiêu đề</string>
     <string name="inspector_tab_request">Yêu cầu</string>
     <string name="inspector_tab_body">Nội dung</string>
+    <string name="inspector_view_pretty">Đẹp</string>
+    <string name="inspector_view_raw">Nguyên bản</string>
+    <string name="inspector_view_binary">Nhị phân</string>
+    <string name="inspector_section_sse">Sự kiện</string>
     <string name="inspector_section_query">Tham số URL</string>
     <string name="inspector_body_none">Không có tham số hay nội dung</string>
     <string name="inspector_tab_messages">Tin nhắn</string>
