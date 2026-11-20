@@ -1,3 +1,9 @@
+# [1.29.0](https://github.com/adfree-app/adfree/compare/v1.28.1...v1.29.0) (2026-11-20)
+
+### Features
+
+* **desktop:** a body the inspector can read ([ba2a875](https://github.com/adfree-app/adfree/commit/ba2a875dd4e926954ef0d7d0571ad3f4076e97ee))
+
 ## [1.28.1](https://github.com/adfree-app/adfree/compare/v1.28.0...v1.28.1) (2026-11-19)
 
 ### Bug Fixes
