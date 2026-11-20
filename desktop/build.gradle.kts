@@ -132,6 +132,12 @@ compose.desktop {
         jvmArgs += listOf("--enable-native-access=ALL-UNNAMED")
 
         nativeDistributions {
+            // The plugin's default image is four modules, and the update screen
+            // is the one place that asks for a fifth: without `java.net.http`
+            // the packaged app throws on its first line and never opens a
+            // window, which no test on a full JDK can notice. Listing the
+            // defaults here is not redundant — `modules` replaces them.
+            modules("java.base", "java.desktop", "java.logging", "jdk.crypto.ec", "java.net.http")
             // `versionName` is what the release tags carry; jpackage takes only
             // digits and dots, so the phone build's version name is what both
             // halves of the release are named after.
