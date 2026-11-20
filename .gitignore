@@ -62,5 +62,6 @@ bench/probe
 .tmp-win/
 
 # Captures and scratch from a working session (.tmp-win/ has its own entry)
+.tmp-*.png
 .tmp-shots/
 
