@@ -1,3 +1,9 @@
+# [1.31.0](https://github.com/adfree-app/adfree/compare/v1.30.0...v1.31.0) (2026-11-20)
+
+### Features
+
+* **desktop:** a replacement can carry bytes, and says what it will send ([c126a0a](https://github.com/adfree-app/adfree/commit/c126a0a87c56442ab26276237fca891102499d6b))
+
 # [1.30.0](https://github.com/adfree-app/adfree/compare/v1.29.0...v1.30.0) (2026-11-20)
 
 ### Features
