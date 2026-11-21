@@ -53,10 +53,6 @@ class WarpRowUiTest {
                 WarpRow.Disconnected -> L10n.get(Strings.network_warp_off)
                 WarpRow.Ready -> L10n.format(Strings.network_warp_ready, warp.proxyPort.toInt())
             }
-        // A desktop build cannot route through an upstream, so it must not offer
-        // the button the phone can press; the note says so next to the status.
-        val desktopCannotRoute = warp.usable && !container.platformHost.supportsSystemTunnel()
-        val note = if (desktopCannotRoute) "\n" + L10n.get(Strings.network_warp_no_upstream) else ""
 
         runComposeUiTest {
             setContent {
@@ -73,33 +69,22 @@ class WarpRowUiTest {
                 }
             }
             onNodeWithText(L10n.get(Strings.network_warp_title)).assertExists()
-            onNodeWithText(
-                L10n.get(
-                    if (container.platformHost.supportsSystemTunnel()) {
-                        Strings.network_warp_subtitle
-                    } else {
-                        Strings.network_warp_subtitle_status
-                    },
-                ),
-            ).assertExists()
+            onNodeWithText(L10n.get(Strings.network_warp_subtitle)).assertExists()
             onNodeWithTag("warp_status").assertExists()
             // The status line is the sentence the decision chose, and the reason
             // a disconnected client gave is appended to it.
             val shown =
                 expected +
-                    (
-                        if (!warp.installed || warp.connected || warp.detail.isBlank()) {
-                            ""
-                        } else {
-                            " — ${warp.detail}"
-                        }
-                    ) +
-                    note
+                    if (!warp.installed || warp.connected || warp.detail.isBlank()) {
+                        ""
+                    } else {
+                        " — ${warp.detail}"
+                    }
             onNodeWithText(shown).assertExists()
-            // No button when this build would ignore the endpoint it installs.
-            if (desktopCannotRoute || !warp.usable) {
-                onNodeWithText(L10n.get(Strings.network_warp_use)).assertDoesNotExist()
-                onNodeWithText(L10n.get(Strings.network_warp_current)).assertDoesNotExist()
+            // The desktop dials through the endpoint it is given now, so the
+            // button that installs one is offered here too.
+            if (warp.usable) {
+                onNodeWithText(L10n.get(Strings.network_warp_use)).assertExists()
             }
         }
         scope.coroutineContext[kotlinx.coroutines.Job]?.cancel()

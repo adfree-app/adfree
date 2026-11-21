@@ -495,8 +495,6 @@
     <string name="network_warp_ready">接続済み — プロキシモード（ポート %1$d）</string>
     <string name="network_warp_use">WARP 経由にする</string>
     <string name="network_warp_current">使用中</string>
-    <string name="network_warp_no_upstream">このビルドは直接接続するため、上流サーバーには送りません。</string>
-    <string name="network_warp_subtitle_status">このマシンの WARP クライアントの状態です。</string>
     <string name="network_proxy_auto_title">自動モード</string>
     <string name="network_proxy_auto_subtitle">インターネット向けの通信（TCP と UDP）だけをプロキシに通し、LAN のアドレスは直接にします</string>
     <string name="network_proxy_host_error">対応しているのは IPv4/IPv6 アドレスだけです。ホスト名は使えません</string>

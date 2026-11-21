@@ -136,6 +136,32 @@ the tunnel. Three things rule it out as a commit:
 **UDP.** In proxy mode the client's SOCKS5 does accept `UDP ASSOCIATE`, so the
 UDP half of section 2 works through it unchanged when the client supports it.
 
+**The desktop had no upstream at all, and that was a lie in the UI.** The tunnel
+engine reads `Config::proxy`; the desktop listeners (`proxy/tcp.rs`) dialled the
+destination directly, so an endpoint saved on a desktop was stored, displayed as
+"in use", and never dialled. Turning a WARP client to `proxy` mode is what made
+it visible from outside: `curl` through the app still left with this machine's
+own address while the card said the client was in use.
+
+**Landed:** `rust/src/proxy/upstream.rs` drives the very handshake the engine
+uses (`UpstreamHandshake`, SOCKS5 or `CONNECT`) over a blocking socket, once per
+flow, and hands the stream back to the pump in the non-blocking regime it
+expects. Three things it keeps on purpose:
+
+- **An upstream is read per flow, not at start.** `ADFREE_CORE_LIB` taught the
+  lesson the other way round: a value captured at start is a value that goes
+  stale silently. The endpoint comes from the state the settings save into.
+- **A refusal is a refusal.** When the endpoint refuses the handshake the flow
+  ends — it does not fall back to a direct dial. Falling back would send traffic
+  the user asked to be carried by the endpoint out in the clear, which is the one
+  failure mode a proxy setting must never have.
+- **Automatic routing still bypasses private destinations**, through the same
+  `bypasses_automatic` the relay uses, so a LAN address never leaves the machine.
+
+What is still outside: the DNS half of the desktop still resolves through the
+system resolver, so lookups do not travel through the endpoint. With WARP in
+`proxy` mode that means resolution happens on this side of the tunnel.
+
 ## 5. AdGuard VPN
 
 AdGuard VPN's protocol is not published, and its client is closed. Interoperating

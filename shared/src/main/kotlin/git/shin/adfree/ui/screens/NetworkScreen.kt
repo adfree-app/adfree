@@ -82,7 +82,6 @@ import git.shin.adfree.model.probeAddress
 import git.shin.adfree.model.warpInUse
 import git.shin.adfree.model.warpRow
 import git.shin.adfree.platform.currentFileHost
-import git.shin.adfree.platform.currentPlatformHost
 import git.shin.adfree.ui.AdGuardIntent
 import git.shin.adfree.ui.AdGuardViewModel
 import git.shin.adfree.ui.theme.AdGuardBlueDns
@@ -308,7 +307,6 @@ fun NetworkScreen(
             WarpSection(
                 viewModel = viewModel,
                 saved = state.settings.proxy,
-                canRoute = currentPlatformHost().supportsSystemTunnel(),
             )
 
             Spacer(modifier = Modifier.height(18.dp))
@@ -644,7 +642,6 @@ private fun BackupOptionRow(
 private fun WarpSection(
     viewModel: AdGuardViewModel,
     saved: ProxySettings,
-    canRoute: Boolean,
 ) {
     var warp by remember { mutableStateOf<git.shin.adfree.core.WarpBinding?>(null) }
     LaunchedEffect(Unit) { warp = viewModel.warpState() }
@@ -665,15 +662,6 @@ private fun WarpSection(
             !state.installed || state.connected || state.detail.isBlank() -> ""
             else -> " — ${state.detail}"
         }
-    // A build that carries traffic itself would take an endpoint here and never
-    // use it, so the card says that instead of offering a button that answers
-    // nothing. The same distinction the Settings row makes for the same reason.
-    val cannotRoute = state.usable && !canRoute
-    val note =
-        when {
-            cannotRoute -> "\n" + L10n.get(Strings.network_warp_no_upstream)
-            else -> ""
-        }
 
     Column {
         Text(
@@ -683,13 +671,7 @@ private fun WarpSection(
             color = AdGuardTextPrimary,
         )
         Text(
-            // On a build that connects directly the row is a status line, and a
-            // sentence about sending traffic through the client would describe
-            // something this build does not do.
-            text =
-                L10n.get(
-                    if (canRoute) Strings.network_warp_subtitle else Strings.network_warp_subtitle_status,
-                ),
+            text = L10n.get(Strings.network_warp_subtitle),
             fontSize = 11.sp,
             color = AdGuardTextMuted,
         )
@@ -715,7 +697,7 @@ private fun WarpSection(
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(
-                    text = detail + reason + note,
+                    text = detail + reason,
                     fontSize = 13.sp,
                     color = if (state.usable) AdGuardTextPrimary else AdGuardTextMuted,
                     modifier =
@@ -724,8 +706,6 @@ private fun WarpSection(
                             .testTag("warp_status"),
                 )
                 when {
-                    cannotRoute -> {}
-
                     inUse -> {
                         Text(
                             text = L10n.get(Strings.network_warp_current),

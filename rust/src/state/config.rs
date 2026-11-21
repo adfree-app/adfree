@@ -313,7 +313,7 @@ fn backup_resolver(state: &DnsState) -> Option<SocketAddr> {
     }
 }
 
-fn proxy(
+pub(crate) fn proxy(
     state: &ProxyState,
 ) -> (
     Option<std::sync::Arc<crate::socks5::ProxyEndpoint>>,

@@ -25,6 +25,7 @@ pub mod dns;
 pub mod egress;
 pub mod peer;
 pub mod tcp;
+pub mod upstream;
 
 use crate::sys::fd::RawFd;
 use crate::sys::libc;
@@ -55,7 +56,7 @@ pub const MIN_LISTENER_PORT: u16 = 1024;
 /// How long a connection may sit with no traffic before the thread retires it.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 /// Dial timeout for the upstream half of a flow.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// One poll slice: the stop flag and the idle timer are noticed this often.
 const POLL_SLICE_MS: i32 = 200;
 /// Hard cap on live connection threads; a new flow past it is refused.

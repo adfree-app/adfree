@@ -7,9 +7,10 @@
 //! pointed at it with no root at all. Both roads end in the same pump: raw
 //! splice for what is not terminated, [`ProxySession`] for HTTPS.
 
+use super::upstream::dial_flow;
 use super::{
-    dial_marked, parse_sockaddr, poll2, reset_on_close, set_nonblocking, write_all_nb,
-    IDLE_TIMEOUT, POLL_SLICE_MS,
+    parse_sockaddr, poll2, reset_on_close, set_nonblocking, write_all_nb, IDLE_TIMEOUT,
+    POLL_SLICE_MS,
 };
 use crate::engine::core;
 use crate::mitm::proxy::ProxySession;
@@ -264,7 +265,7 @@ fn handle(client: TcpStream, stop: &AtomicBool) {
         if local {
             (Some(session), None)
         } else {
-            match dial_marked(addr) {
+            match dial_flow(addr) {
                 Some(peer) => (Some(session), Some(peer)),
                 None => {
                     crate::logbuf::push(&format!("proxy: dial {addr} failed"));
@@ -278,7 +279,7 @@ fn handle(client: TcpStream, stop: &AtomicBool) {
         reset_on_close(client_fd);
         return;
     } else {
-        match dial_marked(addr) {
+        match dial_flow(addr) {
             Some(peer) => (None, Some(peer)),
             None => {
                 crate::logbuf::push(&format!("proxy: dial {addr} failed"));
@@ -556,7 +557,7 @@ fn apply_outcome(
         // The old upstream connection is dead; the retry hello goes to a new
         // one (the ECH fallback, see `mitm::proxy::Outcome`).
         drop(peer.take());
-        *peer = dial_marked(redial);
+        *peer = dial_flow(redial);
         *peer_fd = peer
             .as_ref()
             .map(TcpStream::as_raw_fd)
