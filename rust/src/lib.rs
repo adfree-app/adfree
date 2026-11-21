@@ -60,7 +60,6 @@ pub mod uidmap;
 pub mod upstream;
 pub mod util;
 pub mod waitset;
-pub mod warp;
 /// The Windows redirector's tables and rewrites. Portable and tested: the
 /// packet surgery is the same bytes on either platform, only the driver that
 /// delivers them differs.

@@ -396,38 +396,6 @@ pub fn core_proxy_running() -> bool {
     guard(false, crate::proxy::is_running)
 }
 
-/// Cloudflare WARP as this machine's own client reports it.
-///
-/// The client is the tunnel; its `proxy` mode is a SOCKS5 server on loopback,
-/// which is what makes WARP an upstream this proxy already knows how to speak.
-/// `usable` is the question the row asks: a connected client in `warp` mode is
-/// a tunnel for this machine's own traffic and holds no port to hand flows to.
-#[derive(uniffi::Record, Clone, Debug, Default)]
-pub struct WarpBinding {
-    pub installed: bool,
-    pub connected: bool,
-    pub mode: String,
-    pub proxy_port: u16,
-    /// The reason the client gave for being down, empty when it is up.
-    pub detail: String,
-    pub usable: bool,
-}
-
-#[uniffi::export]
-pub fn core_warp_state() -> WarpBinding {
-    guard(WarpBinding::default(), || {
-        let warp = crate::warp::state();
-        WarpBinding {
-            installed: warp.installed,
-            connected: warp.connected,
-            usable: warp.usable(),
-            mode: warp.mode,
-            proxy_port: warp.proxy_port,
-            detail: warp.detail,
-        }
-    })
-}
-
 /// Hands over upstream UDP sockets that the app has already protected. The engine
 /// forwards every non-blocked DNS query through them.
 #[uniffi::export]

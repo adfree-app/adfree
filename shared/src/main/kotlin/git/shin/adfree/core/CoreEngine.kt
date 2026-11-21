@@ -112,28 +112,6 @@ class CoreEngine(
             ),
         )
 
-    /**
-     * What this machine's Cloudflare WARP client says about itself.
-     *
-     * Answers by running `warp-cli`, so it costs a process — read it when a
-     * screen opens, never per frame. A machine without the client answers
-     * `installed = false` rather than failing.
-     */
-    fun warpState(): git.shin.adfree.core.WarpBinding =
-        runCatching {
-            git.shin.adfree.core
-                .coreWarpState()
-        }.getOrDefault(
-            git.shin.adfree.core.WarpBinding(
-                installed = false,
-                connected = false,
-                mode = "",
-                proxyPort = 0u,
-                detail = "",
-                usable = false,
-            ),
-        )
-
     // ----------------------------------------------------------------- config
 
     fun setScreenOff(off: Boolean) =

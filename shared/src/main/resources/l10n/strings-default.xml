@@ -487,14 +487,6 @@
     <string name="network_proxy_subtitle">Send TCP and UDP flows through a SOCKS5 proxy instead of connecting directly.</string>
     <string name="network_socks_title">SOCKS5 proxy</string>
     <string name="network_socks_subtitle">TCP and UDP go through the proxy when it supports UDP ASSOCIATE; DNS stays direct</string>
-    <string name="network_warp_title">Cloudflare WARP</string>
-    <string name="network_warp_subtitle">Send traffic out through the WARP client already installed on this machine.</string>
-    <string name="network_warp_absent">Not installed on this machine</string>
-    <string name="network_warp_mode">Running in %1$s mode, not proxy mode</string>
-    <string name="network_warp_off">Installed, not connected</string>
-    <string name="network_warp_ready">Connected — proxy mode on port %1$d</string>
-    <string name="network_warp_use">Route through WARP</string>
-    <string name="network_warp_current">In use</string>
     <string name="network_proxy_auto_title">Automatic mode</string>
     <string name="network_proxy_auto_subtitle">Send only internet traffic (TCP and UDP) through the proxy; LAN addresses stay direct</string>
     <string name="network_proxy_host_error">Only IPv4/IPv6 addresses are supported; hostnames cannot be used</string>

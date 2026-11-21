@@ -83,13 +83,6 @@ data class LocalProxySettings(
 }
 
 /**
- * Where the Cloudflare WARP client listens in `proxy` mode: its SOCKS5 server is
- * bound to loopback and nowhere else, so a name here would be a dial that can
- * never connect.
- */
-const val WARP_HOST: String = "127.0.0.1"
-
-/**
  * The SOCKS5 host the core can dial: an IPv4/IPv6 literal, never a name.
  *
  * Brackets from `[::1]` are stripped so the value is exactly what the core

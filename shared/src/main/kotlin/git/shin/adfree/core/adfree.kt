@@ -961,8 +961,6 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_adfree_core_checksum_func_core_version(
     ): Int
-    external fun uniffi_adfree_core_checksum_func_core_warp_state(
-    ): Int
     external fun uniffi_adfree_core_checksum_method_assistanthost_respond(
     ): Int
     external fun uniffi_adfree_core_checksum_method_connectionuidlookup_owner_uid(
@@ -1235,8 +1233,6 @@ internal object UniffiLib {
     external fun uniffi_adfree_core_fn_func_core_validate_dns_rewrite(`host`: RustBuffer.ByValue,`answer`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_adfree_core_fn_func_core_version(uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
-    external fun uniffi_adfree_core_fn_func_core_warp_state(uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun ffi_adfree_core_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1685,9 +1681,6 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_adfree_core_checksum_func_core_version() and 0xFFFF) != 2808) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if ((lib.uniffi_adfree_core_checksum_func_core_warp_state() and 0xFFFF) != 20527) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_adfree_core_checksum_method_assistanthost_respond() and 0xFFFF) != 63275) {
@@ -6246,75 +6239,6 @@ public object FfiConverterTypeUidApps: FfiConverterRustBuffer<UidApps> {
 
 
 /**
- * Cloudflare WARP as this machine's own client reports it.
- *
- * The client is the tunnel; its `proxy` mode is a SOCKS5 server on loopback,
- * which is what makes WARP an upstream this proxy already knows how to speak.
- * `usable` is the question the row asks: a connected client in `warp` mode is
- * a tunnel for this machine's own traffic and holds no port to hand flows to.
- */
-data class WarpBinding (
-    var `installed`: kotlin.Boolean
-    , 
-    var `connected`: kotlin.Boolean
-    , 
-    var `mode`: kotlin.String
-    , 
-    var `proxyPort`: kotlin.UShort
-    , 
-    /**
-     * The reason the client gave for being down, empty when it is up.
-     */
-    var `detail`: kotlin.String
-    , 
-    var `usable`: kotlin.Boolean
-    
-){
-    
-
-    
-
-    
-    companion object
-}
-
-/**
- * @suppress
- */
-public object FfiConverterTypeWarpBinding: FfiConverterRustBuffer<WarpBinding> {
-    override fun read(buf: ByteBuffer): WarpBinding {
-        return WarpBinding(
-            FfiConverterBoolean.read(buf),
-            FfiConverterBoolean.read(buf),
-            FfiConverterString.read(buf),
-            FfiConverterUShort.read(buf),
-            FfiConverterString.read(buf),
-            FfiConverterBoolean.read(buf),
-        )
-    }
-
-    override fun allocationSize(value: WarpBinding) = (
-            FfiConverterBoolean.allocationSize(value.`installed`) +
-            FfiConverterBoolean.allocationSize(value.`connected`) +
-            FfiConverterString.allocationSize(value.`mode`) +
-            FfiConverterUShort.allocationSize(value.`proxyPort`) +
-            FfiConverterString.allocationSize(value.`detail`) +
-            FfiConverterBoolean.allocationSize(value.`usable`)
-    )
-
-    override fun write(value: WarpBinding, buf: ByteBuffer) {
-            FfiConverterBoolean.write(value.`installed`, buf)
-            FfiConverterBoolean.write(value.`connected`, buf)
-            FfiConverterString.write(value.`mode`, buf)
-            FfiConverterUShort.write(value.`proxyPort`, buf)
-            FfiConverterString.write(value.`detail`, buf)
-            FfiConverterBoolean.write(value.`usable`, buf)
-    }
-}
-
-
-
-/**
  * Whole-window totals for the Statistics header. Unlike [`AppUsage`] this
  * includes rows the core could not attribute to a package.
  */
@@ -9333,16 +9257,6 @@ public object FfiConverterSequenceTypeWsFrame: FfiConverterRustBuffer<List<WsFra
             return FfiConverterString.lift(
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_adfree_core_fn_func_core_version(
-    
-        _status)
-}
-    )
-    }
-    
- fun `coreWarpState`(): WarpBinding {
-            return FfiConverterTypeWarpBinding.lift(
-    uniffiRustCall() { _status ->
-    UniffiLib.uniffi_adfree_core_fn_func_core_warp_state(
     
         _status)
 }

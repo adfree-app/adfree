@@ -99,58 +99,21 @@ routes. Two useful halves, and only one of them is small:
 offer it as the upstream in section 2, and treat "no tailscaled" as a row that
 says so. (2) is a project, not a commit.
 
-## 4. Cloudflare WARP
+## 4. An upstream on the desktop
 
-WARP is a tunnel, and the client that owns it on each platform is the only
-thing that speaks its protocol. On Linux, macOS and Windows that client can be
-told to run in `proxy` mode, where the tunnel it already established is offered
-to anything that connects to a loopback SOCKS5 port. That is the same shape as
-section 2's upstream, so the integration is a settings row, not a transport:
-read the client's own answer (`warp-cli status`, `warp-cli settings`), and when
-it says `proxy` and `Connected`, fill `127.0.0.1:<port>` into the routing block.
-
-**Landed:** `rust/src/warp.rs` (parsers over the client's text, five tests),
-`core_warp_state()`, and a card above the routing block on the Network screen.
-Nothing is spawned until that screen opens; the card's button re-reads the
-client before it installs the endpoint, because a card drawn a minute ago must
-not point flows at a port that has since been turned off.
-
-**What the in-process version would cost.** The pieces exist as crates:
-`boringtun` (Cloudflare's own userspace WireGuard, BSD-3) for the protocol,
-`warp-wireguard-gen` for registration, `wireguard-netstack` for a TCP stack over
-the tunnel. Three things rule it out as a commit:
-
-- **Licence.** `warp-wireguard-gen` is GPL-3.0; this tree is Apache-2.0, so
-  linking it would relicense the whole app. The registration half would have to
-  be written here (it is a few requests and an X25519 keypair), which is the
-  small part.
-- **The stack between.** WireGuard carries IP packets, and this proxy forwards
-  TCP streams. Between them sits a userspace TCP/IP stack — `wireguard-netstack`
-  or `smoltcp` — with its own timer loop, window handling and teardown. That is
-  a project, not a module.
-- **WARP's default is no longer WireGuard.** The client on this machine reports
-  `WARP tunnel protocol: MASQUE` — HTTP/3. An in-process client built on
-  `boringtun` would cover only the older path and be at Cloudflare's mercy for
-  the rest.
-
-**UDP.** In proxy mode the client's SOCKS5 does accept `UDP ASSOCIATE`, so the
-UDP half of section 2 works through it unchanged when the client supports it.
-
-**The desktop had no upstream at all, and that was a lie in the UI.** The tunnel
-engine reads `Config::proxy`; the desktop listeners (`proxy/tcp.rs`) dialled the
-destination directly, so an endpoint saved on a desktop was stored, displayed as
-"in use", and never dialled. Turning a WARP client to `proxy` mode is what made
-it visible from outside: `curl` through the app still left with this machine's
-own address while the card said the client was in use.
+The tunnel engine reads `Config::proxy`; the desktop listeners
+(`proxy/tcp.rs`) dialled the destination directly. An endpoint saved on a
+desktop was stored, shown in the UI, and never dialled — which is a lie the UI
+tells for free, and the reason the section below exists.
 
 **Landed:** `rust/src/proxy/upstream.rs` drives the very handshake the engine
-uses (`UpstreamHandshake`, SOCKS5 or `CONNECT`) over a blocking socket, once per
-flow, and hands the stream back to the pump in the non-blocking regime it
+uses (`UpstreamHandshake` — SOCKS5 or `CONNECT`) over a blocking socket, once
+per flow, and hands the stream back to the pump in the non-blocking regime it
 expects. Three things it keeps on purpose:
 
 - **An upstream is read per flow, not at start.** `ADFREE_CORE_LIB` taught the
-  lesson the other way round: a value captured at start is a value that goes
-  stale silently. The endpoint comes from the state the settings save into.
+  lesson the other way round: a value captured at start goes stale silently.
+  The endpoint comes from the state the settings save into.
 - **A refusal is a refusal.** When the endpoint refuses the handshake the flow
   ends — it does not fall back to a direct dial. Falling back would send traffic
   the user asked to be carried by the endpoint out in the clear, which is the one
@@ -158,9 +121,19 @@ expects. Three things it keeps on purpose:
 - **Automatic routing still bypasses private destinations**, through the same
   `bypasses_automatic` the relay uses, so a LAN address never leaves the machine.
 
-What is still outside: the DNS half of the desktop still resolves through the
-system resolver, so lookups do not travel through the endpoint. With WARP in
-`proxy` mode that means resolution happens on this side of the tunnel.
+What is still outside: the desktop's DNS half resolves through the system
+resolver, so lookups do not travel through the endpoint.
+
+**Cloudflare WARP was built on top of this and removed.** A card that read
+`warp-cli status` and, when the client sat in `proxy` mode, filled
+`127.0.0.1:<port>` into the routing block. It worked, and it was still wrong for
+this app: the client is a second, separately-managed network agent whose mode
+changes under the app's feet, so a row promising "route through WARP" is a
+promise about somebody else's daemon. The upstream itself stayed; pointing it at
+any SOCKS5 or `CONNECT` endpoint is the user's setting, not a partner
+integration. The licence and stack arguments that buried the in-process version
+hold as well: `warp-wireguard-gen` is GPL-3.0, WireGuard carries IP packets
+rather than TCP streams, and the client now defaults to MASQUE (HTTP/3).
 
 ## 5. AdGuard VPN
 
@@ -185,8 +158,7 @@ between a claim and the truth.
 1. Inspector bodies behind a second switch, and the inspector screen.
 2. Upstream trait with SOCKS5, then the exit-node row that feeds it.
 3. Interface detection for Tailscale and AdGuard VPN, as status only.
-4. WARP: the row is in; switching the client's mode and starting it from inside
-the app is the next step, and it is a system-wide change that needs its own
-consent prompt.
+4. The desktop's upstream: the dial path is in; wiring it into the DNS half is
+the next step.
 
 Each of these lands alone; none of them needs the next one to be useful.

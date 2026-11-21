@@ -487,14 +487,6 @@
     <string name="network_proxy_subtitle">让 TCP 和 UDP 流量经 SOCKS5 代理转发，而不是直连。</string>
     <string name="network_socks_title">SOCKS5 代理</string>
     <string name="network_socks_subtitle">代理支持 UDP ASSOCIATE 时 TCP 与 UDP 都走代理；DNS 仍然直连</string>
-    <string name="network_warp_title">Cloudflare WARP</string>
-    <string name="network_warp_subtitle">通过这台机器上已安装的 WARP 客户端发送流量。</string>
-    <string name="network_warp_absent">这台机器上未安装</string>
-    <string name="network_warp_mode">正在以 %1$s 模式运行，不是代理模式</string>
-    <string name="network_warp_off">已安装但未连接</string>
-    <string name="network_warp_ready">已连接 — 代理模式，端口 %1$d</string>
-    <string name="network_warp_use">经由 WARP 转发</string>
-    <string name="network_warp_current">使用中</string>
     <string name="network_proxy_auto_title">自动模式</string>
     <string name="network_proxy_auto_subtitle">只有外网流量（TCP 与 UDP）走代理，局域网地址仍然直连</string>
     <string name="network_proxy_host_error">只支持 IPv4/IPv6 地址，不能用主机名</string>

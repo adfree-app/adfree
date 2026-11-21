@@ -1384,9 +1384,6 @@ class AdGuardViewModel(
     /** What the local listeners are doing: the ports they hold, or the refusal. */
     fun localProxyStatus(): git.shin.adfree.core.ProxyStatus = coreEngine.proxyStatus()
 
-    /** This machine's Cloudflare WARP client, as it describes itself. */
-    fun warpState(): git.shin.adfree.core.WarpBinding = coreEngine.warpState()
-
     /** Creates (or recreates) the local CA and returns the new status. */
     fun createCa(onDone: (git.shin.adfree.core.MitmStatus?) -> Unit) {
         // Drop the persisted pair first, otherwise ensureCa() only restores.

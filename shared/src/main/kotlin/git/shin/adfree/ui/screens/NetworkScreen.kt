@@ -75,12 +75,8 @@ import git.shin.adfree.model.DnsProvider
 import git.shin.adfree.model.ProtocolType
 import git.shin.adfree.model.ProxyProtocol
 import git.shin.adfree.model.ProxySettings
-import git.shin.adfree.model.WARP_HOST
-import git.shin.adfree.model.WarpRow
 import git.shin.adfree.model.normalizeProxyHost
 import git.shin.adfree.model.probeAddress
-import git.shin.adfree.model.warpInUse
-import git.shin.adfree.model.warpRow
 import git.shin.adfree.platform.currentFileHost
 import git.shin.adfree.ui.AdGuardIntent
 import git.shin.adfree.ui.AdGuardViewModel
@@ -300,13 +296,6 @@ fun NetworkScreen(
                     viewModel.onIntent(AdGuardIntent.AddDnsRewrite(host, answer))
                 },
                 onRemove = { viewModel.onIntent(AdGuardIntent.RemoveDnsRewrite(it)) },
-            )
-
-            Spacer(modifier = Modifier.height(18.dp))
-
-            WarpSection(
-                viewModel = viewModel,
-                saved = state.settings.proxy,
             )
 
             Spacer(modifier = Modifier.height(18.dp))
@@ -619,123 +608,6 @@ private fun BackupOptionRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(title, fontSize = 15.sp, color = AdGuardTextPrimary)
             Text(subtitle, fontSize = 13.sp, color = AdGuardTextMuted)
-        }
-    }
-}
-
-/**
- * Cloudflare WARP, as an upstream.
- *
- * WARP is a tunnel, not a proxy: the client on this machine owns it, and flows
- * only reach it when that client runs in `proxy` mode, where it also listens on
- * loopback as a SOCKS5 server. That one shape is what this tree can forward
- * through — so the row reads the client's answer and, when there is a port to
- * reach, fills it into the routing block below instead of claiming a transport
- * the app does not speak.
- *
- * The read spawns `warp-cli`, so it happens once when the screen opens and
- * again when the button is pressed: a card drawn a minute ago must not install
- * an endpoint that has since been turned off.
- */
-@Suppress("ktlint:standard:function-naming")
-@Composable
-private fun WarpSection(
-    viewModel: AdGuardViewModel,
-    saved: ProxySettings,
-) {
-    var warp by remember { mutableStateOf<git.shin.adfree.core.WarpBinding?>(null) }
-    LaunchedEffect(Unit) { warp = viewModel.warpState() }
-
-    val state = warp ?: return
-    val port = state.proxyPort.toInt()
-    val inUse = warpInUse(warp, saved)
-
-    val detail =
-        when (warpRow(warp)) {
-            WarpRow.Absent -> L10n.get(Strings.network_warp_absent)
-            WarpRow.NotProxy -> L10n.format(Strings.network_warp_mode, state.mode)
-            WarpRow.Disconnected -> L10n.get(Strings.network_warp_off)
-            WarpRow.Ready -> L10n.format(Strings.network_warp_ready, port)
-        }
-    val reason =
-        when {
-            !state.installed || state.connected || state.detail.isBlank() -> ""
-            else -> " — ${state.detail}"
-        }
-
-    Column {
-        Text(
-            text = L10n.get(Strings.network_warp_title),
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Bold,
-            color = AdGuardTextPrimary,
-        )
-        Text(
-            text = L10n.get(Strings.network_warp_subtitle),
-            fontSize = 11.sp,
-            color = AdGuardTextMuted,
-        )
-        Spacer(modifier = Modifier.height(10.dp))
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
-            colors = CardDefaults.cardColors(containerColor = AdGuardDarkSurface),
-        ) {
-            Row(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Cloud,
-                    contentDescription = null,
-                    tint = if (state.usable) AdGuardBlueDns else AdGuardTextMuted,
-                    modifier = Modifier.size(20.dp),
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(
-                    text = detail + reason,
-                    fontSize = 13.sp,
-                    color = if (state.usable) AdGuardTextPrimary else AdGuardTextMuted,
-                    modifier =
-                        Modifier
-                            .weight(1f)
-                            .testTag("warp_status"),
-                )
-                when {
-                    inUse -> {
-                        Text(
-                            text = L10n.get(Strings.network_warp_current),
-                            fontSize = 13.sp,
-                            color = AdGuardBlueDns,
-                        )
-                    }
-
-                    state.usable -> {
-                        TextButton(onClick = {
-                            val fresh = viewModel.warpState()
-                            warp = fresh
-                            if (fresh.usable) {
-                                viewModel.setProxy(
-                                    saved.copy(
-                                        enabled = true,
-                                        host = WARP_HOST,
-                                        port = fresh.proxyPort.toInt(),
-                                        protocol = ProxyProtocol.SOCKS5,
-                                        username = "",
-                                        password = "",
-                                    ),
-                                )
-                            }
-                        }) {
-                            Text(L10n.get(Strings.network_warp_use), fontSize = 13.sp)
-                        }
-                    }
-                }
-            }
         }
     }
 }
