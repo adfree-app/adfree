@@ -1,3 +1,9 @@
+## [1.32.3](https://github.com/adfree-app/adfree/compare/v1.32.2...v1.32.3) (2026-11-21)
+
+### Bug Fixes
+
+* **network:** where WARP only reports, the row says it only reports ([c4cae7d](https://github.com/adfree-app/adfree/commit/c4cae7d2236df2fb893fc7f3bfb41bd6b90bfe45))
+
 ## [1.32.2](https://github.com/adfree-app/adfree/compare/v1.32.1...v1.32.2) (2026-11-21)
 
 ### Bug Fixes
