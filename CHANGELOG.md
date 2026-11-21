@@ -1,3 +1,9 @@
+# [1.33.0](https://github.com/adfree-app/adfree/compare/v1.32.3...v1.33.0) (2026-11-21)
+
+### Features
+
+* **proxy:** the desktop dials through the upstream it is given ([0b2da83](https://github.com/adfree-app/adfree/commit/0b2da83f40de464ce1a7842bcd235ea32c538cb3))
+
 ## [1.32.3](https://github.com/adfree-app/adfree/compare/v1.32.2...v1.32.3) (2026-11-21)
 
 ### Bug Fixes
