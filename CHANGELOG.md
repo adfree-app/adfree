@@ -1,3 +1,9 @@
+## [1.33.1](https://github.com/adfree-app/adfree/compare/v1.33.0...v1.33.1) (2026-11-21)
+
+### Bug Fixes
+
+* **network:** the WARP card is gone, the upstream it taught us stays ([5c165d5](https://github.com/adfree-app/adfree/commit/5c165d532033c347f79e3afdd4585f8b048c1b2c))
+
 # [1.33.0](https://github.com/adfree-app/adfree/compare/v1.32.3...v1.33.0) (2026-11-21)
 
 ### Features
