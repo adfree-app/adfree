@@ -46,8 +46,11 @@ impl Warp {
     /// A connected client in `warp` mode is a tunnel for *this machine's* own
     /// traffic and offers no socket: claiming it as an upstream would report
     /// flows going through WARP while they went direct.
+    /// A connected `proxy` client is an upstream. The client this was written
+    /// against calls that mode `WarpProxy`, so the test is for the word inside
+    /// the mode, not for equality with one spelling of it.
     pub fn usable(&self) -> bool {
-        self.installed && self.connected && self.mode.eq_ignore_ascii_case("proxy")
+        self.installed && self.connected && self.mode.to_ascii_lowercase().contains("proxy")
     }
 }
 
@@ -104,32 +107,45 @@ pub fn parse_status(text: &str) -> (bool, String) {
     (connected, detail)
 }
 
-/// The operating mode, from `settings`' `Mode: Warp` line. The prefix the client
-/// puts in front of it (`(default)`, `(override)`, `(network policy)`) is not
-/// part of the answer.
+/// The operating mode, from `settings`' `Mode:` line. The prefix the client puts
+/// in front of it (`(default)`, `(override)`, `(network policy)`, `(user set)`)
+/// is not part of the answer, and neither is what follows the mode's own name.
+///
+/// Proxy mode is spelled `Mode: WarpProxy on port 40000` by the client this was
+/// written against — not `Mode: proxy` — so the word is taken as printed and the
+/// question "is this a proxy?" is asked of the word rather than of the line.
 pub fn parse_mode(text: &str) -> Option<String> {
-    for line in text.lines() {
-        let value = line.split_once("Mode:").map(|(_, v)| v.trim())?;
-        // `Post-quantum support for MASQUE` and `Exclude mode, with hosts/ips:`
-        // both contain the word; only this one is followed by a bare word.
-        if value.is_empty() || value.contains(' ') || value.contains(',') {
-            continue;
-        }
-        return Some(value.to_string());
+    let value = text
+        .lines()
+        .find_map(|line| line.split_once("Mode:").map(|(_, v)| v.trim()))?;
+    // `Exclude mode, with hosts/ips:` is a different label, and a value that
+    // begins with a comma is that line's tail rather than a mode.
+    let word = value.split_whitespace().next()?.trim_end_matches(',');
+    if word.is_empty() {
+        return None;
     }
-    None
+    Some(word.to_string())
 }
 
 /// The port proxy mode listens on, when the client reports one.
+///
+/// Two shapes, because the client uses both: a `Proxy Port:` setting when the
+/// user moved it, and `on port 40000` inside the mode line when they did not.
 pub fn parse_proxy_port(text: &str) -> Option<u16> {
     for line in text.lines() {
         let trimmed = line.trim();
-        let value = trimmed
+        if let Some((_, value)) = trimmed
             .split_once("Proxy Port:")
             .or_else(|| trimmed.split_once("Proxy port:"))
-            .map(|(_, v)| v.trim())?;
-        if let Ok(port) = value.parse::<u16>() {
-            return Some(port);
+        {
+            if let Ok(port) = value.trim().parse::<u16>() {
+                return Some(port);
+            }
+        }
+        if let Some((_, value)) = trimmed.split_once(" on port ") {
+            if let Ok(port) = value.trim().parse::<u16>() {
+                return Some(port);
+            }
         }
     }
     None
@@ -169,11 +185,26 @@ mod tests {
                         (network policy)\tWARP tunnel protocol: MASQUE\n\
                         (api defaults)\tExclude mode, with hosts/ips:\n";
         assert_eq!(parse_mode(settings).as_deref(), Some("Warp"));
+        // What this machine's client prints once proxy mode is on.
         assert_eq!(
-            parse_mode("(override)\tMode: proxy\n").as_deref(),
-            Some("proxy")
+            parse_mode("(user set)\tMode: WarpProxy on port 40000\n").as_deref(),
+            Some("WarpProxy")
         );
         assert_eq!(parse_mode("nothing here\n"), None);
+    }
+
+    /// Proxy mode states its port inside the mode line; the setting only exists
+    /// once someone has moved it.
+    #[test]
+    fn the_proxy_port_is_read_from_the_mode_line_too() {
+        assert_eq!(
+            parse_proxy_port("(user set)\tMode: WarpProxy on port 40000\n"),
+            Some(40000)
+        );
+        assert_eq!(
+            parse_proxy_port("(user set)\tMode: WarpProxy on port 41234\n"),
+            Some(41234)
+        );
     }
 
     #[test]
@@ -204,7 +235,9 @@ mod tests {
             !warp.usable(),
             "a tunnel with no socket was taken as an upstream"
         );
-        warp.mode = "proxy".to_string();
+        // The spelling the client actually uses for proxy mode.
+        warp.mode = "WarpProxy".to_string();
+        assert!(warp.usable());
         warp.connected = false;
         assert!(!warp.usable());
         warp.connected = true;

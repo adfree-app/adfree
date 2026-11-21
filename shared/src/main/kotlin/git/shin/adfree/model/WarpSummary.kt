@@ -29,8 +29,13 @@ enum class WarpRow {
 fun warpRow(state: WarpBinding?): WarpRow =
     when {
         state == null || !state.installed -> WarpRow.Absent
-        !state.mode.equals("proxy", ignoreCase = true) -> WarpRow.NotProxy
+
+        // The client spells proxy mode `WarpProxy`, and older builds `proxy`:
+        // the word is the question, not one spelling of it.
+        !state.mode.contains("proxy", ignoreCase = true) -> WarpRow.NotProxy
+
         !state.connected -> WarpRow.Disconnected
+
         else -> WarpRow.Ready
     }
 

@@ -54,7 +54,8 @@ class WarpSummaryTest {
     @Test
     fun aConnectedProxyClientIsReady() {
         assertEquals(WarpRow.Ready, warpRow(state()))
-        // The client capitalises its mode in some versions.
+        // The spelling this machine's client uses for proxy mode.
+        assertEquals(WarpRow.Ready, warpRow(state(mode = "WarpProxy")))
         assertEquals(WarpRow.Ready, warpRow(state(mode = "Proxy")))
     }
 
