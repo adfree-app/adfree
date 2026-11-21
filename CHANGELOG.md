@@ -1,3 +1,9 @@
+# [1.32.0](https://github.com/adfree-app/adfree/compare/v1.31.4...v1.32.0) (2026-11-21)
+
+### Features
+
+* **network:** WARP on this machine, as the upstream its client offers ([5b671ea](https://github.com/adfree-app/adfree/commit/5b671eaa6e7c200f8002889fae3eaabb5cfe63f8))
+
 ## [1.31.4](https://github.com/adfree-app/adfree/compare/v1.31.3...v1.31.4) (2026-11-21)
 
 ### Bug Fixes
