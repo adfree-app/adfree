@@ -1,3 +1,9 @@
+## [1.31.4](https://github.com/adfree-app/adfree/compare/v1.31.3...v1.31.4) (2026-11-21)
+
+### Bug Fixes
+
+* **desktop:** a core path that names nothing is skipped, not obeyed ([78aa760](https://github.com/adfree-app/adfree/commit/78aa7603f8b6f534cec2753840b9a106499a594d))
+
 ## [1.31.3](https://github.com/adfree-app/adfree/compare/v1.31.2...v1.31.3) (2026-11-20)
 
 ### Bug Fixes
