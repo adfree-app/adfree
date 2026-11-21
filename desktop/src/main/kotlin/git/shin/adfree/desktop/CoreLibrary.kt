@@ -13,15 +13,28 @@ internal val coreLibraryName: String
 private const val CORE_TARGET_DIR = "rust/target/release"
 
 /**
- * Locates the host build of the Rust core. `ADFREE_CORE_LIB` wins; otherwise
- * the usual `cargo build --release` output under the repo is searched relative
- * to the working directory (repo root or `:desktop`/`desktop`).
+ * Locates the host build of the Rust core, best candidate first.
  */
-internal fun findCoreLibrary(): File? {
-    System.getenv("ADFREE_CORE_LIB")?.let { return File(it).takeIf(File::exists) }
-    val dir = File(System.getProperty("user.dir"))
+internal fun findCoreLibrary(): File? = coreCandidates().firstOrNull(File::exists)
+
+/**
+ * Every place the core may be, best first.
+ *
+ * `ADFREE_CORE_LIB` is a preference, not an instruction: the protection unit
+ * carries one written at install time, and a path that names nothing — a cache
+ * the machine has since cleared — must not end the search. It used to, so the
+ * service came up with a window saying the core was missing while the core sat
+ * inside the jar it was running from, and opening the app by hand worked
+ * because that process carries no such variable. A path that names nothing is
+ * skipped like any other candidate that is not there.
+ */
+internal fun coreCandidates(
+    envPath: String? = System.getenv("ADFREE_CORE_LIB"),
+    dir: File = File(System.getProperty("user.dir")),
+): List<File> {
     val name = coreLibraryName
-    val candidates = listOfNotNull(
+    return listOfNotNull(
+        envPath?.let(::File)?.takeIf(File::isFile),
         File("$CORE_TARGET_DIR/$name"),
         File("../$CORE_TARGET_DIR/$name"),
         File(dir, "$CORE_TARGET_DIR/$name"),
@@ -38,7 +51,6 @@ internal fun findCoreLibrary(): File? {
         // is written out where it can be loaded from.
         unpackedLibrary(),
     )
-    return candidates.firstOrNull(File::exists)
 }
 
 /**
@@ -54,10 +66,11 @@ internal fun unpackedLibrary(): File? {
     val name = coreLibraryName
     val stream = object {}.javaClass.getResourceAsStream("/$name") ?: return null
     val bytes = stream.use { it.readBytes() }
-    val cache = File(
-        System.getenv("XDG_CACHE_HOME") ?: File(System.getProperty("user.home"), ".cache").path,
-        "adfree/lib",
-    )
+    val cache =
+        File(
+            System.getenv("XDG_CACHE_HOME") ?: File(System.getProperty("user.home"), ".cache").path,
+            "adfree/lib",
+        )
     cache.mkdirs()
     val target = File(cache, name)
     if (target.length() != bytes.size.toLong()) {
@@ -80,5 +93,5 @@ internal fun unpackedLibrary(): File? {
 private fun packagedLibrary(): File? {
     val launcher = System.getProperty("jpackage.app-path")?.let(::File) ?: return null
     val image = launcher.parentFile?.parentFile ?: return null
-    return File(image, "lib/app/resources/${coreLibraryName}")
+    return File(image, "lib/app/resources/$coreLibraryName")
 }
