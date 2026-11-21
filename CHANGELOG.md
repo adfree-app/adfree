@@ -1,3 +1,9 @@
+## [1.32.1](https://github.com/adfree-app/adfree/compare/v1.32.0...v1.32.1) (2026-11-21)
+
+### Bug Fixes
+
+* **network:** proxy mode is spelled WarpProxy, and its port is in the same line ([32e5dde](https://github.com/adfree-app/adfree/commit/32e5dde43639d21c3970eef844d2a5321a5c52b9))
+
 # [1.32.0](https://github.com/adfree-app/adfree/compare/v1.31.4...v1.32.0) (2026-11-21)
 
 ### Features
