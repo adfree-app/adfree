@@ -53,6 +53,10 @@ class WarpRowUiTest {
                 WarpRow.Disconnected -> L10n.get(Strings.network_warp_off)
                 WarpRow.Ready -> L10n.format(Strings.network_warp_ready, warp.proxyPort.toInt())
             }
+        // A desktop build cannot route through an upstream, so it must not offer
+        // the button the phone can press; the note says so next to the status.
+        val desktopCannotRoute = warp.usable && !container.platformHost.supportsSystemTunnel()
+        val note = if (desktopCannotRoute) "\n" + L10n.get(Strings.network_warp_no_upstream) else ""
 
         runComposeUiTest {
             setContent {
@@ -75,12 +79,20 @@ class WarpRowUiTest {
             // a disconnected client gave is appended to it.
             val shown =
                 expected +
-                    if (!warp.installed || warp.connected || warp.detail.isBlank()) {
-                        ""
-                    } else {
-                        " — ${warp.detail}"
-                    }
+                    (
+                        if (!warp.installed || warp.connected || warp.detail.isBlank()) {
+                            ""
+                        } else {
+                            " — ${warp.detail}"
+                        }
+                    ) +
+                    note
             onNodeWithText(shown).assertExists()
+            // No button when this build would ignore the endpoint it installs.
+            if (desktopCannotRoute || !warp.usable) {
+                onNodeWithText(L10n.get(Strings.network_warp_use)).assertDoesNotExist()
+                onNodeWithText(L10n.get(Strings.network_warp_current)).assertDoesNotExist()
+            }
         }
         scope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
     }

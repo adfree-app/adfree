@@ -495,6 +495,7 @@
     <string name="network_warp_ready">Connected — proxy mode on port %1$d</string>
     <string name="network_warp_use">Route through WARP</string>
     <string name="network_warp_current">In use</string>
+    <string name="network_warp_no_upstream">This build connects directly and does not send traffic through an upstream.</string>
     <string name="network_proxy_auto_title">Automatic mode</string>
     <string name="network_proxy_auto_subtitle">Send only internet traffic (TCP and UDP) through the proxy; LAN addresses stay direct</string>
     <string name="network_proxy_host_error">Only IPv4/IPv6 addresses are supported; hostnames cannot be used</string>

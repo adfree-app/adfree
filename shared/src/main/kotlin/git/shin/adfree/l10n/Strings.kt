@@ -472,6 +472,7 @@ object Strings {
     const val network_warp_ready = "network_warp_ready"
     const val network_warp_use = "network_warp_use"
     const val network_warp_current = "network_warp_current"
+    const val network_warp_no_upstream = "network_warp_no_upstream"
     const val network_proxy_auto_title = "network_proxy_auto_title"
     const val network_proxy_auto_subtitle = "network_proxy_auto_subtitle"
     const val network_proxy_host_error = "network_proxy_host_error"

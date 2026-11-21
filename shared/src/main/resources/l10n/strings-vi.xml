@@ -495,6 +495,7 @@
     <string name="network_warp_ready">Đã kết nối — chế độ proxy ở cổng %1$d</string>
     <string name="network_warp_use">Đưa lưu lượng qua WARP</string>
     <string name="network_warp_current">Đang dùng</string>
+    <string name="network_warp_no_upstream">Bản này tự kết nối ra ngoài, không gửi lưu lượng qua đường ra khác.</string>
     <string name="network_proxy_auto_title">Chế độ tự động</string>
     <string name="network_proxy_auto_subtitle">Chỉ lưu lượng internet (TCP và UDP) đi qua proxy; địa chỉ LAN đi trực tiếp</string>
     <string name="network_proxy_host_error">Chỉ hỗ trợ địa chỉ IPv4/IPv6, không dùng tên miền</string>
