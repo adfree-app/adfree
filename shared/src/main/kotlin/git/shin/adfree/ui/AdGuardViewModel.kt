@@ -1,16 +1,12 @@
 package git.shin.adfree.ui
 
-import git.shin.adfree.l10n.Strings
 import git.shin.adfree.core.AssetState
 import git.shin.adfree.core.ConfigWarning
 import git.shin.adfree.core.CoreEngine
 import git.shin.adfree.data.AdGuardRepository
 import git.shin.adfree.data.AutomationControl
 import git.shin.adfree.data.ImportedLog
-import git.shin.adfree.platform.AppUpdate
-import git.shin.adfree.platform.LogSink
-import git.shin.adfree.platform.PlatformHost
-import git.shin.adfree.platform.TunnelControl
+import git.shin.adfree.l10n.Strings
 import git.shin.adfree.model.AppCategory
 import git.shin.adfree.model.AppCategoryFilter
 import git.shin.adfree.model.AppFirewallRule
@@ -38,15 +34,19 @@ import git.shin.adfree.model.UserScriptInfo
 import git.shin.adfree.model.UserScriptStoreState
 import git.shin.adfree.model.matchesLogSearch
 import git.shin.adfree.model.withAllowlistRuleEnabled
+import git.shin.adfree.platform.AppUpdate
+import git.shin.adfree.platform.LogSink
+import git.shin.adfree.platform.PlatformHost
+import git.shin.adfree.platform.TunnelControl
 import git.shin.adfree.security.ThreatAnalyzer
 import git.shin.adfree.update.UpdateInfo
 import git.shin.adfree.update.UpdateOutcome
 import git.shin.adfree.update.UpdateUiState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -57,7 +57,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-
 
 /**
  * MVI state holder.
@@ -73,7 +72,9 @@ class AdGuardViewModel(
     private val threatAnalyzer: ThreatAnalyzer,
     private val coreEngine: CoreEngine,
     /** The device prompts the certificate installer and toasts need. */
-    private val platform: PlatformHost = git.shin.adfree.platform.NoopPlatformHost(),
+    private val platform: PlatformHost =
+        git.shin.adfree.platform
+            .NoopPlatformHost(),
     /** Where the core's and the tunnel's logs go; the host picks the sink. */
     private val log: LogSink = LogSink { },
     /** Callback that pushes settings down to the Rust core; supplied by DI. */
@@ -160,219 +161,241 @@ class AdGuardViewModel(
     fun refreshStatusNotification() = tunnel.refreshStatusNotification()
 
     /** Enumerates installed apps for the firewall picker (binder work). */
-    fun installedAppsForFirewall(): List<FirewallAppChoice> =
-        repository.installedAppsForFirewall()
+    fun installedAppsForFirewall(): List<FirewallAppChoice> = repository.installedAppsForFirewall()
 
-    private val _effect = MutableSharedFlow<AdGuardEffect>(
-        replay = 0,
-        extraBufferCapacity = 8,
-        onBufferOverflow = BufferOverflow.DROP_OLDEST,
-    )
+    private val _effect =
+        MutableSharedFlow<AdGuardEffect>(
+            replay = 0,
+            extraBufferCapacity = 8,
+            onBufferOverflow = BufferOverflow.DROP_OLDEST,
+        )
     val effect: SharedFlow<AdGuardEffect> = _effect.asSharedFlow()
 
-    val uiState: StateFlow<AdGuardUiState> = combine(
+    val uiState: StateFlow<AdGuardUiState> =
         combine(
             combine(
-                _currentTab,
-                repository.settings,
-                repository.stats,
-                repository.importedLog,
-            ) { tab, settings, stats, imported -> UiHead(tab, settings, stats, imported) },
-            repository.logs,
-            combine(
-                repository.logTotal,
-                repository.logBlockedTotal,
-                repository.logAllowedTotal,
-                repository.windowTotals,
-                repository.serviceUsage,
-            ) { total, blocked, allowed, window, services ->
-                LogTotals(total, blocked, allowed, window, services)
-            },
-            _searchQuery,
-            _logTypeFilter,
-        ) { head, logs, totals, query, typeTab ->
-            val (tab, settings, stats, imported) = head
-            // While a file is open the screen shows the file: the rows, the
-            // counter under the chips and the footer all have to agree with it,
-            // or the list claims there is more to load than the file holds.
-            UiPartA(
-                tab,
-                settings,
-                stats,
-                imported?.rows ?: logs,
-                imported?.rows?.size?.toLong() ?: totals.total,
-                imported?.blocked ?: totals.blocked,
-                imported?.allowed ?: totals.allowed,
-                totals.window,
-                totals.services,
-                query,
-                typeTab,
-                imported?.name,
-            )
-        },
-        combine(
-            _statusFilter,
-            repository.filterLists,
-            repository.appFirewallRules,
-            combine(
-                repository.dnsProviders,
-                repository.dnsRewrites,
-                repository.dnsBackup,
-                repository.dnsBackupMode,
-                _dnsProbeRunning,
-            ) { providers, rewrites, backup, backupMode, probing ->
-                UiDns(providers, rewrites, backup, backupMode, probing)
-            },
-            tunnel.isVpnActive,
-        ) { status, filters, apps, dns, active ->
-            UiPartB(
-                status,
-                filters,
-                apps,
-                dns.providers,
-                dns.rewrites,
-                dns.backup,
-                dns.backupMode,
-                dns.probing,
-                active,
-            )
-        },
-        combine(
-            _inspectedLog,
-            _showCustomRuleDialog,
-            _showCustomRuleEditor,
-            _inspectedApp,
-            _filterSearchQuery,
-        ) { inspected, dialog, editor, app, filterSearch ->
-            UiPartC(inspected, dialog, editor, app, filterSearch)
-        },
-        combine(
-            _inspectedFilter,
-            _showAddFilterDialog,
-            _inspectedScript,
-            _showAddScriptDialog,
-            _showScriptStore,
-        ) { filter, addFilter, script, addScript, store ->
-            UiPartC2(filter, addFilter, script, addScript, store)
-        },
-        combine(
-            combine(
-                _appSearchQuery,
-                _appCategoryFilter,
-                _selectedAppFilter,
-                _aiLabState,
-                // The two DNS sheets travel together: `combine` takes five
-                // flows before it needs a typed array, and a pair is clearer
-                // than an unnamed one.
-                combine(_showAddDnsFilterDialog, _showDnsRuleEditor) { add, editor -> add to editor },
-            ) { q, cat, app, lab, dnsSheets ->
-                UiPartD(q, cat, app, lab, dnsSheets.first, dnsSheets.second)
+                combine(
+                    _currentTab,
+                    repository.settings,
+                    repository.stats,
+                    repository.importedLog,
+                ) { tab, settings, stats, imported -> UiHead(tab, settings, stats, imported) },
+                repository.logs,
+                combine(
+                    repository.logTotal,
+                    repository.logBlockedTotal,
+                    repository.logAllowedTotal,
+                    repository.windowTotals,
+                    repository.serviceUsage,
+                ) { total, blocked, allowed, window, services ->
+                    LogTotals(total, blocked, allowed, window, services)
+                },
+                _searchQuery,
+                _logTypeFilter,
+            ) { head, logs, totals, query, typeTab ->
+                val (tab, settings, stats, imported) = head
+                // While a file is open the screen shows the file: the rows, the
+                // counter under the chips and the footer all have to agree with it,
+                // or the list claims there is more to load than the file holds.
+                UiPartA(
+                    tab,
+                    settings,
+                    stats,
+                    imported?.rows ?: logs,
+                    imported?.rows?.size?.toLong() ?: totals.total,
+                    imported?.blocked ?: totals.blocked,
+                    imported?.allowed ?: totals.allowed,
+                    totals.window,
+                    totals.services,
+                    query,
+                    typeTab,
+                    imported?.name,
+                )
             },
             combine(
-                _showVpnPermissionPrompt,
-                repository.loadingMessage,
-                repository.userscripts,
-                repository.scriptsMasterEnabled,
-                repository.scriptStore,
-            ) { prompt, loading, scripts, master, store ->
-                UiExtras(prompt, loading, scripts, master, store)
+                _statusFilter,
+                repository.filterLists,
+                repository.appFirewallRules,
+                combine(
+                    repository.dnsProviders,
+                    repository.dnsRewrites,
+                    repository.dnsBackup,
+                    repository.dnsBackupMode,
+                    _dnsProbeRunning,
+                ) { providers, rewrites, backup, backupMode, probing ->
+                    UiDns(providers, rewrites, backup, backupMode, probing)
+                },
+                tunnel.isVpnActive,
+            ) { status, filters, apps, dns, active ->
+                UiPartB(
+                    status,
+                    filters,
+                    apps,
+                    dns.providers,
+                    dns.rewrites,
+                    dns.backup,
+                    dns.backupMode,
+                    dns.probing,
+                    active,
+                )
             },
-        ) { d, extras -> d.plusExtras(extras) },
-    ) { a, b, c, c2, d ->
-        // The picker knows packages; a log row knows the package the core
-        // attributed. A name may also arrive from a deep link, so resolve it.
-        val selectedPackage = d.selectedApp?.let { selected ->
-            b.apps.firstOrNull {
-                it.packageName.equals(selected, true) || it.appName.equals(selected, true)
-            }?.packageName ?: selected
-        }
-        val logs = a.logs.filter { log ->
-            val matchesQuery = matchesLogSearch(log, a.query)
-            // The type tabs come first because they are the row's own
-            // classification, not a search: an unclassified row belongs to
-            // `Other` rather than disappearing from every tab.
-            val matchesType = a.typeTab.matches(log.requestType)
-            val matchesStatus = b.status == null || log.status == b.status
-            // Rows stored before attribution existed (or carried over from an
-            // older database) still match through their `$app=` rule text.
-            val matchesApp = selectedPackage == null ||
-                log.appPackage.equals(selectedPackage, true) ||
-                log.matchedRule?.contains(selectedPackage, true) == true
-            matchesQuery && matchesType && matchesStatus && matchesApp
-        }
+            combine(
+                _inspectedLog,
+                _showCustomRuleDialog,
+                _showCustomRuleEditor,
+                _inspectedApp,
+                _filterSearchQuery,
+            ) { inspected, dialog, editor, app, filterSearch ->
+                UiPartC(inspected, dialog, editor, app, filterSearch)
+            },
+            combine(
+                _inspectedFilter,
+                _showAddFilterDialog,
+                _inspectedScript,
+                _showAddScriptDialog,
+                _showScriptStore,
+            ) { filter, addFilter, script, addScript, store ->
+                UiPartC2(filter, addFilter, script, addScript, store)
+            },
+            combine(
+                combine(
+                    _appSearchQuery,
+                    _appCategoryFilter,
+                    _selectedAppFilter,
+                    _aiLabState,
+                    // The two DNS sheets travel together: `combine` takes five
+                    // flows before it needs a typed array, and a pair is clearer
+                    // than an unnamed one.
+                    combine(_showAddDnsFilterDialog, _showDnsRuleEditor) { add, editor -> add to editor },
+                ) { q, cat, app, lab, dnsSheets ->
+                    UiPartD(q, cat, app, lab, dnsSheets.first, dnsSheets.second)
+                },
+                combine(
+                    _showVpnPermissionPrompt,
+                    repository.loadingMessage,
+                    repository.userscripts,
+                    repository.scriptsMasterEnabled,
+                    repository.scriptStore,
+                ) { prompt, loading, scripts, master, store ->
+                    UiExtras(prompt, loading, scripts, master, store)
+                },
+            ) { d, extras -> d.plusExtras(extras) },
+        ) { a, b, c, c2, d ->
+            // The picker knows packages; a log row knows the package the core
+            // attributed. A name may also arrive from a deep link, so resolve it.
+            val selectedPackage =
+                d.selectedApp?.let { selected ->
+                    b.apps
+                        .firstOrNull {
+                            it.packageName.equals(selected, true) || it.appName.equals(selected, true)
+                        }?.packageName ?: selected
+                }
+            val logs =
+                a.logs.filter { log ->
+                    val matchesQuery = matchesLogSearch(log, a.query)
+                    // The type tabs come first because they are the row's own
+                    // classification, not a search: an unclassified row belongs to
+                    // `Other` rather than disappearing from every tab.
+                    val matchesType = a.typeTab.matches(log.requestType)
+                    val matchesStatus = b.status == null || log.status == b.status
+                    // Rows stored before attribution existed (or carried over from an
+                    // older database) still match through their `$app=` rule text.
+                    val matchesApp =
+                        selectedPackage == null ||
+                            log.appPackage.equals(selectedPackage, true) ||
+                            log.matchedRule?.contains(selectedPackage, true) == true
+                    matchesQuery && matchesType && matchesStatus && matchesApp
+                }
 
-        val apps = b.apps.filter { app ->
-            val matchesSearch = d.appSearch.isBlank() ||
-                app.appName.contains(d.appSearch, true) ||
-                app.packageName.contains(d.appSearch, true)
-            val matchesCat = when (d.appCategoryFilter) {
-                null -> true
-                AppCategoryFilter.BLOCKED -> app.wifiAccess == FirewallAccess.BLOCK ||
-                    app.wifiScreenOffAccess == FirewallAccess.BLOCK ||
-                    app.cellularAccess == FirewallAccess.BLOCK ||
-                    app.cellularScreenOffAccess == FirewallAccess.BLOCK ||
-                    app.roamingAccess == FirewallAccess.BLOCK
-                AppCategoryFilter.FILTERED -> app.isFilterRouted
-                AppCategoryFilter.UNFILTERED -> !app.isFilterRouted
-                else -> app.category == d.appCategoryFilter
-            }
-            matchesSearch && matchesCat
-        }
+            val apps =
+                b.apps.filter { app ->
+                    val matchesSearch =
+                        d.appSearch.isBlank() ||
+                            app.appName.contains(d.appSearch, true) ||
+                            app.packageName.contains(d.appSearch, true)
+                    val matchesCat =
+                        when (d.appCategoryFilter) {
+                            null -> {
+                                true
+                            }
 
-        AdGuardUiState(
-            currentTab = a.tab,
-            settings = a.settings,
-            stats = a.stats,
-            windowTotals = a.windowTotals,
-            serviceUsage = a.services,
-            logs = a.logs,
-            filteredLogs = logs,
-            logTotal = a.logTotal,
-            logBlockedTotal = a.logBlockedTotal,
-            logAllowedTotal = a.logAllowedTotal,
-            importedLogName = a.importName,
-            filterLists = b.filters,
-            appFirewallRules = apps,
-            allAppFirewallRules = b.apps,
-            // The log pane names a row's owner even when the Apps tab is
-            // filtered down to something else.
-            appNames = b.apps.associate { it.packageName to it.appName },
-            dnsProviders = b.dns,
-            dnsRewrites = b.rewrites,
-            dnsBackup = b.backup,
-            dnsBackupMode = b.backupMode,
-            isDnsProbeRunning = b.isProbing,
-            isVpnActive = b.isVpnActive,
-            inspectedLog = c.inspected,
-            searchQuery = a.query,
-            statusFilter = b.status,
-            logTypeFilter = a.typeTab,
-            showCustomRuleDialog = c.showCustomRule,
-            showCustomRuleEditor = c.showEditor,
-            inspectedApp = c.inspectedApp,
-            filterSearchQuery = c.filterSearch,
-            inspectedFilterId = c2.inspectedFilter,
-            showAddFilterDialog = c2.showAddFilter,
-            inspectedScriptId = c2.inspectedScript,
-            showAddScriptDialog = c2.showAddScript,
-            showScriptStore = c2.showScriptStore,
-            userscripts = d.userscripts,
-            scriptsMasterEnabled = d.scriptsMasterEnabled,
-            scriptStore = d.scriptStore,
-            appSearchQuery = d.appSearch,
-            appCategoryFilter = d.appCategoryFilter,
-            selectedAppFilter = d.selectedApp,
-            aiLabState = d.aiLabState,
-            showAddDnsFilterDialog = d.showAddDnsFilter,
-            showDnsRuleEditor = d.showDnsRuleEditor,
-            showVpnPermissionPrompt = d.showVpnPermission,
-            loadingMessage = d.loadingMessage,
+                            AppCategoryFilter.BLOCKED -> {
+                                app.wifiAccess == FirewallAccess.BLOCK ||
+                                    app.wifiScreenOffAccess == FirewallAccess.BLOCK ||
+                                    app.cellularAccess == FirewallAccess.BLOCK ||
+                                    app.cellularScreenOffAccess == FirewallAccess.BLOCK ||
+                                    app.roamingAccess == FirewallAccess.BLOCK
+                            }
+
+                            AppCategoryFilter.FILTERED -> {
+                                app.isFilterRouted
+                            }
+
+                            AppCategoryFilter.UNFILTERED -> {
+                                !app.isFilterRouted
+                            }
+
+                            else -> {
+                                app.category == d.appCategoryFilter
+                            }
+                        }
+                    matchesSearch && matchesCat
+                }
+
+            AdGuardUiState(
+                currentTab = a.tab,
+                settings = a.settings,
+                stats = a.stats,
+                windowTotals = a.windowTotals,
+                serviceUsage = a.services,
+                logs = a.logs,
+                filteredLogs = logs,
+                logTotal = a.logTotal,
+                logBlockedTotal = a.logBlockedTotal,
+                logAllowedTotal = a.logAllowedTotal,
+                importedLogName = a.importName,
+                filterLists = b.filters,
+                appFirewallRules = apps,
+                allAppFirewallRules = b.apps,
+                // The log pane names a row's owner even when the Apps tab is
+                // filtered down to something else.
+                appNames = b.apps.associate { it.packageName to it.appName },
+                dnsProviders = b.dns,
+                dnsRewrites = b.rewrites,
+                dnsBackup = b.backup,
+                dnsBackupMode = b.backupMode,
+                isDnsProbeRunning = b.isProbing,
+                isVpnActive = b.isVpnActive,
+                inspectedLog = c.inspected,
+                searchQuery = a.query,
+                statusFilter = b.status,
+                logTypeFilter = a.typeTab,
+                showCustomRuleDialog = c.showCustomRule,
+                showCustomRuleEditor = c.showEditor,
+                inspectedApp = c.inspectedApp,
+                filterSearchQuery = c.filterSearch,
+                inspectedFilterId = c2.inspectedFilter,
+                showAddFilterDialog = c2.showAddFilter,
+                inspectedScriptId = c2.inspectedScript,
+                showAddScriptDialog = c2.showAddScript,
+                showScriptStore = c2.showScriptStore,
+                userscripts = d.userscripts,
+                scriptsMasterEnabled = d.scriptsMasterEnabled,
+                scriptStore = d.scriptStore,
+                appSearchQuery = d.appSearch,
+                appCategoryFilter = d.appCategoryFilter,
+                selectedAppFilter = d.selectedApp,
+                aiLabState = d.aiLabState,
+                showAddDnsFilterDialog = d.showAddDnsFilter,
+                showDnsRuleEditor = d.showDnsRuleEditor,
+                showVpnPermissionPrompt = d.showVpnPermission,
+                loadingMessage = d.loadingMessage,
+            )
+        }.stateIn(
+            scope = scope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = AdGuardUiState(),
         )
-    }.stateIn(
-        scope = scope,
-        started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = AdGuardUiState(),
-    )
 
     init {
         _privateDnsOn.value = isPrivateDnsStrict()
@@ -437,25 +460,35 @@ class AdGuardViewModel(
                     intent.tab == AdGuardTab.APPS || intent.tab == AdGuardTab.STATISTICS,
                 )
             }
+
             is AdGuardIntent.OpenProtectionSection -> {
                 _currentTab.value = AdGuardTab.PROTECTION
                 _requestedProtectionSection.value = intent.section
             }
-            is AdGuardIntent.ToggleProtection -> toggleProtection()
-            is AdGuardIntent.ToggleAdBlocking ->
+
+            is AdGuardIntent.ToggleProtection -> {
+                toggleProtection()
+            }
+
+            is AdGuardIntent.ToggleAdBlocking -> {
                 repository.toggleAdBlocking(!uiState.value.settings.isAdBlockingEnabled)
+            }
 
-            is AdGuardIntent.ToggleAnnoyances ->
+            is AdGuardIntent.ToggleAnnoyances -> {
                 repository.toggleAnnoyances(!uiState.value.settings.isAnnoyancesEnabled)
+            }
 
-            is AdGuardIntent.ToggleBrowsingSecurity ->
+            is AdGuardIntent.ToggleBrowsingSecurity -> {
                 repository.toggleBrowsingSecurity(!uiState.value.settings.isBrowsingSecurityEnabled)
+            }
 
-            is AdGuardIntent.ToggleTracking ->
+            is AdGuardIntent.ToggleTracking -> {
                 repository.toggleTrackingProtection(!uiState.value.settings.isTrackingProtectionEnabled)
+            }
 
-            is AdGuardIntent.ToggleDns ->
+            is AdGuardIntent.ToggleDns -> {
                 repository.toggleDnsProtection(!uiState.value.settings.isDnsProtectionEnabled)
+            }
 
             is AdGuardIntent.ToggleHttps -> {
                 // Without a trusted CA the engine can only relay, so an "on"
@@ -473,44 +506,106 @@ class AdGuardViewModel(
                 }
             }
 
-            is AdGuardIntent.ToggleFirewall ->
+            is AdGuardIntent.ToggleFirewall -> {
                 repository.toggleFirewall(!uiState.value.settings.isFirewallEnabled)
+            }
 
-            is AdGuardIntent.ToggleEcoMode ->
+            is AdGuardIntent.ToggleEcoMode -> {
                 repository.toggleEcoBatteryMode(!uiState.value.settings.isEcoBatteryModeEnabled)
+            }
 
-            is AdGuardIntent.ToggleStealth ->
+            is AdGuardIntent.ToggleStealth -> {
                 repository.toggleStealthMode(!uiState.value.settings.isStealthModeEnabled)
+            }
 
-            is AdGuardIntent.SetStealthPreset -> repository.applyStealthPreset(intent.preset)
+            is AdGuardIntent.SetStealthPreset -> {
+                repository.applyStealthPreset(intent.preset)
+            }
 
-            is AdGuardIntent.ToggleBlockQuic -> repository.toggleBlockQuic(intent.enabled)
-            is AdGuardIntent.SetAppLanguage -> repository.setAppLanguage(intent.language)
-            is AdGuardIntent.SetThemeMode -> repository.setThemeMode(intent.mode)
-            is AdGuardIntent.SetLogLevel -> repository.setLogLevel(intent.level)
-            is AdGuardIntent.ToggleExternalControl ->
+            is AdGuardIntent.ToggleBlockQuic -> {
+                repository.toggleBlockQuic(intent.enabled)
+            }
+
+            is AdGuardIntent.SetAppLanguage -> {
+                repository.setAppLanguage(intent.language)
+            }
+
+            is AdGuardIntent.SetThemeMode -> {
+                repository.setThemeMode(intent.mode)
+            }
+
+            is AdGuardIntent.SetLogLevel -> {
+                repository.setLogLevel(intent.level)
+            }
+
+            is AdGuardIntent.ToggleExternalControl -> {
                 repository.automation.setEnabled(intent.enabled)
-            AdGuardIntent.RotateControlToken -> repository.automation.rotateToken()
-            is AdGuardIntent.ToggleBlockDoh -> repository.toggleBlockDoh(intent.enabled)
-            is AdGuardIntent.ToggleBlockDot -> repository.toggleBlockDot(intent.enabled)
-            is AdGuardIntent.ToggleSafeSearch -> repository.toggleSafeSearch(intent.enabled)
-            is AdGuardIntent.ToggleCosmeticFiltering ->
+            }
+
+            AdGuardIntent.RotateControlToken -> {
+                repository.automation.rotateToken()
+            }
+
+            is AdGuardIntent.ToggleBlockDoh -> {
+                repository.toggleBlockDoh(intent.enabled)
+            }
+
+            is AdGuardIntent.ToggleBlockDot -> {
+                repository.toggleBlockDot(intent.enabled)
+            }
+
+            is AdGuardIntent.ToggleSafeSearch -> {
+                repository.toggleSafeSearch(intent.enabled)
+            }
+
+            is AdGuardIntent.ToggleCosmeticFiltering -> {
                 repository.toggleCosmeticFiltering(intent.enabled)
-            is AdGuardIntent.ToggleFilterHttp3 ->
+            }
+
+            is AdGuardIntent.ToggleFilterHttp3 -> {
                 repository.toggleFilterHttp3(intent.enabled)
-            is AdGuardIntent.SetFilterAutoUpdate ->
+            }
+
+            is AdGuardIntent.SetFilterAutoUpdate -> {
                 repository.setFilterAutoUpdate(intent.hours)
-            is AdGuardIntent.ToggleAutoStart ->
+            }
+
+            is AdGuardIntent.ToggleAutoStart -> {
                 repository.toggleAutoStart(intent.enabled)
-            is AdGuardIntent.ToggleSmartFiltering ->
+            }
+
+            is AdGuardIntent.ToggleSmartFiltering -> {
                 repository.toggleSmartFiltering(intent.enabled)
-            is AdGuardIntent.ToggleLogAllowed -> repository.toggleLogAllowed(intent.enabled)
-            is AdGuardIntent.SetBlockMode -> repository.setBlockMode(intent.mode)
-            is AdGuardIntent.SearchQueryChanged -> _searchQuery.value = intent.query
-            is AdGuardIntent.FilterStatusChanged -> _statusFilter.value = intent.status
-            is AdGuardIntent.FilterLogTypeChanged -> _logTypeFilter.value = intent.tab
-            is AdGuardIntent.InspectLog -> _inspectedLog.value = intent.log
-            is AdGuardIntent.SwitchLogRule -> switchLogRule(intent.rule, intent.enabled)
+            }
+
+            is AdGuardIntent.ToggleLogAllowed -> {
+                repository.toggleLogAllowed(intent.enabled)
+            }
+
+            is AdGuardIntent.SetBlockMode -> {
+                repository.setBlockMode(intent.mode)
+            }
+
+            is AdGuardIntent.SearchQueryChanged -> {
+                _searchQuery.value = intent.query
+            }
+
+            is AdGuardIntent.FilterStatusChanged -> {
+                _statusFilter.value = intent.status
+            }
+
+            is AdGuardIntent.FilterLogTypeChanged -> {
+                _logTypeFilter.value = intent.tab
+            }
+
+            is AdGuardIntent.InspectLog -> {
+                _inspectedLog.value = intent.log
+            }
+
+            is AdGuardIntent.SwitchLogRule -> {
+                switchLogRule(intent.rule, intent.enabled)
+            }
+
             is AdGuardIntent.AddCustomRule -> {
                 repository.addCustomRule(intent.rule)
                 _showCustomRuleDialog.value = false
@@ -519,9 +614,13 @@ class AdGuardViewModel(
                 )
             }
 
-            is AdGuardIntent.RemoveCustomRule -> repository.removeCustomRule(intent.rule)
-            is AdGuardIntent.ReplaceCustomRule ->
+            is AdGuardIntent.RemoveCustomRule -> {
+                repository.removeCustomRule(intent.rule)
+            }
+
+            is AdGuardIntent.ReplaceCustomRule -> {
                 repository.replaceCustomRule(intent.oldRule, intent.newRule)
+            }
 
             is AdGuardIntent.UpdateAllCustomRules -> {
                 repository.updateAllCustomRules(intent.rules)
@@ -540,18 +639,22 @@ class AdGuardViewModel(
             }
 
             is AdGuardIntent.AddCustomDnsProvider -> {
-                val message = repository.addCustomDnsProvider(
-                    intent.name,
-                    intent.address,
-                    intent.type,
-                )
+                val message =
+                    repository.addCustomDnsProvider(
+                        intent.name,
+                        intent.address,
+                        intent.type,
+                    )
                 emit(AdGuardEffect.ShowSnackbar(message))
             }
 
-            is AdGuardIntent.ProbeDnsProvider -> probeDnsProvider(intent.id)
+            is AdGuardIntent.ProbeDnsProvider -> {
+                probeDnsProvider(intent.id)
+            }
 
-            is AdGuardIntent.SetBackupDns ->
+            is AdGuardIntent.SetBackupDns -> {
                 repository.setBackupDns(intent.mode, intent.providerId)
+            }
 
             is AdGuardIntent.AddDnsRewrite -> {
                 val message = repository.addDnsRewrite(intent.host, intent.answer)
@@ -584,48 +687,57 @@ class AdGuardViewModel(
                 // The sheet reads this snapshot, not the repository flow, so
                 // without the copy every switch would snap back to its old
                 // value on the next recomposition.
-                _inspectedApp.value = _inspectedApp.value?.let { current ->
-                    if (current.packageName != intent.packageName) {
-                        current
-                    } else {
-                        current.copy(
-                            wifiAccess = intent.wifi ?: current.wifiAccess,
-                            wifiScreenOffAccess =
-                                intent.wifiScreenOff ?: current.wifiScreenOffAccess,
-                            cellularAccess = intent.cellular ?: current.cellularAccess,
-                            cellularScreenOffAccess =
-                                intent.cellularScreenOff ?: current.cellularScreenOffAccess,
-                            roamingAccess = intent.roaming ?: current.roamingAccess,
-                            isFilterRouted = intent.filtered ?: current.isFilterRouted,
-                            isHttpsFiltered = intent.httpsFiltered ?: current.isHttpsFiltered,
-                            notifyBlocked = intent.notifyBlocked ?: current.notifyBlocked,
-                            proxyAccess = intent.proxyAccess ?: current.proxyAccess,
-                        )
+                _inspectedApp.value =
+                    _inspectedApp.value?.let { current ->
+                        if (current.packageName != intent.packageName) {
+                            current
+                        } else {
+                            current.copy(
+                                wifiAccess = intent.wifi ?: current.wifiAccess,
+                                wifiScreenOffAccess =
+                                    intent.wifiScreenOff ?: current.wifiScreenOffAccess,
+                                cellularAccess = intent.cellular ?: current.cellularAccess,
+                                cellularScreenOffAccess =
+                                    intent.cellularScreenOff ?: current.cellularScreenOffAccess,
+                                roamingAccess = intent.roaming ?: current.roamingAccess,
+                                isFilterRouted = intent.filtered ?: current.isFilterRouted,
+                                isHttpsFiltered = intent.httpsFiltered ?: current.isHttpsFiltered,
+                                notifyBlocked = intent.notifyBlocked ?: current.notifyBlocked,
+                                proxyAccess = intent.proxyAccess ?: current.proxyAccess,
+                            )
+                        }
                     }
-                }
             }
-            is AdGuardIntent.UpdateFirewallSettings -> repository.updateFirewallSettings(
-                globalRules = intent.globalRules,
-                customRules = intent.customRules,
-                notifications = intent.notifications,
-                allowWifi = intent.allowWifi,
-                allowWifiScreenOff = intent.allowWifiScreenOff,
-                allowCellular = intent.allowCellular,
-                allowCellularScreenOff = intent.allowCellularScreenOff,
-                allowRoaming = intent.allowRoaming,
-            )
+
+            is AdGuardIntent.UpdateFirewallSettings -> {
+                repository.updateFirewallSettings(
+                    globalRules = intent.globalRules,
+                    customRules = intent.customRules,
+                    notifications = intent.notifications,
+                    allowWifi = intent.allowWifi,
+                    allowWifiScreenOff = intent.allowWifiScreenOff,
+                    allowCellular = intent.allowCellular,
+                    allowCellularScreenOff = intent.allowCellularScreenOff,
+                    allowRoaming = intent.allowRoaming,
+                )
+            }
+
             is AdGuardIntent.ResetFirewall -> {
                 repository.resetFirewall()
                 _inspectedApp.value = null
                 emit(AdGuardEffect.ShowSnackbar(UiText.Resource(Strings.firewall_reset_done)))
             }
-            is AdGuardIntent.EnsureFirewallApp ->
+
+            is AdGuardIntent.EnsureFirewallApp -> {
                 repository.ensureFirewallApp(intent.packageName, intent.appName)
+            }
+
             is AdGuardIntent.OpenAppManagement -> {
                 _currentTab.value = AdGuardTab.APPS
                 repository.setAppUsageVisible(true)
                 _inspectedApp.value = intent.app
             }
+
             is AdGuardIntent.RestartVpn -> {
                 if (tunnel.isVpnActive.value) {
                     tunnel.restartVpnService()
@@ -635,52 +747,109 @@ class AdGuardViewModel(
                 }
             }
 
-            is AdGuardIntent.InspectAppDetails -> _inspectedApp.value = intent.app
+            is AdGuardIntent.InspectAppDetails -> {
+                _inspectedApp.value = intent.app
+            }
+
             is AdGuardIntent.ViewAppLogs -> {
                 _selectedAppFilter.value = intent.app.packageName
                 _currentTab.value = AdGuardTab.ACTIVITY
                 _inspectedApp.value = null
             }
 
-            is AdGuardIntent.FilterLogsByApp -> _selectedAppFilter.value = intent.appPackageOrName
-            is AdGuardIntent.AppSearchQueryChanged -> _appSearchQuery.value = intent.query
-            is AdGuardIntent.AppCategoryFilterChanged -> _appCategoryFilter.value = intent.filter
-            is AdGuardIntent.SetAppUsageRange -> repository.setAppUsageRange(intent.range)
-            is AdGuardIntent.SetAppUsageTransport -> repository.setAppUsageTransport(intent.transport)
-            is AdGuardIntent.ClearLogs -> repository.clearLogs()
+            is AdGuardIntent.FilterLogsByApp -> {
+                _selectedAppFilter.value = intent.appPackageOrName
+            }
+
+            is AdGuardIntent.AppSearchQueryChanged -> {
+                _appSearchQuery.value = intent.query
+            }
+
+            is AdGuardIntent.AppCategoryFilterChanged -> {
+                _appCategoryFilter.value = intent.filter
+            }
+
+            is AdGuardIntent.SetAppUsageRange -> {
+                repository.setAppUsageRange(intent.range)
+            }
+
+            is AdGuardIntent.SetAppUsageTransport -> {
+                repository.setAppUsageTransport(intent.transport)
+            }
+
+            is AdGuardIntent.ClearLogs -> {
+                repository.clearLogs()
+            }
+
             is AdGuardIntent.ResetStats -> {
                 repository.resetStats()
                 emit(AdGuardEffect.ShowSnackbar(UiText.Resource(Strings.stats_cleared)))
             }
-            is AdGuardIntent.LoadMoreLogs -> repository.loadMoreLogs()
-            is AdGuardIntent.ExportLogs -> scope.launch {
-                val result = repository.exportLogs(intent.uri)
-                emit(AdGuardEffect.ShowSnackbar(result.message))
+
+            is AdGuardIntent.LoadMoreLogs -> {
+                repository.loadMoreLogs()
             }
-            is AdGuardIntent.ImportLogs -> scope.launch {
-                // Nothing to say when it works: the screen itself switches to
-                // the file, and a snackbar over that would only repeat it.
-                if (!repository.importLogs(intent.uri)) {
-                    emit(AdGuardEffect.ShowSnackbar(UiText.Resource(Strings.log_import_failed)))
+
+            is AdGuardIntent.ExportLogs -> {
+                scope.launch {
+                    val result = repository.exportLogs(intent.uri)
+                    emit(AdGuardEffect.ShowSnackbar(result.message))
                 }
             }
-            is AdGuardIntent.CloseImportedLogs -> repository.closeImportedLogs()
-            is AdGuardIntent.SetLogTailing -> repository.setLogTailing(intent.tailing)
-            is AdGuardIntent.ShowCustomRuleDialog -> _showCustomRuleDialog.value = intent.show
-            is AdGuardIntent.ShowCustomRuleEditor -> _showCustomRuleEditor.value = intent.show
-            is AdGuardIntent.FilterSearchQueryChanged -> _filterSearchQuery.value = intent.query
-            is AdGuardIntent.ShowAddFilterDialog -> _showAddFilterDialog.value = intent.show
-            is AdGuardIntent.ShowAddDnsFilterDialog -> _showAddDnsFilterDialog.value = intent.show
-            is AdGuardIntent.ShowDnsRuleEditor -> _showDnsRuleEditor.value = intent.show
+
+            is AdGuardIntent.ImportLogs -> {
+                scope.launch {
+                    // Nothing to say when it works: the screen itself switches to
+                    // the file, and a snackbar over that would only repeat it.
+                    if (!repository.importLogs(intent.uri)) {
+                        emit(AdGuardEffect.ShowSnackbar(UiText.Resource(Strings.log_import_failed)))
+                    }
+                }
+            }
+
+            is AdGuardIntent.CloseImportedLogs -> {
+                repository.closeImportedLogs()
+            }
+
+            is AdGuardIntent.SetLogTailing -> {
+                repository.setLogTailing(intent.tailing)
+            }
+
+            is AdGuardIntent.ShowCustomRuleDialog -> {
+                _showCustomRuleDialog.value = intent.show
+            }
+
+            is AdGuardIntent.ShowCustomRuleEditor -> {
+                _showCustomRuleEditor.value = intent.show
+            }
+
+            is AdGuardIntent.FilterSearchQueryChanged -> {
+                _filterSearchQuery.value = intent.query
+            }
+
+            is AdGuardIntent.ShowAddFilterDialog -> {
+                _showAddFilterDialog.value = intent.show
+            }
+
+            is AdGuardIntent.ShowAddDnsFilterDialog -> {
+                _showAddDnsFilterDialog.value = intent.show
+            }
+
+            is AdGuardIntent.ShowDnsRuleEditor -> {
+                _showDnsRuleEditor.value = intent.show
+            }
+
             is AdGuardIntent.UpdateDnsUserRules -> {
                 repository.updateDnsUserRules(intent.rules)
                 _showDnsRuleEditor.value = false
             }
+
             is AdGuardIntent.AddCustomFilter -> {
                 repository.addCustomFilter(intent.name, intent.url)
                 _showAddFilterDialog.value = false
                 emit(AdGuardEffect.ShowSnackbar(UiText.Resource(Strings.filter_new_loading)))
             }
+
             is AdGuardIntent.AddDnsFilter -> {
                 repository.addCustomFilter(intent.name, intent.url, dnsOnly = true)
                 _showAddDnsFilterDialog.value = false
@@ -693,23 +862,33 @@ class AdGuardViewModel(
                 _showAddDnsFilterDialog.value = false
             }
 
-            is AdGuardIntent.ExportBackup -> scope.launch {
-                val result = repository.exportBackup(intent.uri)
-                emit(AdGuardEffect.ShowSnackbar(result.message))
+            is AdGuardIntent.ExportBackup -> {
+                scope.launch {
+                    val result = repository.exportBackup(intent.uri)
+                    emit(AdGuardEffect.ShowSnackbar(result.message))
+                }
             }
 
-            is AdGuardIntent.ImportBackup -> scope.launch {
-                val result = repository.importBackup(intent.uri)
-                emit(AdGuardEffect.ShowSnackbar(result.message))
+            is AdGuardIntent.ImportBackup -> {
+                scope.launch {
+                    val result = repository.importBackup(intent.uri)
+                    emit(AdGuardEffect.ShowSnackbar(result.message))
+                }
             }
 
-            is AdGuardIntent.InspectFilter -> _inspectedFilter.value = intent.id
+            is AdGuardIntent.InspectFilter -> {
+                _inspectedFilter.value = intent.id
+            }
+
             is AdGuardIntent.RestoreDefaultFilters -> {
                 repository.restoreDefaultFilters()
                 emit(AdGuardEffect.ShowSnackbar(UiText.Resource(Strings.filter_restored_defaults)))
             }
 
-            is AdGuardIntent.ShowAddScriptDialog -> _showAddScriptDialog.value = intent.show
+            is AdGuardIntent.ShowAddScriptDialog -> {
+                _showAddScriptDialog.value = intent.show
+            }
+
             is AdGuardIntent.AddScript -> {
                 repository.addScript(
                     intent.name,
@@ -718,14 +897,17 @@ class AdGuardViewModel(
                 )
                 _showAddScriptDialog.value = false
             }
+
             is AdGuardIntent.ImportLocalScript -> {
                 repository.importLocalScript(intent.uri)
                 _showAddScriptDialog.value = false
             }
+
             is AdGuardIntent.CreateScript -> {
                 repository.createScript(intent.name, intent.text)
                 _showAddScriptDialog.value = false
             }
+
             is AdGuardIntent.UpdateScriptText -> {
                 repository.updateScriptText(intent.id, intent.name, intent.text)
             }
@@ -734,9 +916,19 @@ class AdGuardViewModel(
                 _showScriptStore.value = intent.show
                 if (intent.show) repository.openScriptStore()
             }
-            is AdGuardIntent.SearchScriptStore -> repository.searchScriptStore(intent.query)
-            is AdGuardIntent.SortScriptStore -> repository.setScriptStoreSort(intent.sort)
-            is AdGuardIntent.LoadMoreScriptStore -> repository.loadMoreScriptStore()
+
+            is AdGuardIntent.SearchScriptStore -> {
+                repository.searchScriptStore(intent.query)
+            }
+
+            is AdGuardIntent.SortScriptStore -> {
+                repository.setScriptStoreSort(intent.sort)
+            }
+
+            is AdGuardIntent.LoadMoreScriptStore -> {
+                repository.loadMoreScriptStore()
+            }
+
             is AdGuardIntent.InstallStoreScript -> {
                 repository.addScript(intent.name, intent.url, intent.description)
                 emit(
@@ -746,44 +938,97 @@ class AdGuardViewModel(
                 )
             }
 
-            is AdGuardIntent.ToggleScript -> repository.toggleScript(intent.id, intent.enabled)
-            is AdGuardIntent.ToggleScriptsMaster -> repository.toggleScriptsMaster(intent.enabled)
-            is AdGuardIntent.RefreshScript -> repository.refreshScript(intent.id)
-            is AdGuardIntent.DeleteScript -> repository.deleteScript(intent.id)
-            is AdGuardIntent.InspectScript -> _inspectedScript.value = intent.id
+            is AdGuardIntent.ToggleScript -> {
+                repository.toggleScript(intent.id, intent.enabled)
+            }
 
-            is AdGuardIntent.DeleteFilterList -> repository.deleteFilterList(intent.id)
-            is AdGuardIntent.UpdateCustomFilter ->
+            is AdGuardIntent.ToggleScriptsMaster -> {
+                repository.toggleScriptsMaster(intent.enabled)
+            }
+
+            is AdGuardIntent.RefreshScript -> {
+                repository.refreshScript(intent.id)
+            }
+
+            is AdGuardIntent.DeleteScript -> {
+                repository.deleteScript(intent.id)
+            }
+
+            is AdGuardIntent.InspectScript -> {
+                _inspectedScript.value = intent.id
+            }
+
+            is AdGuardIntent.DeleteFilterList -> {
+                repository.deleteFilterList(intent.id)
+            }
+
+            is AdGuardIntent.UpdateCustomFilter -> {
                 repository.updateCustomFilter(intent.id, intent.name, intent.url)
-            is AdGuardIntent.RefreshSubscription -> repository.refreshSubscription(intent.id)
-            is AdGuardIntent.RefreshAllSubscriptions -> repository.refreshAllSubscriptions()
-            is AdGuardIntent.ToggleFilterList -> repository.toggleFilterList(intent.id, intent.enabled)
-            is AdGuardIntent.SetFilterTrusted -> repository.setFilterTrusted(intent.id, intent.trusted)
-            is AdGuardIntent.SetServicesBreakdown ->
-                repository.setServicesBreakdownVisible(intent.visible)
-            is AdGuardIntent.SetServicesTableUrl -> repository.setServicesTableUrl(intent.url)
-            AdGuardIntent.RefreshServicesTable -> repository.refreshServicesTable()
-            is AdGuardIntent.ImportServicesTable -> repository.importServicesTable(intent.uri)
-            is AdGuardIntent.RunThreatScan -> handleThreatScan(intent.domain)
-            is AdGuardIntent.ResetAiLab -> _aiLabState.value = AiLabUiState.Idle
-            is AdGuardIntent.UpdateStealth -> repository.updateStealthSetting(
-                stripUtm = intent.stripUtm,
-                blockWebRtc = intent.blockWebRtc,
-                disguiseUa = intent.disguiseUa,
-                blockCookies = intent.blockCookies,
-                blockAllCookies = intent.blockAllCookies,
-                stripEtag = intent.stripEtag,
-                stripThirdPartyAuthorization = intent.stripThirdPartyAuthorization,
-                hideThirdPartyReferer = intent.hideThirdPartyReferer,
-                injectGpcDnt = intent.injectGpcDnt,
-                hideSearchQuery = intent.hideSearchQuery,
-                blockPushApi = intent.blockPushApi,
-                blockGeolocationApi = intent.blockGeolocationApi,
-                antiDpi = intent.antiDpi,
-                maskIp = intent.maskIp,
-            )
+            }
 
-            is AdGuardIntent.DismissLoading -> repository.dismissLoading()
+            is AdGuardIntent.RefreshSubscription -> {
+                repository.refreshSubscription(intent.id)
+            }
+
+            is AdGuardIntent.RefreshAllSubscriptions -> {
+                repository.refreshAllSubscriptions()
+            }
+
+            is AdGuardIntent.ToggleFilterList -> {
+                repository.toggleFilterList(intent.id, intent.enabled)
+            }
+
+            is AdGuardIntent.SetFilterTrusted -> {
+                repository.setFilterTrusted(intent.id, intent.trusted)
+            }
+
+            is AdGuardIntent.SetServicesBreakdown -> {
+                repository.setServicesBreakdownVisible(intent.visible)
+            }
+
+            is AdGuardIntent.SetServicesTableUrl -> {
+                repository.setServicesTableUrl(intent.url)
+            }
+
+            AdGuardIntent.RefreshServicesTable -> {
+                repository.refreshServicesTable()
+            }
+
+            is AdGuardIntent.ImportServicesTable -> {
+                repository.importServicesTable(intent.uri)
+            }
+
+            is AdGuardIntent.RunThreatScan -> {
+                handleThreatScan(intent.domain)
+            }
+
+            is AdGuardIntent.ResetAiLab -> {
+                _aiLabState.value = AiLabUiState.Idle
+            }
+
+            is AdGuardIntent.UpdateStealth -> {
+                repository.updateStealthSetting(
+                    stripUtm = intent.stripUtm,
+                    blockWebRtc = intent.blockWebRtc,
+                    disguiseUa = intent.disguiseUa,
+                    blockCookies = intent.blockCookies,
+                    blockAllCookies = intent.blockAllCookies,
+                    stripEtag = intent.stripEtag,
+                    stripThirdPartyAuthorization = intent.stripThirdPartyAuthorization,
+                    hideThirdPartyReferer = intent.hideThirdPartyReferer,
+                    injectGpcDnt = intent.injectGpcDnt,
+                    hideSearchQuery = intent.hideSearchQuery,
+                    blockPushApi = intent.blockPushApi,
+                    blockGeolocationApi = intent.blockGeolocationApi,
+                    antiDpi = intent.antiDpi,
+                    maskIp = intent.maskIp,
+                )
+            }
+
+            is AdGuardIntent.DismissLoading -> {
+                repository.dismissLoading()
+            }
+
             is AdGuardIntent.VpnPermissionResolved -> {
                 // The dialog is gone either way; leaving the flag set would keep
                 // the next tap from raising it again.
@@ -794,7 +1039,10 @@ class AdGuardViewModel(
                 // itself (the persisted intent is what auto-start reads).
                 if (!intent.granted) repository.toggleProtection(false)
             }
-            is AdGuardIntent.DismissVpnPermission -> _showVpnPermissionPrompt.value = false
+
+            is AdGuardIntent.DismissVpnPermission -> {
+                _showVpnPermissionPrompt.value = false
+            }
         }
     }
 
@@ -861,9 +1109,13 @@ class AdGuardViewModel(
     }
 
     /** Assistant per-app panel: open the Apps tab on that app's management sheet. */
-    fun openAppDetails(packageName: String, appName: String? = null) {
-        val app = uiState.value.allAppFirewallRules.firstOrNull { it.packageName == packageName }
-            ?: AppFirewallRule(packageName, appName ?: packageName)
+    fun openAppDetails(
+        packageName: String,
+        appName: String? = null,
+    ) {
+        val app =
+            uiState.value.allAppFirewallRules.firstOrNull { it.packageName == packageName }
+                ?: AppFirewallRule(packageName, appName ?: packageName)
         onIntent(AdGuardIntent.OpenAppManagement(app))
     }
 
@@ -894,8 +1146,11 @@ class AdGuardViewModel(
         }
         emit(
             AdGuardEffect.ShowSnackbar(
-                if (next) UiText.Resource(Strings.protection_on)
-                else UiText.Resource(Strings.protection_off),
+                if (next) {
+                    UiText.Resource(Strings.protection_on)
+                } else {
+                    UiText.Resource(Strings.protection_off)
+                },
             ),
         )
     }
@@ -904,18 +1159,18 @@ class AdGuardViewModel(
     fun validateDnsRewrite(
         host: String,
         answer: String,
-    ): git.shin.adfree.core.DnsRewriteValidation =
-        coreEngine.validateDnsRewrite(host, answer)
+    ): git.shin.adfree.core.DnsRewriteValidation = coreEngine.validateDnsRewrite(host, answer)
 
     private fun probeDnsProvider(id: String) {
         if (_dnsProbeRunning.value) return
         _dnsProbeRunning.value = true
         scope.launch {
-            val result = try {
-                repository.probeDnsProvider(id)
-            } finally {
-                _dnsProbeRunning.value = false
-            }
+            val result =
+                try {
+                    repository.probeDnsProvider(id)
+                } finally {
+                    _dnsProbeRunning.value = false
+                }
             emit(
                 AdGuardEffect.ShowSnackbar(
                     result?.let { CoreText.dnsProbeResult(it) }
@@ -928,12 +1183,14 @@ class AdGuardViewModel(
     private fun handleThreatScan(domain: String) {
         if (domain.isBlank()) return
         scope.launch {
-            _aiLabState.value = AiLabUiState.Loading(
-                UiText.Formatted(Strings.threat_analyzing, domain),
-            )
-            val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-                threatAnalyzer.analyze(domain)
-            }
+            _aiLabState.value =
+                AiLabUiState.Loading(
+                    UiText.Formatted(Strings.threat_analyzing, domain),
+                )
+            val result =
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                    threatAnalyzer.analyze(domain)
+                }
             _aiLabState.value = AiLabUiState.Success(result)
         }
     }
@@ -943,21 +1200,21 @@ class AdGuardViewModel(
         onConfigChanged()
     }
 
-    private fun configWarningMessage(warning: ConfigWarning): UiText? =
-        CoreText.configWarning(warning)
+    private fun configWarningMessage(warning: ConfigWarning): UiText? = CoreText.configWarning(warning)
 
     /**
      * What a manual OTA check has to say for itself. The Available case is
      * silent here: the Settings row already shows the version and the install
      * button, and a snackbar on top of that would cover the thing it announces.
      */
-    private fun updateOutcomeMessage(outcome: UpdateOutcome): UiText? = when (outcome) {
-        UpdateOutcome.UpToDate -> UiText.Resource(Strings.update_outcome_up_to_date)
-        UpdateOutcome.Available -> null
-        UpdateOutcome.Failed -> UiText.Resource(Strings.update_outcome_failed)
-        UpdateOutcome.InstallStarted -> UiText.Resource(Strings.update_outcome_install_started)
-        UpdateOutcome.InstallFailed -> UiText.Resource(Strings.update_outcome_install_failed)
-    }
+    private fun updateOutcomeMessage(outcome: UpdateOutcome): UiText? =
+        when (outcome) {
+            UpdateOutcome.UpToDate -> UiText.Resource(Strings.update_outcome_up_to_date)
+            UpdateOutcome.Available -> null
+            UpdateOutcome.Failed -> UiText.Resource(Strings.update_outcome_failed)
+            UpdateOutcome.InstallStarted -> UiText.Resource(Strings.update_outcome_install_started)
+            UpdateOutcome.InstallFailed -> UiText.Resource(Strings.update_outcome_install_failed)
+        }
 
     /**
      * Re-reads the system Private DNS switch and re-pushes the config: turning
@@ -968,7 +1225,6 @@ class AdGuardViewModel(
         _privateDnsOn.value = isPrivateDnsStrict()
         syncConfig()
     }
-
 
     // ---------------------------------------------------------------- MITM
 
@@ -984,8 +1240,7 @@ class AdGuardViewModel(
     }
 
     /** Root-mode state; reads the store and looks for su without elevating. */
-    fun rootTrustStatus(): git.shin.adfree.core.RootTrustBinding? =
-        coreEngine.rootTrustStatus()
+    fun rootTrustStatus(): git.shin.adfree.core.RootTrustBinding? = coreEngine.rootTrustStatus()
 
     /**
      * Installs the CA into the system store so apps that ignore user CAs
@@ -994,9 +1249,10 @@ class AdGuardViewModel(
      */
     fun installRootCa(onDone: (git.shin.adfree.core.RootTrustBinding?) -> Unit) {
         scope.launch {
-            val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                coreEngine.installRootCa()
-            }
+            val result =
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    coreEngine.installRootCa()
+                }
             onDone(result)
         }
     }
@@ -1004,9 +1260,10 @@ class AdGuardViewModel(
     /** Removes the CA from the system store. Blocking work, off the main thread. */
     fun removeRootCa(onDone: (git.shin.adfree.core.RootTrustBinding?) -> Unit) {
         scope.launch {
-            val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                coreEngine.removeRootCa()
-            }
+            val result =
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    coreEngine.removeRootCa()
+                }
             onDone(result)
         }
     }
@@ -1020,10 +1277,11 @@ class AdGuardViewModel(
      */
     fun installSystemCa(onDone: (String?) -> Unit) {
         scope.launch {
-            val reason = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                runCatching { platform.installSystemCa() }
-                    .getOrElse { failure -> failure.message ?: "the trust store did not answer" }
-            }
+            val reason =
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching { platform.installSystemCa() }
+                        .getOrElse { failure -> failure.message ?: "the trust store did not answer" }
+                }
             onDone(reason)
         }
     }
@@ -1039,13 +1297,15 @@ class AdGuardViewModel(
      */
     fun removeSystemCa(onDone: (String?) -> Unit) {
         scope.launch {
-            val reason = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                runCatching { platform.removeSystemCa() }
-                    .getOrElse { failure -> failure.message ?: "the trust store did not answer" }
-            }
+            val reason =
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching { platform.removeSystemCa() }
+                        .getOrElse { failure -> failure.message ?: "the trust store did not answer" }
+                }
             onDone(reason)
         }
     }
+
     /** The stored body of a user script; screens never hold the engine. */
     fun scriptText(id: String): String = coreEngine.scriptText(id).orEmpty()
 
@@ -1056,7 +1316,10 @@ class AdGuardViewModel(
      * decided by the core config, and leaving the switch and the engine out of
      * sync would filter (or fail to filter) behind the user's back.
      */
-    fun setHttpsFiltering(enabled: Boolean, onDone: (git.shin.adfree.core.MitmStatus?) -> Unit) {
+    fun setHttpsFiltering(
+        enabled: Boolean,
+        onDone: (git.shin.adfree.core.MitmStatus?) -> Unit,
+    ) {
         repository.toggleHttpsFiltering(enabled)
         onDone(coreEngine.mitmStatus())
     }
@@ -1121,6 +1384,9 @@ class AdGuardViewModel(
     /** What the local listeners are doing: the ports they hold, or the refusal. */
     fun localProxyStatus(): git.shin.adfree.core.ProxyStatus = coreEngine.proxyStatus()
 
+    /** This machine's Cloudflare WARP client, as it describes itself. */
+    fun warpState(): git.shin.adfree.core.WarpBinding = coreEngine.warpState()
+
     /** Creates (or recreates) the local CA and returns the new status. */
     fun createCa(onDone: (git.shin.adfree.core.MitmStatus?) -> Unit) {
         // Drop the persisted pair first, otherwise ensureCa() only restores.
@@ -1147,7 +1413,10 @@ class AdGuardViewModel(
      * what was just written, so it lands correctly even if the panel closed in
      * between and the rule is no longer on screen.
      */
-    private fun switchLogRule(rule: LogRuleSwitch, enabled: Boolean) {
+    private fun switchLogRule(
+        rule: LogRuleSwitch,
+        enabled: Boolean,
+    ) {
         when (rule.kind) {
             LogRuleSwitchKind.USER_RULE -> {
                 val next = withAllowlistRuleEnabled(rule.target, enabled)
@@ -1155,10 +1424,11 @@ class AdGuardViewModel(
                 repository.replaceCustomRule(rule.target, next)
                 emit(
                     AdGuardEffect.ShowUndoSnackbar(
-                        message = UiText.Formatted(
-                            if (enabled) Strings.log_rule_switched_on else Strings.log_rule_switched_off,
-                            next,
-                        ),
+                        message =
+                            UiText.Formatted(
+                                if (enabled) Strings.log_rule_switched_on else Strings.log_rule_switched_off,
+                                next,
+                            ),
                         actionLabel = UiText.Resource(Strings.common_undo),
                         undo = AdGuardIntent.SwitchLogRule(rule.copy(target = next), !enabled),
                     ),
@@ -1170,10 +1440,11 @@ class AdGuardViewModel(
                 repository.toggleFilterList(rule.target, enabled)
                 emit(
                     AdGuardEffect.ShowUndoSnackbar(
-                        message = UiText.Formatted(
-                            if (enabled) Strings.log_list_switched_on else Strings.log_list_switched_off,
-                            rule.label,
-                        ),
+                        message =
+                            UiText.Formatted(
+                                if (enabled) Strings.log_list_switched_on else Strings.log_list_switched_off,
+                                rule.label,
+                            ),
                         actionLabel = UiText.Resource(Strings.common_undo),
                         undo = AdGuardIntent.SwitchLogRule(rule.copy(enabled = !enabled), !enabled),
                     ),
@@ -1268,13 +1539,14 @@ class AdGuardViewModel(
         var scriptsMasterEnabled: Boolean = false
         var scriptStore: UserScriptStoreState = UserScriptStoreState()
 
-        fun plusExtras(extras: UiExtras): UiPartD = apply {
-            showVpnPermission = extras.showVpnPermission
-            loadingMessage = extras.loadingMessage
-            userscripts = extras.userscripts
-            scriptsMasterEnabled = extras.scriptsMasterEnabled
-            scriptStore = extras.scriptStore
-        }
+        fun plusExtras(extras: UiExtras): UiPartD =
+            apply {
+                showVpnPermission = extras.showVpnPermission
+                loadingMessage = extras.loadingMessage
+                userscripts = extras.userscripts
+                scriptsMasterEnabled = extras.scriptsMasterEnabled
+                scriptStore = extras.scriptStore
+            }
     }
 
     private data class UiExtras(

@@ -487,6 +487,14 @@
     <string name="network_proxy_subtitle">Gửi luồng TCP và UDP qua một proxy SOCKS5 thay vì kết nối trực tiếp.</string>
     <string name="network_socks_title">SOCKS5 proxy</string>
     <string name="network_socks_subtitle">TCP và UDP đi qua proxy khi proxy hỗ trợ UDP ASSOCIATE; DNS vẫn đi trực tiếp</string>
+    <string name="network_warp_title">Cloudflare WARP</string>
+    <string name="network_warp_subtitle">Đưa lưu lượng ra ngoài qua ứng dụng WARP đã cài trên máy này.</string>
+    <string name="network_warp_absent">Chưa cài trên máy này</string>
+    <string name="network_warp_mode">Đang chạy ở chế độ %1$s, không phải chế độ proxy</string>
+    <string name="network_warp_off">Đã cài nhưng chưa kết nối</string>
+    <string name="network_warp_ready">Đã kết nối — chế độ proxy ở cổng %1$d</string>
+    <string name="network_warp_use">Đưa lưu lượng qua WARP</string>
+    <string name="network_warp_current">Đang dùng</string>
     <string name="network_proxy_auto_title">Chế độ tự động</string>
     <string name="network_proxy_auto_subtitle">Chỉ lưu lượng internet (TCP và UDP) đi qua proxy; địa chỉ LAN đi trực tiếp</string>
     <string name="network_proxy_host_error">Chỉ hỗ trợ địa chỉ IPv4/IPv6, không dùng tên miền</string>

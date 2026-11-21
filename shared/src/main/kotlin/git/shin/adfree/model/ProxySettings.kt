@@ -70,9 +70,10 @@ data class LocalProxySettings(
 ) {
     /** Two listeners, two numbers, both ours to take. */
     val isUsable: Boolean
-        get() = tcpPort in MIN_LISTENER_PORT..MAX_PORT &&
-            dnsPort in MIN_LISTENER_PORT..MAX_PORT &&
-            tcpPort != dnsPort
+        get() =
+            tcpPort in MIN_LISTENER_PORT..MAX_PORT &&
+                dnsPort in MIN_LISTENER_PORT..MAX_PORT &&
+                tcpPort != dnsPort
 
     companion object {
         /** Must match `MIN_LISTENER_PORT` in `rust/src/proxy/mod.rs`. */
@@ -80,6 +81,13 @@ data class LocalProxySettings(
         const val MAX_PORT = 65535
     }
 }
+
+/**
+ * Where the Cloudflare WARP client listens in `proxy` mode: its SOCKS5 server is
+ * bound to loopback and nowhere else, so a name here would be a dial that can
+ * never connect.
+ */
+const val WARP_HOST: String = "127.0.0.1"
 
 /**
  * The SOCKS5 host the core can dial: an IPv4/IPv6 literal, never a name.
@@ -93,8 +101,9 @@ fun normalizeProxyHost(raw: String): String? {
 }
 
 fun isIpLiteral(host: String): Boolean {
-    val v4 = host.matches(Regex("^\\d{1,3}(\\.\\d{1,3}){3}$")) &&
-        host.split('.').all { it.toIntOrNull()?.let { octet -> octet in 0..255 } == true }
+    val v4 =
+        host.matches(Regex("^\\d{1,3}(\\.\\d{1,3}){3}$")) &&
+            host.split('.').all { it.toIntOrNull()?.let { octet -> octet in 0..255 } == true }
     if (v4) return true
     if (!host.contains(':')) return false
     if (!host.matches(Regex("^[0-9a-fA-F:.]+$"))) return false

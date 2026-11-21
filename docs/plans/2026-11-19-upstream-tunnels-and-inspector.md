@@ -99,7 +99,44 @@ routes. Two useful halves, and only one of them is small:
 offer it as the upstream in section 2, and treat "no tailscaled" as a row that
 says so. (2) is a project, not a commit.
 
-## 4. AdGuard VPN
+## 4. Cloudflare WARP
+
+WARP is a tunnel, and the client that owns it on each platform is the only
+thing that speaks its protocol. On Linux, macOS and Windows that client can be
+told to run in `proxy` mode, where the tunnel it already established is offered
+to anything that connects to a loopback SOCKS5 port. That is the same shape as
+section 2's upstream, so the integration is a settings row, not a transport:
+read the client's own answer (`warp-cli status`, `warp-cli settings`), and when
+it says `proxy` and `Connected`, fill `127.0.0.1:<port>` into the routing block.
+
+**Landed:** `rust/src/warp.rs` (parsers over the client's text, five tests),
+`core_warp_state()`, and a card above the routing block on the Network screen.
+Nothing is spawned until that screen opens; the card's button re-reads the
+client before it installs the endpoint, because a card drawn a minute ago must
+not point flows at a port that has since been turned off.
+
+**What the in-process version would cost.** The pieces exist as crates:
+`boringtun` (Cloudflare's own userspace WireGuard, BSD-3) for the protocol,
+`warp-wireguard-gen` for registration, `wireguard-netstack` for a TCP stack over
+the tunnel. Three things rule it out as a commit:
+
+- **Licence.** `warp-wireguard-gen` is GPL-3.0; this tree is Apache-2.0, so
+  linking it would relicense the whole app. The registration half would have to
+  be written here (it is a few requests and an X25519 keypair), which is the
+  small part.
+- **The stack between.** WireGuard carries IP packets, and this proxy forwards
+  TCP streams. Between them sits a userspace TCP/IP stack — `wireguard-netstack`
+  or `smoltcp` — with its own timer loop, window handling and teardown. That is
+  a project, not a module.
+- **WARP's default is no longer WireGuard.** The client on this machine reports
+  `WARP tunnel protocol: MASQUE` — HTTP/3. An in-process client built on
+  `boringtun` would cover only the older path and be at Cloudflare's mercy for
+  the rest.
+
+**UDP.** In proxy mode the client's SOCKS5 does accept `UDP ASSOCIATE`, so the
+UDP half of section 2 works through it unchanged when the client supports it.
+
+## 5. AdGuard VPN
 
 AdGuard VPN's protocol is not published, and its client is closed. Interoperating
 means either:
@@ -122,5 +159,8 @@ between a claim and the truth.
 1. Inspector bodies behind a second switch, and the inspector screen.
 2. Upstream trait with SOCKS5, then the exit-node row that feeds it.
 3. Interface detection for Tailscale and AdGuard VPN, as status only.
+4. WARP: the row is in; switching the client's mode and starting it from inside
+the app is the next step, and it is a system-wide change that needs its own
+consent prompt.
 
 Each of these lands alone; none of them needs the next one to be useful.

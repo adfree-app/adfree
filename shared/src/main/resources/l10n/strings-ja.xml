@@ -487,6 +487,14 @@
     <string name="network_proxy_subtitle">TCP と UDP の通信を、直接ではなく SOCKS5 プロキシ経由で送ります。</string>
     <string name="network_socks_title">SOCKS5 プロキシ</string>
     <string name="network_socks_subtitle">UDP ASSOCIATE に対応していれば TCP と UDP がプロキシを通ります。DNS は直接のままです</string>
+    <string name="network_warp_title">Cloudflare WARP</string>
+    <string name="network_warp_subtitle">このマシンにインストール済みの WARP クライアント経由で通信を送ります。</string>
+    <string name="network_warp_absent">このマシンにはインストールされていません</string>
+    <string name="network_warp_mode">%1$s モードで動作中です（プロキシモードではありません）</string>
+    <string name="network_warp_off">インストール済みですが未接続です</string>
+    <string name="network_warp_ready">接続済み — プロキシモード（ポート %1$d）</string>
+    <string name="network_warp_use">WARP 経由にする</string>
+    <string name="network_warp_current">使用中</string>
     <string name="network_proxy_auto_title">自動モード</string>
     <string name="network_proxy_auto_subtitle">インターネット向けの通信（TCP と UDP）だけをプロキシに通し、LAN のアドレスは直接にします</string>
     <string name="network_proxy_host_error">対応しているのは IPv4/IPv6 アドレスだけです。ホスト名は使えません</string>

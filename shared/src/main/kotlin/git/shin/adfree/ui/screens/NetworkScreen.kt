@@ -1,7 +1,5 @@
 package git.shin.adfree.ui.screens
 
-import git.shin.adfree.l10n.L10n
-import git.shin.adfree.l10n.Strings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -25,8 +23,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Public
@@ -36,20 +35,21 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -60,11 +60,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import git.shin.adfree.l10n.L10n
+import git.shin.adfree.l10n.Strings
 import git.shin.adfree.model.DnsBackup
 import git.shin.adfree.model.DnsBackupMode
 import git.shin.adfree.model.DnsBlockMode
@@ -72,8 +75,13 @@ import git.shin.adfree.model.DnsProvider
 import git.shin.adfree.model.ProtocolType
 import git.shin.adfree.model.ProxyProtocol
 import git.shin.adfree.model.ProxySettings
+import git.shin.adfree.model.WARP_HOST
+import git.shin.adfree.model.WarpRow
 import git.shin.adfree.model.normalizeProxyHost
 import git.shin.adfree.model.probeAddress
+import git.shin.adfree.model.warpInUse
+import git.shin.adfree.model.warpRow
+import git.shin.adfree.platform.currentFileHost
 import git.shin.adfree.ui.AdGuardIntent
 import git.shin.adfree.ui.AdGuardViewModel
 import git.shin.adfree.ui.theme.AdGuardBlueDns
@@ -81,13 +89,12 @@ import git.shin.adfree.ui.theme.AdGuardDarkBg
 import git.shin.adfree.ui.theme.AdGuardDarkOutline
 import git.shin.adfree.ui.theme.AdGuardDarkSurface
 import git.shin.adfree.ui.theme.AdGuardGreenPrimary
+import git.shin.adfree.ui.theme.AdGuardOnAccent
 import git.shin.adfree.ui.theme.AdGuardOrangeWarning
 import git.shin.adfree.ui.theme.AdGuardRedBlocked
 import git.shin.adfree.ui.theme.AdGuardTextMuted
 import git.shin.adfree.ui.theme.AdGuardTextPrimary
-import git.shin.adfree.ui.theme.AdGuardOnAccent
 import git.shin.adfree.ui.theme.AdGuardTextSecondary
-import git.shin.adfree.platform.currentFileHost
 import kotlinx.coroutines.launch
 
 /**
@@ -117,9 +124,10 @@ fun NetworkScreen(
     }
 
     Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(AdGuardDarkBg),
+        modifier =
+            modifier
+                .fillMaxSize()
+                .background(AdGuardDarkBg),
     ) {
         IconButton(onClick = onBack) {
             Icon(
@@ -130,10 +138,11 @@ fun NetworkScreen(
         }
 
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp),
         ) {
             ModuleDetailHero(
                 icon = Icons.Default.Dns,
@@ -172,10 +181,11 @@ fun NetworkScreen(
             // a row of their own below. The rule list is the one DNS list that
             // did not come from the user's own additions.
             val dnsLists = state.filterLists.filter { it.isDnsOnly && it.isUserAdded }
-            val dnsRules = state.filterLists
-                .firstOrNull { it.isDnsOnly && !it.isUserAdded }
-                ?.customRules
-                .orEmpty()
+            val dnsRules =
+                state.filterLists
+                    .firstOrNull { it.isDnsOnly && !it.isUserAdded }
+                    ?.customRules
+                    .orEmpty()
             CustomFiltersCard(
                 lists = dnsLists,
                 onAdd = { viewModel.onIntent(AdGuardIntent.ShowAddDnsFilterDialog(true)) },
@@ -216,9 +226,10 @@ fun NetworkScreen(
                 modifier = Modifier.padding(bottom = 6.dp),
             )
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 DnsBlockMode.entries.forEach { mode ->
@@ -226,10 +237,11 @@ fun NetworkScreen(
                         selected = state.settings.blockMode == mode,
                         onClick = { viewModel.onIntent(AdGuardIntent.SetBlockMode(mode)) },
                         label = { Text(blockModeLabel(mode), fontSize = 11.sp) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = AdGuardGreenPrimary,
-                            selectedLabelColor = AdGuardOnAccent,
-                        ),
+                        colors =
+                            FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = AdGuardGreenPrimary,
+                                selectedLabelColor = AdGuardOnAccent,
+                            ),
                     )
                 }
             }
@@ -259,11 +271,12 @@ fun NetworkScreen(
             SettingsSwitch(
                 icon = Icons.Default.Dns,
                 title = L10n.get(Strings.network_dot_title),
-                subtitle = if (privateDnsOn) {
-                    L10n.get(Strings.network_dot_private_dns)
-                } else {
-                    L10n.get(Strings.network_dot_subtitle)
-                },
+                subtitle =
+                    if (privateDnsOn) {
+                        L10n.get(Strings.network_dot_private_dns)
+                    } else {
+                        L10n.get(Strings.network_dot_subtitle)
+                    },
                 checked = state.settings.blockDot,
                 onCheckedChange = { viewModel.onIntent(AdGuardIntent.ToggleBlockDot(it)) },
             )
@@ -291,6 +304,13 @@ fun NetworkScreen(
 
             Spacer(modifier = Modifier.height(18.dp))
 
+            WarpSection(
+                viewModel = viewModel,
+                saved = state.settings.proxy,
+            )
+
+            Spacer(modifier = Modifier.height(18.dp))
+
             ProxySection(
                 viewModel = viewModel,
                 saved = state.settings.proxy,
@@ -313,10 +333,11 @@ fun NetworkScreen(
 
     if (state.showDnsRuleEditor) {
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        val currentRules = state.filterLists
-            .firstOrNull { it.isDnsOnly && it.customRules.isNotEmpty() }
-            ?.customRules
-            .orEmpty()
+        val currentRules =
+            state.filterLists
+                .firstOrNull { it.isDnsOnly && it.customRules.isNotEmpty() }
+                ?.customRules
+                .orEmpty()
         ModalBottomSheet(
             onDismissRequest = { viewModel.onIntent(AdGuardIntent.ShowDnsRuleEditor(false)) },
             sheetState = sheetState,
@@ -337,22 +358,27 @@ fun NetworkScreen(
  * typed here is applied to name lookups and to nothing else.
  */
 @Composable
-private fun DnsUserRulesCard(count: Int, onOpen: () -> Unit) {
+private fun DnsUserRulesCard(
+    count: Int,
+    onOpen: () -> Unit,
+) {
     SurfaceCard(
         modifier = Modifier.clickable { onOpen() },
         tag = "dns_user_rules_row",
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(AdGuardBlueDns.copy(alpha = 0.14f)),
+                modifier =
+                    Modifier
+                        .size(38.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(AdGuardBlueDns.copy(alpha = 0.14f)),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
@@ -371,11 +397,12 @@ private fun DnsUserRulesCard(count: Int, onOpen: () -> Unit) {
                     color = AdGuardTextPrimary,
                 )
                 Text(
-                    text = if (count == 0) {
-                        L10n.get(Strings.dns_rules_user_subtitle)
-                    } else {
-                        L10n.format(Strings.dns_rules_user_count, count)
-                    },
+                    text =
+                        if (count == 0) {
+                            L10n.get(Strings.dns_rules_user_subtitle)
+                        } else {
+                            L10n.format(Strings.dns_rules_user_count, count)
+                        },
                     fontSize = 11.sp,
                     color = AdGuardTextMuted,
                 )
@@ -391,12 +418,14 @@ private fun DnsUserRulesCard(count: Int, onOpen: () -> Unit) {
 }
 
 @Composable
-private fun blockModeLabel(mode: DnsBlockMode): String = L10n.get(when (mode) {
-        DnsBlockMode.NXDOMAIN -> Strings.settings_block_mode_nxdomain
-        DnsBlockMode.ZERO_IP -> Strings.settings_block_mode_zero
-        DnsBlockMode.REFUSED -> Strings.settings_block_mode_refused
-    }
-)
+private fun blockModeLabel(mode: DnsBlockMode): String =
+    L10n.get(
+        when (mode) {
+            DnsBlockMode.NXDOMAIN -> Strings.settings_block_mode_nxdomain
+            DnsBlockMode.ZERO_IP -> Strings.settings_block_mode_zero
+            DnsBlockMode.REFUSED -> Strings.settings_block_mode_refused
+        },
+    )
 
 /**
  * AdGuard's fallback servers: one plain UDP query when the selected resolver
@@ -423,23 +452,26 @@ private fun DnsBackupSection(
             modifier = Modifier.padding(bottom = 6.dp),
         )
         Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { showDialog = true },
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { showDialog = true },
             shape = RoundedCornerShape(12.dp),
             colors = CardDefaults.cardColors(containerColor = AdGuardDarkSurface),
         ) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(AdGuardBlueDns.copy(alpha = 0.12f)),
+                    modifier =
+                        Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(AdGuardBlueDns.copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
@@ -452,27 +484,44 @@ private fun DnsBackupSection(
                 Spacer(modifier = Modifier.size(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = when (mode) {
-                            DnsBackupMode.SYSTEM -> L10n.get(Strings.network_backup_system)
-                            DnsBackupMode.OFF -> L10n.get(Strings.network_backup_off)
-                            DnsBackupMode.FIXED -> selected?.name
-                                ?: backup?.let { "${it.address}:${it.port}" }
-                                ?: L10n.get(Strings.network_backup_off)
-                        },
+                        text =
+                            when (mode) {
+                                DnsBackupMode.SYSTEM -> {
+                                    L10n.get(Strings.network_backup_system)
+                                }
+
+                                DnsBackupMode.OFF -> {
+                                    L10n.get(Strings.network_backup_off)
+                                }
+
+                                DnsBackupMode.FIXED -> {
+                                    selected?.name
+                                        ?: backup?.let { "${it.address}:${it.port}" }
+                                        ?: L10n.get(Strings.network_backup_off)
+                                }
+                            },
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         color = AdGuardTextPrimary,
                     )
                     Text(
-                        text = when (mode) {
-                            DnsBackupMode.SYSTEM ->
-                                L10n.get(Strings.network_backup_system_subtitle)
-                            DnsBackupMode.OFF ->
-                                L10n.get(Strings.network_backup_off_subtitle)
-                            DnsBackupMode.FIXED -> L10n.format(Strings.network_backup_summary,
-                                selected?.address ?: backup?.address.orEmpty(),
-                            )
-                        },
+                        text =
+                            when (mode) {
+                                DnsBackupMode.SYSTEM -> {
+                                    L10n.get(Strings.network_backup_system_subtitle)
+                                }
+
+                                DnsBackupMode.OFF -> {
+                                    L10n.get(Strings.network_backup_off_subtitle)
+                                }
+
+                                DnsBackupMode.FIXED -> {
+                                    L10n.format(
+                                        Strings.network_backup_summary,
+                                        selected?.address ?: backup?.address.orEmpty(),
+                                    )
+                                }
+                            },
                         fontSize = 13.sp,
                         color = AdGuardTextMuted,
                     )
@@ -492,9 +541,10 @@ private fun DnsBackupSection(
             title = { Text(L10n.get(Strings.network_backup_title), fontSize = 18.sp) },
             text = {
                 Column(
-                    modifier = Modifier
-                        .heightIn(max = 430.dp)
-                        .verticalScroll(rememberScrollState()),
+                    modifier =
+                        Modifier
+                            .heightIn(max = 430.dp)
+                            .verticalScroll(rememberScrollState()),
                 ) {
                     Text(
                         text = L10n.get(Strings.network_backup_body),
@@ -522,8 +572,9 @@ private fun DnsBackupSection(
                     )
                     udp.forEach { provider ->
                         BackupOptionRow(
-                            selected = mode == DnsBackupMode.FIXED &&
-                                backup?.matches(provider) == true,
+                            selected =
+                                mode == DnsBackupMode.FIXED &&
+                                    backup?.matches(provider) == true,
                             title = provider.name,
                             subtitle = provider.probeAddress(),
                             onSelect = {
@@ -557,16 +608,134 @@ private fun BackupOptionRow(
     onSelect: () -> Unit,
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onSelect)
-            .padding(vertical = 6.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onSelect)
+                .padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         RadioButton(selected = selected, onClick = onSelect)
         Column(modifier = Modifier.weight(1f)) {
             Text(title, fontSize = 15.sp, color = AdGuardTextPrimary)
             Text(subtitle, fontSize = 13.sp, color = AdGuardTextMuted)
+        }
+    }
+}
+
+/**
+ * Cloudflare WARP, as an upstream.
+ *
+ * WARP is a tunnel, not a proxy: the client on this machine owns it, and flows
+ * only reach it when that client runs in `proxy` mode, where it also listens on
+ * loopback as a SOCKS5 server. That one shape is what this tree can forward
+ * through — so the row reads the client's answer and, when there is a port to
+ * reach, fills it into the routing block below instead of claiming a transport
+ * the app does not speak.
+ *
+ * The read spawns `warp-cli`, so it happens once when the screen opens and
+ * again when the button is pressed: a card drawn a minute ago must not install
+ * an endpoint that has since been turned off.
+ */
+@Suppress("ktlint:standard:function-naming")
+@Composable
+private fun WarpSection(
+    viewModel: AdGuardViewModel,
+    saved: ProxySettings,
+) {
+    var warp by remember { mutableStateOf<git.shin.adfree.core.WarpBinding?>(null) }
+    LaunchedEffect(Unit) { warp = viewModel.warpState() }
+
+    val state = warp ?: return
+    val port = state.proxyPort.toInt()
+    val inUse = warpInUse(warp, saved)
+
+    val detail =
+        when (warpRow(warp)) {
+            WarpRow.Absent -> L10n.get(Strings.network_warp_absent)
+            WarpRow.NotProxy -> L10n.format(Strings.network_warp_mode, state.mode)
+            WarpRow.Disconnected -> L10n.get(Strings.network_warp_off)
+            WarpRow.Ready -> L10n.format(Strings.network_warp_ready, port)
+        }
+    val reason =
+        when {
+            !state.installed || state.connected || state.detail.isBlank() -> ""
+            else -> " — ${state.detail}"
+        }
+
+    Column {
+        Text(
+            text = L10n.get(Strings.network_warp_title),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            color = AdGuardTextPrimary,
+        )
+        Text(
+            text = L10n.get(Strings.network_warp_subtitle),
+            fontSize = 11.sp,
+            color = AdGuardTextMuted,
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            colors = CardDefaults.cardColors(containerColor = AdGuardDarkSurface),
+        ) {
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Cloud,
+                    contentDescription = null,
+                    tint = if (state.usable) AdGuardBlueDns else AdGuardTextMuted,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = detail + reason,
+                    fontSize = 13.sp,
+                    color = if (state.usable) AdGuardTextPrimary else AdGuardTextMuted,
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .testTag("warp_status"),
+                )
+                when {
+                    inUse -> {
+                        Text(
+                            text = L10n.get(Strings.network_warp_current),
+                            fontSize = 13.sp,
+                            color = AdGuardBlueDns,
+                        )
+                    }
+
+                    state.usable -> {
+                        TextButton(onClick = {
+                            val fresh = viewModel.warpState()
+                            warp = fresh
+                            if (fresh.usable) {
+                                viewModel.setProxy(
+                                    saved.copy(
+                                        enabled = true,
+                                        host = WARP_HOST,
+                                        port = fresh.proxyPort.toInt(),
+                                        protocol = ProxyProtocol.SOCKS5,
+                                        username = "",
+                                        password = "",
+                                    ),
+                                )
+                            }
+                        }) {
+                            Text(L10n.get(Strings.network_warp_use), fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -786,20 +955,31 @@ private fun ProxySection(
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = when {
-                        !saved.enabled -> L10n.get(Strings.network_proxy_off)
-                        saved.isUsable -> L10n.format(Strings.network_proxy_active,
-                            saved.host,
-                            saved.port,
-                        )
-                        else -> L10n.get(Strings.network_proxy_invalid)
-                    },
+                    text =
+                        when {
+                            !saved.enabled -> {
+                                L10n.get(Strings.network_proxy_off)
+                            }
+
+                            saved.isUsable -> {
+                                L10n.format(
+                                    Strings.network_proxy_active,
+                                    saved.host,
+                                    saved.port,
+                                )
+                            }
+
+                            else -> {
+                                L10n.get(Strings.network_proxy_invalid)
+                            }
+                        },
                     fontSize = 11.sp,
-                    color = when {
-                        !saved.enabled -> AdGuardTextMuted
-                        saved.isUsable -> AdGuardGreenPrimary
-                        else -> AdGuardOrangeWarning
-                    },
+                    color =
+                        when {
+                            !saved.enabled -> AdGuardTextMuted
+                            saved.isUsable -> AdGuardGreenPrimary
+                            else -> AdGuardOrangeWarning
+                        },
                 )
             }
         }
@@ -807,11 +987,12 @@ private fun ProxySection(
 }
 
 @Composable
-private fun proxyFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedBorderColor = AdGuardBlueDns,
-    unfocusedBorderColor = AdGuardDarkOutline,
-    focusedTextColor = AdGuardTextPrimary,
-    unfocusedTextColor = AdGuardTextPrimary,
-    focusedLabelColor = AdGuardBlueDns,
-    unfocusedLabelColor = AdGuardTextSecondary,
-)
+private fun proxyFieldColors() =
+    OutlinedTextFieldDefaults.colors(
+        focusedBorderColor = AdGuardBlueDns,
+        unfocusedBorderColor = AdGuardDarkOutline,
+        focusedTextColor = AdGuardTextPrimary,
+        unfocusedTextColor = AdGuardTextPrimary,
+        focusedLabelColor = AdGuardBlueDns,
+        unfocusedLabelColor = AdGuardTextSecondary,
+    )
