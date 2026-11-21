@@ -683,7 +683,13 @@ private fun WarpSection(
             color = AdGuardTextPrimary,
         )
         Text(
-            text = L10n.get(Strings.network_warp_subtitle),
+            // On a build that connects directly the row is a status line, and a
+            // sentence about sending traffic through the client would describe
+            // something this build does not do.
+            text =
+                L10n.get(
+                    if (canRoute) Strings.network_warp_subtitle else Strings.network_warp_subtitle_status,
+                ),
             fontSize = 11.sp,
             color = AdGuardTextMuted,
         )
@@ -719,6 +725,7 @@ private fun WarpSection(
                 )
                 when {
                     cannotRoute -> {}
+
                     inUse -> {
                         Text(
                             text = L10n.get(Strings.network_warp_current),

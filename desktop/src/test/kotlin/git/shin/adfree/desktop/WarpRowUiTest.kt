@@ -73,7 +73,15 @@ class WarpRowUiTest {
                 }
             }
             onNodeWithText(L10n.get(Strings.network_warp_title)).assertExists()
-            onNodeWithText(L10n.get(Strings.network_warp_subtitle)).assertExists()
+            onNodeWithText(
+                L10n.get(
+                    if (container.platformHost.supportsSystemTunnel()) {
+                        Strings.network_warp_subtitle
+                    } else {
+                        Strings.network_warp_subtitle_status
+                    },
+                ),
+            ).assertExists()
             onNodeWithTag("warp_status").assertExists()
             // The status line is the sentence the decision chose, and the reason
             // a disconnected client gave is appended to it.
