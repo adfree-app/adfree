@@ -1,3 +1,9 @@
+## [1.32.2](https://github.com/adfree-app/adfree/compare/v1.32.1...v1.32.2) (2026-11-21)
+
+### Bug Fixes
+
+* **network:** the WARP card does not offer a button this build ignores ([3700ac4](https://github.com/adfree-app/adfree/commit/3700ac42b73cc300cc13a769ef641fe46549c00d))
+
 ## [1.32.1](https://github.com/adfree-app/adfree/compare/v1.32.0...v1.32.1) (2026-11-21)
 
 ### Bug Fixes
