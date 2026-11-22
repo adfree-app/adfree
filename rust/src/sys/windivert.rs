@@ -29,7 +29,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::packet::Packet;
+use crate::packet::{self, Packet};
 use crate::sys::redirect_targets;
 use crate::winnat::{self, Decision, Endpoint, Nat, Shape};
 
@@ -494,12 +494,25 @@ impl Redirector {
         };
         // The interface this packet would really leave by, remembered for the
         // answer that has to come back through it.
-        let if_idx = u32::from_ne_bytes([addr.data[0], addr.data[1], addr.data[2], addr.data[3]]);
+        let pkt_if_idx =
+            u32::from_ne_bytes([addr.data[0], addr.data[1], addr.data[2], addr.data[3]]);
+        let if_idx = pkt_if_idx;
         if if_idx != 0 && !matches!(decision, Decision::Pass | Decision::Drop) {
             self.if_idx.store(if_idx, Ordering::Relaxed);
         }
         match decision {
-            Decision::Drop => 0,
+            // Swallowed, and answered: a silent drop is not a rejection. Chrome
+            // is HTTP/3 first, so a QUIC datagram that simply disappears leaves
+            // it reporting `ERR_QUIC_PROTOCOL_ERROR` instead of the TCP flow the
+            // filter can see — the machine looks broken rather than filtered.
+            // ICMP port unreachable is what a real NAT sends, and it is what
+            // makes the browser fall back within a round trip. Measured on the
+            // Windows box: `google.com` refused the QUIC attempt and never tried
+            // TCP until this error existed.
+            Decision::Drop => {
+                self.refuse(&pkt, pkt_if_idx);
+                0
+            }
             Decision::Destination(to) => {
                 // Written down before the rewrite: the client's port is the only
                 // handle left once both addresses name the loopback hop, and the
@@ -583,6 +596,28 @@ impl Redirector {
         }
         self.inc.send(&mut buf[..len], &addr);
         1
+    }
+
+    /// Answers a swallowed datagram with ICMP port unreachable.
+    ///
+    /// Injected on the inbound handle and carrying the interface the datagram
+    /// was leaving by, which is how every other arrival reaches the stack here:
+    /// the sender is this machine, so the error has to look like it came from
+    /// the host that was dialled, in over the interface it went out on.
+    fn refuse(&self, pkt: &Packet<'_>, if_idx: u32) {
+        let Some(mut reply) = packet::build_unreachable(pkt) else {
+            return;
+        };
+        let mut deliver = inbound_address(pkt.version == 6);
+        if if_idx != 0 {
+            deliver.data[0..4].copy_from_slice(&if_idx.to_ne_bytes());
+        }
+        self.inc.fix_checksums(&mut reply, &mut deliver);
+        if self.inc.send(&mut reply, &deliver) {
+            self.injected.fetch_add(1, Ordering::Relaxed);
+        } else {
+            self.inject_failed.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     /// Forgets connections that have gone quiet.
