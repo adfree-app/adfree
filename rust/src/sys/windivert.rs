@@ -77,6 +77,12 @@ type OpenFn = unsafe extern "system" fn(*const i8, i32, i16, u64) -> Handle;
 type RecvFn = unsafe extern "system" fn(Handle, *mut u8, u32, *mut u32, *mut Address) -> i32;
 type SendFn = unsafe extern "system" fn(Handle, *const u8, u32, *mut u32, *const Address) -> i32;
 type CloseFn = unsafe extern "system" fn(Handle) -> i32;
+/// `WinDivertShutdown(handle, how)`: what wakes a thread already inside
+/// `WinDivertRecv`, which closing the handle does not promise to do.
+type ShutdownFn = unsafe extern "system" fn(Handle, u32) -> i32;
+
+/// `WINDIVERT_SHUTDOWN_RECV | WINDIVERT_SHUTDOWN_SEND`.
+const SHUTDOWN_BOTH: u32 = 3;
 type CalcFn = unsafe extern "system" fn(*mut u8, u32, *mut Address, u64) -> i32;
 
 /// The five entry points the redirect needs, resolved once.
@@ -85,6 +91,10 @@ pub struct Api {
     recv: RecvFn,
     send: SendFn,
     close: CloseFn,
+    /// Not every WinDivert is new enough to have it, and a handle that cannot
+    /// be shut down is still a handle that can be closed: the symbol is
+    /// optional, and its absence only costs the prompt wake-up.
+    shutdown: Option<ShutdownFn>,
     calc: CalcFn,
     _dll: *mut c_void,
 }
@@ -123,6 +133,7 @@ impl Api {
             recv: unsafe { sym(dll, b"WinDivertRecv\0") }?,
             send: unsafe { sym(dll, b"WinDivertSend\0") }?,
             close: unsafe { sym(dll, b"WinDivertClose\0") }?,
+            shutdown: unsafe { sym::<ShutdownFn>(dll, b"WinDivertShutdown\0") }.ok(),
             calc: unsafe { sym(dll, b"WinDivertHelperCalcChecksums\0") }?,
             _dll: dll,
         };
@@ -222,6 +233,17 @@ struct Filter {
 impl Filter {
     fn close(&self) {
         if !self.closed.swap(true, Ordering::SeqCst) {
+            // The shutdown comes first and is what actually releases a thread
+            // parked inside `WinDivertRecv`: `WinDivertClose` on a handle in use
+            // is not a wake-up, and on an idle machine the packet that would
+            // have released it is minutes away. Measured as "exit takes forever"
+            // on a Windows box whose pump threads waited for traffic that was
+            // never coming.
+            if let Some(shutdown) = self.api.shutdown {
+                unsafe {
+                    shutdown(self.handle, SHUTDOWN_BOTH);
+                }
+            }
             unsafe {
                 (self.api.close)(self.handle);
             }
