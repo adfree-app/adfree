@@ -203,3 +203,55 @@ pub fn read_at(file: &std::fs::File, buf: &mut [u8], offset: u64) -> std::io::Re
         file.seek_read(buf, offset)
     }
 }
+
+/// Whether a packet to a global IPv6 address could leave this machine at all.
+///
+/// The question is asked of the routing table, not of the network: connecting a
+/// `UDP` socket sends nothing, and a machine with no IPv6 address or no route
+/// to one answers `ENETUNREACH` straight away. That is the whole difference
+/// this app needs, and it is the difference between working and not working on
+/// a machine with IPv4 only — see [`crate::proxy::dns`] for what the resolver
+/// does with the answer.
+///
+/// It is cached for ten seconds rather than asked per query, because the
+/// answer only changes when a link comes up or goes down, and a resolver under
+/// load should not pay two syscalls per name.
+pub fn can_dial_ipv6() -> bool {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static VERDICT: AtomicU64 = AtomicU64::new(0);
+
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    // Zero means "never asked"; otherwise the low bit is the answer and the
+    // rest is when it was taken.
+    let seen = VERDICT.load(Ordering::Relaxed);
+    if seen != 0 {
+        let taken_ms = seen >> 1;
+        if now_ms.saturating_sub(taken_ms) < 10_000 {
+            return seen & 1 == 1;
+        }
+    }
+
+    let answer = probe_ipv6_route();
+    VERDICT.store((now_ms << 1) | u64::from(answer), Ordering::Relaxed);
+    answer
+}
+
+fn probe_ipv6_route() -> bool {
+    // A Cloudflare resolver address: connecting a datagram socket to it writes
+    // no packet and resolves nothing. All that is learned is whether the kernel
+    // has somewhere to send it.
+    let (Ok(any_v6), Ok(destination)) = (
+        "[::]:0".parse::<std::net::SocketAddr>(),
+        "[2606:4700:4700::1111]:53".parse::<std::net::SocketAddr>(),
+    ) else {
+        return false;
+    };
+    let Ok(socket) = std::net::UdpSocket::bind(any_v6) else {
+        // No IPv6 stack on this machine at all.
+        return false;
+    };
+    socket.connect(destination).is_ok()
+}

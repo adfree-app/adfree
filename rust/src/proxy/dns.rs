@@ -704,12 +704,13 @@ fn serve_one(listener: &Listener, query: &Inquiry, stop: &AtomicBool) {
                 list: verdict.list_name.unwrap_or_default(),
                 category: verdict.category,
             }
-        } else if parsed.qtype == dns::TYPE_AAAA && super::egress::withhold_aaaa() {
-            // The proxy has just failed to dial the kind of address this
-            // answer would name, so the machine is not carrying IPv6. An empty
-            // answer sends the client to `A` in the same round trip; handing
-            // the record through would buy a connection the redirect catches
-            // and the proxy cannot finish — see [`super::egress`].
+        } else if withholds_aaaa(&parsed, crate::sys::can_dial_ipv6()) {
+            // The machine cannot carry the address this answer would name — no
+            // IPv6 route at all, or the proxy has just failed to dial one. An
+            // empty answer sends the client to `A` in the same round trip;
+            // handing the record through would buy a connection the redirect
+            // catches and cannot finish, which on a Windows box with IPv4 only
+            // is a browser that waits for every page. See [`super::egress`].
             Served::Nodata(dns::nodata_message(&parsed).unwrap_or_default())
         } else {
             Served::Forwarded(forward_query(&query.body, stop, plain))
@@ -920,6 +921,18 @@ fn is_own_forward(peer: &SocketAddr) -> bool {
         .ok()
         .and_then(|slot| slot.as_ref().map(|ports| ports.contains(&peer.port())))
         .unwrap_or(false)
+}
+
+/// Whether an answer of this type has to come back empty because this machine
+/// cannot carry what the answer would name.
+///
+/// Two independent reasons, and the second is the one a Windows box with IPv4
+/// only taught us: the proxy's own dials have failed recently
+/// ([`super::egress`]), or there is no IPv6 route on this machine at all, so a
+/// client handed an `AAAA` record would spend every page waiting for a
+/// connection the redirect catches and nobody can finish.
+fn withholds_aaaa(parsed: &crate::dns::Query<'_>, machine_can_v6: bool) -> bool {
+    parsed.qtype == dns::TYPE_AAAA && (super::egress::withhold_aaaa() || !machine_can_v6)
 }
 
 fn forward_query(body: &[u8], stop: &AtomicBool, plain: bool) -> Option<Vec<u8>> {
@@ -1308,6 +1321,29 @@ mod tests {
             ]),
             0,
             "and its minimum is the negative TTL"
+        );
+    }
+
+    /// A machine with no IPv6 route gets no `AAAA` records, whatever the
+    /// upstream said: the record names an address this machine cannot reach,
+    /// and a client handed one waits out the page on it.
+    #[test]
+    fn a_machine_without_ipv6_is_not_told_about_ipv6() {
+        let v6 = crate::dns::build_query("example.com", crate::dns::TYPE_AAAA, 7).expect("query");
+        let v4 = crate::dns::build_query("example.com", crate::dns::TYPE_A, 7).expect("query");
+        let v6 = crate::dns::parse_query(&v6).expect("parse");
+        let v4 = crate::dns::parse_query(&v4).expect("parse");
+        assert!(
+            withholds_aaaa(&v6, false),
+            "no route, so an empty answer instead"
+        );
+        assert!(
+            !withholds_aaaa(&v4, false),
+            "an A record names an address the machine can use"
+        );
+        assert!(
+            !withholds_aaaa(&v6, true),
+            "a machine that can dial IPv6 keeps its AAAA records"
         );
     }
 
