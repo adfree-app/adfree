@@ -1,3 +1,9 @@
+## [1.33.6](https://github.com/adfree-app/adfree/compare/v1.33.5...v1.33.6) (2026-11-22)
+
+### Bug Fixes
+
+* **proxy:** a redirected connection knows where it was going, on Windows too ([e607372](https://github.com/adfree-app/adfree/commit/e60737218b50704c62a0cc419512d2abfb9c9903))
+
 ## [1.33.5](https://github.com/adfree-app/adfree/compare/v1.33.4...v1.33.5) (2026-11-22)
 
 ### Bug Fixes
