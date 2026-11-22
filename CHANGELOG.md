@@ -1,3 +1,9 @@
+## [1.33.4](https://github.com/adfree-app/adfree/compare/v1.33.3...v1.33.4) (2026-11-22)
+
+### Bug Fixes
+
+* **dns:** a machine with no IPv6 route is not told about IPv6 addresses ([13c9df1](https://github.com/adfree-app/adfree/commit/13c9df1848f460e7ca8e63499f75109cf20ff1a8))
+
 ## [1.33.3](https://github.com/adfree-app/adfree/compare/v1.33.2...v1.33.3) (2026-11-22)
 
 ### Bug Fixes
