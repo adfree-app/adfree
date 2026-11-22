@@ -1,3 +1,9 @@
+## [1.33.8](https://github.com/adfree-app/adfree/compare/v1.33.7...v1.33.8) (2026-11-22)
+
+### Bug Fixes
+
+* **proxy:** stopping the redirect wakes the threads parked inside it ([746f9a0](https://github.com/adfree-app/adfree/commit/746f9a0b0b900ce0e93362195f1a68d50e6624fb))
+
 ## [1.33.7](https://github.com/adfree-app/adfree/compare/v1.33.6...v1.33.7) (2026-11-22)
 
 ### Bug Fixes
