@@ -1,3 +1,9 @@
+## [1.33.10](https://github.com/adfree-app/adfree/compare/v1.33.9...v1.33.10) (2026-11-22)
+
+### Bug Fixes
+
+* **desktop:** the shield answers while it stops, and a launch starts off ([3f03c5c](https://github.com/adfree-app/adfree/commit/3f03c5ca75a8bfda9e6871fc8c6d708726823fba))
+
 ## [1.33.9](https://github.com/adfree-app/adfree/compare/v1.33.8...v1.33.9) (2026-11-22)
 
 ### Bug Fixes
