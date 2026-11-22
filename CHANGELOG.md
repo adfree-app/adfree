@@ -1,3 +1,9 @@
+## [1.33.12](https://github.com/adfree-app/adfree/compare/v1.33.11...v1.33.12) (2026-11-22)
+
+### Bug Fixes
+
+* **win:** a dial waits on select, because WSAPoll refuses a connecting socket ([7a82159](https://github.com/adfree-app/adfree/commit/7a821592794b5c61727dfcd5d737ad874b739760))
+
 ## [1.33.11](https://github.com/adfree-app/adfree/compare/v1.33.10...v1.33.11) (2026-11-22)
 
 ### Bug Fixes
