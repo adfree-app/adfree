@@ -28,6 +28,12 @@ pub mod windivert_filter;
 #[cfg(windows)]
 pub mod winproc;
 
+/// Winsock's `poll` numbering, folded to and from libc's.
+///
+/// Compiled on every platform on purpose: the arithmetic is the part that broke
+/// on Windows, and a test that only runs on Windows is a test nobody runs.
+pub mod winsock_bits;
+
 /// The `libc` the proxy sees: the real one on Unix, and a Winsock-backed
 /// namesake on Windows (`sys::winlibc`). Modules say `use crate::sys::libc;`
 /// once instead of `extern crate libc`, so both platforms compile the same

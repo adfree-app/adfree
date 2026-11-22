@@ -394,7 +394,10 @@ fn poll_fd(fd: RawFd, events: i16, mut timeout_ms: i32) -> Option<bool> {
     loop {
         let rc = unsafe { libc::poll(&mut pfd, 1, timeout_ms) };
         if rc >= 0 {
-            return Some(rc > 0);
+            // Readiness is a named bit, not a count: a wait that comes back
+            // saying "something happened" and names nothing is how a pump
+            // ends up reading `EWOULDBLOCK` in a loop at a full core.
+            return Some(pfd.revents != 0);
         }
         let err = std::io::Error::last_os_error();
         if err.raw_os_error() != Some(libc::EINTR) {
@@ -1093,6 +1096,11 @@ mod lifecycle_tests {
 #[cfg(test)]
 mod drain_bits_tests {
     use super::drainable;
+    // The shim, not the crate: on Windows this module's vocabulary comes from
+    // the Winsock-backed namesake, and a test that names the crate instead
+    // compiles on Linux only — which is how the Windows port check went red
+    // with code that was green everywhere it ran.
+    use crate::sys::libc;
 
     /// `POLLERR` is news, not noise: it is the bit that makes the next `poll`
     /// return immediately, and the read it points at is what clears it.
@@ -1110,7 +1118,7 @@ mod drain_bits_tests {
     /// `POLLERR` only, at once, on every `poll`, until a `recv` consumes it.
     #[test]
     fn a_queued_socket_error_keeps_poll_ready_until_it_is_read() {
-        use std::os::fd::AsRawFd;
+        use crate::sys::fd::AsRawFd;
         let closed = std::net::UdpSocket::bind("127.0.0.1:0").expect("bind");
         let port = closed.local_addr().expect("addr").port();
         drop(closed);

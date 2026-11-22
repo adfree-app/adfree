@@ -1462,6 +1462,9 @@ mod tests {
         assert_eq!(server.join().expect("thread"), query.len());
     }
 
+    /// The stub check reads a resolv.conf-shaped file, which is a Unix idea;
+    /// Windows names its servers through the IP helper API instead.
+    #[cfg(unix)]
     #[test]
     fn a_loopback_stub_is_never_the_way_out() {
         let dir = std::env::temp_dir().join(format!("adfree-resolv-{}", std::process::id()));
@@ -1515,6 +1518,10 @@ mod tests {
         }
     }
 
+    /// Reading the destination back out of the datagram is the Unix ancillary
+    /// path (`recvmsg` + `IP_PKTINFO`); the Windows listener names it from the
+    /// redirect instead, so this test has no work to do there.
+    #[cfg(unix)]
     #[test]
     fn a_query_carries_the_address_it_was_sent_to() {
         // The redirect layout depends on reading the destination back, so the

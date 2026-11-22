@@ -174,7 +174,9 @@ pub const MSG_PEEK: c_int = 0x2;
 pub const MSG_DONTWAIT: c_int = 0;
 pub const MSG_NOSIGNAL: c_int = 0;
 
-// `poll` vocabulary, kept in libc's numbering and translated in `poll`.
+// `poll` vocabulary, kept in libc's numbering. The Winsock side of the
+// translation lives in `winsock_bits`, because the two numberings collide and
+// the fold is the half that used to be wrong.
 pub const POLLIN: c_short = 0x001;
 pub const POLLPRI: c_short = 0x002;
 pub const POLLOUT: c_short = 0x004;
@@ -182,9 +184,6 @@ pub const POLLERR: c_short = 0x008;
 pub const POLLHUP: c_short = 0x010;
 pub const POLLNVAL: c_short = 0x020;
 pub const POLLRDHUP: c_short = 0x2000;
-
-const POLLRDNORM: c_short = 0x0100;
-const POLLWRNORM: c_short = 0x0010;
 
 // The wait-set vocabulary. wepoll uses Linux's own numbering, so these need no
 // translation at all — `EPOLLIN` is bit 0 on both, and `poll_revents` in
@@ -422,8 +421,11 @@ pub unsafe fn getsockopt(
 ///
 /// The translation is the whole point of this function: callers pass and read
 /// `POLLIN`/`POLLOUT` bits in libc's numbering, while Winsock wants
-/// `POLLRDNORM`/`POLLWRNORM` and reports `POLLHUP` only as a closed socket
-/// (`POLLNVAL`-ish), so hang-ups are folded out of errors and end-of-stream.
+/// `POLLRDNORM`/`POLLWRNORM`. The fold back is done by `winsock_bits::revents`
+/// and not by comparing against this module's constants, because the two
+/// numberings share numbers: libc's `POLLHUP` is Winsock's writable bit, so a
+/// fold written with the wrong numbering tells every writable socket it has
+/// hung up — which is a wait loop that spins at a full core for ever.
 pub unsafe fn poll(fds: *mut pollfd, nfds: nfds_t, timeout_ms: c_int) -> c_int {
     if nfds == 0 {
         std::thread::sleep(std::time::Duration::from_millis(timeout_ms.max(0) as u64));
@@ -432,19 +434,10 @@ pub unsafe fn poll(fds: *mut pollfd, nfds: nfds_t, timeout_ms: c_int) -> c_int {
     let slice = unsafe { std::slice::from_raw_parts_mut(fds, nfds as usize) };
     let mut ask: Vec<ws::WSAPOLLFD> = slice
         .iter()
-        .map(|p| {
-            let mut events: c_short = 0;
-            if p.events & POLLIN != 0 {
-                events |= POLLRDNORM;
-            }
-            if p.events & POLLOUT != 0 {
-                events |= POLLWRNORM;
-            }
-            ws::WSAPOLLFD {
-                fd: p.fd as usize,
-                events,
-                revents: 0,
-            }
+        .map(|p| ws::WSAPOLLFD {
+            fd: p.fd as usize,
+            events: super::winsock_bits::request(p.events),
+            revents: 0,
         })
         .collect();
     let rc = unsafe { ws::WSAPoll(ask.as_mut_ptr(), nfds, timeout_ms) };
@@ -463,22 +456,7 @@ pub unsafe fn poll(fds: *mut pollfd, nfds: nfds_t, timeout_ms: c_int) -> c_int {
     }
     let mut ready = 0;
     for (p, w) in slice.iter_mut().zip(ask.iter()) {
-        let mut bits: c_short = 0;
-        if w.revents & POLLRDNORM != 0 {
-            bits |= POLLIN;
-        }
-        if w.revents & POLLWRNORM != 0 {
-            bits |= POLLOUT;
-        }
-        if w.revents & POLLERR != 0 {
-            bits |= POLLERR;
-        }
-        if w.revents & POLLHUP != 0 {
-            bits |= POLLHUP;
-        }
-        if w.revents & POLLNVAL != 0 {
-            bits |= POLLNVAL;
-        }
+        let bits = super::winsock_bits::revents(w.revents);
         if bits != 0 {
             ready += 1;
         }
