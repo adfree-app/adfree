@@ -207,6 +207,19 @@ class DesktopTunnelControlTest {
         assertFalse("the unit, not this window, holds the listeners", core.isProxyRunning())
     }
 
+    /**
+     * Rules with nothing behind them are the state that costs the machine its
+     * connection: every request is refused against a port nobody holds, and the
+     * window still says what it was asked to say. Either half alone is fine.
+     */
+    @Test
+    fun aRedirectWithoutListenersIsTakenDown() {
+        assertTrue(redirectOutlivedItsListeners(rulesInstalled = true, proxyRunning = false))
+        assertFalse(redirectOutlivedItsListeners(rulesInstalled = true, proxyRunning = true))
+        assertFalse(redirectOutlivedItsListeners(rulesInstalled = false, proxyRunning = false))
+        assertFalse(redirectOutlivedItsListeners(rulesInstalled = false, proxyRunning = true))
+    }
+
     /** A port the OS just proved is free, released before it is used. */
     private fun freeTcpPort(): Int = ServerSocket(0).use { it.localPort }
 

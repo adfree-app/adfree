@@ -434,6 +434,9 @@ class DesktopTunnelControl(
     /** Set once the person has said no, so one refusal is one dialog. */
     private val privilegeAskRefused = java.util.concurrent.atomic.AtomicBoolean(false)
 
+    /** The thread that watches the redirect against the listeners it feeds. */
+    private var redirectGuard: Thread? = null
+
     override fun isTunnelUp(): Boolean = coreEngine.isProxyRunning()
 
     override fun needsConsent(): Boolean = false
@@ -519,7 +522,10 @@ class DesktopTunnelControl(
             status.dnsPort.toInt(),
             ports.filterLocalhost,
         )) {
-            is PrivilegeOutcome.Ok -> System.err.println("[desktop] redirect rules installed")
+            is PrivilegeOutcome.Ok -> {
+                System.err.println("[desktop] redirect rules installed")
+                startRedirectGuard()
+            }
             is PrivilegeOutcome.Denied -> System.err.println("[desktop] redirect rules: ${outcome.reason}")
             is PrivilegeOutcome.Failed -> System.err.println("[desktop] redirect rules: ${outcome.reason}")
         }
@@ -528,8 +534,52 @@ class DesktopTunnelControl(
     override fun stopVpnService() {
         coreEngine.setProtectionPaused(false)
         System.err.println("[desktop] protection stopping: removing rules and listeners")
+        stopRedirectGuard()
         privileges?.removeRules()
         coreEngine.stopProxy()
+    }
+
+    /**
+     * Watches the redirect against the listeners it feeds, and takes it down
+     * when they go.
+     *
+     * A redirect with nothing behind it is a machine with no internet at all:
+     * every connection is pointed at a port nobody holds and is refused
+     * instantly, while the window goes on saying what it was asked to say. Seen
+     * on Windows after the proxy stopped on its own — the rules stayed up, and
+     * the only way back to the network was to end the process. Five seconds is
+     * short enough that a person reads it as a hiccup rather than as the
+     * machine losing its connection.
+     */
+    private fun startRedirectGuard() {
+        if (redirectGuard != null) return
+        val helper = privileges ?: return
+        val thread =
+            Thread({
+                while (!Thread.currentThread().isInterrupted) {
+                    try {
+                        Thread.sleep(REDIRECT_GUARD_MS)
+                    } catch (_: InterruptedException) {
+                        return@Thread
+                    }
+                    val live = runCatching { helper.rulesInstalled() }.getOrDefault(false)
+                    val listening = runCatching { coreEngine.isProxyRunning() }.getOrDefault(true)
+                    if (!redirectOutlivedItsListeners(live, listening)) continue
+                    System.err.println(
+                        "[desktop] the listeners are gone while the redirect is still up; " +
+                            "taking the rules down so the machine keeps its connection",
+                    )
+                    runCatching { helper.removeRules() }
+                }
+            }, "adfree-redirect-guard")
+        thread.isDaemon = true
+        thread.start()
+        redirectGuard = thread
+    }
+
+    private fun stopRedirectGuard() {
+        redirectGuard?.interrupt()
+        redirectGuard = null
     }
 
     override fun restartVpnService() {
@@ -548,6 +598,21 @@ class DesktopTunnelControl(
 
     override fun refreshStatusNotification() = Unit
 }
+
+/**
+ * Whether the redirect is pointing at a port nobody is listening on.
+ *
+ * The question the guard asks, kept out of the thread so it can be answered in
+ * a test: rules without listeners is the state that costs a machine its
+ * connection, and either half alone is harmless.
+ */
+internal fun redirectOutlivedItsListeners(
+    rulesInstalled: Boolean,
+    proxyRunning: Boolean,
+): Boolean = rulesInstalled && !proxyRunning
+
+/** How often the guard compares the two halves. */
+internal const val REDIRECT_GUARD_MS = 5_000L
 
 /** Puts the CA where the user can import it into the system trust store. */
 class DesktopCaExporter(private val dataRoot: File) : CaExporter {
