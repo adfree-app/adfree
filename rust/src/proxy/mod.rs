@@ -876,6 +876,46 @@ mod lifecycle_tests {
         );
     }
 
+    /// A machine with no IPv6 route is not handed addresses it cannot reach.
+    ///
+    /// Conditional on the machine, because the rule is about the machine: on a
+    /// host that can dial IPv6 this test has nothing to say and returns.
+    #[test]
+    fn a_machine_without_ipv6_gets_no_aaaa_record() {
+        if crate::sys::can_dial_ipv6() {
+            return;
+        }
+        let _guard = PROXY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(
+            start(31332, 35356, true).running,
+            "listeners must come up on free ports"
+        );
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        socket
+            .send_to(
+                &crate::dns::build_query("example.com", crate::dns::TYPE_AAAA, 0x1234).unwrap(),
+                "127.0.0.1:35356",
+            )
+            .unwrap();
+        socket
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut answer = vec![0u8; 4096];
+        let n = socket.recv(&mut answer).unwrap();
+        stop();
+        assert_eq!(
+            &answer[0..2],
+            &0x1234u16.to_be_bytes(),
+            "the client's id is echoed"
+        );
+        assert_eq!(
+            &answer[6..8],
+            &0u16.to_be_bytes(),
+            "no answer records: the machine has nowhere to send one"
+        );
+        assert!(n >= 12, "a whole message came back");
+    }
+
     /// The same request over IPv6: the redirect rules hand `[::1]` to this
     /// listener too, so one dual-stack socket has to serve both families.
     #[test]
