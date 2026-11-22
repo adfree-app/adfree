@@ -1,6 +1,8 @@
 package git.shin.adfree.desktop
 
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 /**
  * The core's file name on this platform: `cargo` writes a Unix shared object and
@@ -71,19 +73,49 @@ internal fun unpackedLibrary(): File? {
             System.getenv("XDG_CACHE_HOME") ?: File(System.getProperty("user.home"), ".cache").path,
             "adfree/lib",
         )
+    return cacheLibrary(cache, name, bytes)
+}
+
+/**
+ * Puts `bytes` at `<cache>/<name>` unless the same-sized file is already there,
+ * and answers the file to load.
+ *
+ * Written with `Files.move`, not `File.renameTo`: a rename onto an existing file
+ * fails on Windows and silently does nothing, which left an updated package
+ * running the core the cache already held — the installed app answered
+ * `UnsatisfiedLinkError: looking up function …` for every export the new build
+ * added, from a build that shipped the right library inside its own jar.
+ *
+ * When the move is refused as well — on Windows a library another process holds
+ * open cannot be replaced — the bytes land beside it under a name of their own.
+ * A second copy of the new core is cheaper than a process running an old one.
+ */
+internal fun cacheLibrary(
+    cache: File,
+    name: String,
+    bytes: ByteArray,
+): File? {
     cache.mkdirs()
     val target = File(cache, name)
-    if (target.length() != bytes.size.toLong()) {
-        val temp = File(cache, "$name.tmp")
-        temp.writeBytes(bytes)
-        temp.setExecutable(true)
-        // Rename rather than write in place: a half-written library is a load
-        // failure the next process inherits, and two windows starting at once
-        // must not see one another's partial file.
-        temp.renameTo(target)
-        target.setExecutable(true)
-    }
-    return target.takeIf(File::isFile)
+    if (target.isFile && target.length() == bytes.size.toLong()) return target
+    val temp = File(cache, "$name.tmp")
+    temp.writeBytes(bytes)
+    temp.setExecutable(true)
+    val placed =
+        runCatching {
+            // Move rather than write in place: a half-written library is a load
+            // failure the next process inherits, and two windows starting at
+            // once must not see one another's partial file.
+            Files.move(temp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            target
+        }.getOrNull()
+            ?: runCatching {
+                val spare = File(cache, "$name.${bytes.size}")
+                Files.move(temp.toPath(), spare.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                spare
+            }.getOrNull()
+    placed?.setExecutable(true)
+    return placed?.takeIf(File::isFile)
 }
 
 /**

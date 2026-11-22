@@ -60,4 +60,57 @@ class CoreLibraryTest {
         // tree laid out beside the working directory is still found.
         assertEquals(File("rust/target/release/libadfree_core.so"), candidates.first())
     }
+
+    @Test
+    fun aNewerCoreReplacesTheOneTheCacheHolds() {
+        val cache =
+            java.nio.file.Files
+                .createTempDirectory("adfree-cache")
+                .toFile()
+        val name = "libadfree_core.so"
+        // An older extraction: same name, another length. A rename that refuses
+        // to overwrite (Windows) used to leave this file in place and hand it to
+        // the loader, which then answered "function not found" for every export
+        // the new build added.
+        File(cache, name).writeBytes(ByteArray(4))
+
+        val placed = cacheLibrary(cache, name, ByteArray(9) { 7 })
+
+        assertNotNull("the new core was not written", placed)
+        assertEquals("the file to load is the new one", 9L, placed!!.length())
+        assertEquals("the cache holds the new bytes", 7, placed.readBytes()[0].toInt())
+    }
+
+    @Test
+    fun aCoreOfTheSameSizeIsNotRewritten() {
+        val cache =
+            java.nio.file.Files
+                .createTempDirectory("adfree-cache")
+                .toFile()
+        val name = "libadfree_core.so"
+        val target = File(cache, name).apply { writeBytes(ByteArray(6) { 1 }) }
+        target.setLastModified(1_000_000_000_000L)
+
+        val placed = cacheLibrary(cache, name, ByteArray(6) { 2 })
+
+        assertEquals(target, placed)
+        assertEquals("an unchanged length costs a length(), not a rewrite", 1_000_000_000_000L, placed!!.lastModified())
+    }
+
+    @Test
+    fun aCacheItCannotOverwriteStillYieldsTheNewCore() {
+        val cache =
+            java.nio.file.Files
+                .createTempDirectory("adfree-cache")
+                .toFile()
+        val name = "libadfree_core.so"
+        // What a held-open library looks like from here: the name cannot be
+        // replaced. The bytes must still be the ones this build ships.
+        File(cache, name).mkdirs()
+
+        val placed = cacheLibrary(cache, name, ByteArray(5) { 3 })
+
+        assertNotNull("a refusal to replace ended the search for a core", placed)
+        assertEquals("the copy it fell back to is the new core", 5L, placed!!.length())
+    }
 }
