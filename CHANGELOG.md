@@ -1,3 +1,9 @@
+## [1.33.9](https://github.com/adfree-app/adfree/compare/v1.33.8...v1.33.9) (2026-11-22)
+
+### Bug Fixes
+
+* **desktop:** a redirect that outlived its listeners is taken down ([8957d23](https://github.com/adfree-app/adfree/commit/8957d23995250a1990a049cffba2c3e9c3f30a49))
+
 ## [1.33.8](https://github.com/adfree-app/adfree/compare/v1.33.7...v1.33.8) (2026-11-22)
 
 ### Bug Fixes
