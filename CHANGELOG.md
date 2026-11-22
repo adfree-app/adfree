@@ -1,3 +1,9 @@
+## [1.33.2](https://github.com/adfree-app/adfree/compare/v1.33.1...v1.33.2) (2026-11-22)
+
+### Bug Fixes
+
+* **desktop:** the cache holds this build's core, on Windows too ([92008a4](https://github.com/adfree-app/adfree/commit/92008a4b96d672edfcbe745091897e30b765cc9c))
+
 ## [1.33.1](https://github.com/adfree-app/adfree/compare/v1.33.0...v1.33.1) (2026-11-21)
 
 ### Bug Fixes
