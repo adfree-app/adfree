@@ -59,8 +59,8 @@ internal fun coreCandidates(
  * Writes the core that ships inside the application jar out to a stable path and
  * returns it. The `XDG_CACHE_HOME` name is kept on Windows too, where
  * `System.getProperty("user.home")` supplies the base: one cache layout is
- * easier to explain than two. Cached by size, so a package that brings a new core replaces the
- * old one and an unchanged one costs a `length()`.
+ * easier to explain than two. Cached by content, so a package that brings a new core replaces the
+ * old one and an unchanged one costs one hash.
  */
 internal fun unpackedLibrary(): File? {
     // Read through a class of this jar: `Any::class.java` is a bootstrap class,
@@ -77,8 +77,8 @@ internal fun unpackedLibrary(): File? {
 }
 
 /**
- * Puts `bytes` at `<cache>/<name>` unless the same-sized file is already there,
- * and answers the file to load.
+ * Puts `bytes` at `<cache>/<name>` unless the cache already holds exactly these
+ * bytes, and answers the file to load.
  *
  * Written with `Files.move`, not `File.renameTo`: a rename onto an existing file
  * fails on Windows and silently does nothing, which left an updated package
@@ -97,7 +97,7 @@ internal fun cacheLibrary(
 ): File? {
     cache.mkdirs()
     val target = File(cache, name)
-    if (target.isFile && target.length() == bytes.size.toLong()) return target
+    if (target.isFile && holdsBytes(target, bytes)) return target
     val temp = File(cache, "$name.tmp")
     temp.writeBytes(bytes)
     temp.setExecutable(true)
@@ -116,6 +116,45 @@ internal fun cacheLibrary(
             }.getOrNull()
     placed?.setExecutable(true)
     return placed?.takeIf(File::isFile)
+}
+
+/**
+ * Whether the file already holds these bytes.
+ *
+ * A length is not an identity: two builds of the core a few instructions apart
+ * land on the same page-aligned size, and a cache keyed on it answered "the
+ * core is already here" for a library from the previous release. Every fix in
+ * the new build then sat unloaded inside the package that shipped it: 1.33.3
+ * was installed, and the process it started still answered `AAAA` records on a
+ * machine with no IPv6 route, because the 1.33.2 core was the one the loader
+ * was handed.
+ *
+ * Fourteen megabytes hashed once per start is the cost of a cache that means
+ * what it says. A file that cannot be read is not the file this build ships.
+ */
+private fun holdsBytes(
+    file: File,
+    bytes: ByteArray,
+): Boolean {
+    if (file.length() != bytes.size.toLong()) return false
+    val digest = java.security.MessageDigest.getInstance("SHA-256")
+    val cached =
+        runCatching {
+            file.inputStream().use { input ->
+                val buffer = ByteArray(1 shl 16)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read <= 0) break
+                    digest.update(buffer, 0, read)
+                }
+            }
+            digest.digest()
+        }.getOrNull() ?: return false
+    return cached.contentEquals(
+        java.security.MessageDigest
+            .getInstance("SHA-256")
+            .digest(bytes),
+    )
 }
 
 /**

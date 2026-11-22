@@ -82,19 +82,38 @@ class CoreLibraryTest {
     }
 
     @Test
-    fun aCoreOfTheSameSizeIsNotRewritten() {
+    fun theSameSizeIsNotTheSameCore() {
         val cache =
             java.nio.file.Files
                 .createTempDirectory("adfree-cache")
                 .toFile()
         val name = "libadfree_core.so"
+        // The shape the 1.33.2 core and the 1.33.3 core had: the same length,
+        // different bytes. Keyed on the length, the cache kept the older build
+        // and the fix inside the newer one never reached the loader.
         val target = File(cache, name).apply { writeBytes(ByteArray(6) { 1 }) }
-        target.setLastModified(1_000_000_000_000L)
 
         val placed = cacheLibrary(cache, name, ByteArray(6) { 2 })
 
         assertEquals(target, placed)
-        assertEquals("an unchanged length costs a length(), not a rewrite", 1_000_000_000_000L, placed!!.lastModified())
+        assertEquals("the cache holds this build's bytes", 2, placed!!.readBytes()[0].toInt())
+    }
+
+    @Test
+    fun aCoreTheCacheAlreadyHoldsIsNotRewritten() {
+        val cache =
+            java.nio.file.Files
+                .createTempDirectory("adfree-cache")
+                .toFile()
+        val name = "libadfree_core.so"
+        val bytes = ByteArray(6) { 1 }
+        val target = File(cache, name).apply { writeBytes(bytes) }
+        target.setLastModified(1_000_000_000_000L)
+
+        val placed = cacheLibrary(cache, name, bytes)
+
+        assertEquals(target, placed)
+        assertEquals("an unchanged core costs a hash, not a rewrite", 1_000_000_000_000L, placed!!.lastModified())
     }
 
     @Test
