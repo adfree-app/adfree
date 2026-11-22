@@ -1,3 +1,9 @@
+## [1.33.11](https://github.com/adfree-app/adfree/compare/v1.33.10...v1.33.11) (2026-11-22)
+
+### Bug Fixes
+
+* **win:** a swallowed QUIC datagram is answered, not ignored ([52c6969](https://github.com/adfree-app/adfree/commit/52c696915d35dcc6787ba08bd6ad967f5e666d06))
+
 ## [1.33.10](https://github.com/adfree-app/adfree/compare/v1.33.9...v1.33.10) (2026-11-22)
 
 ### Bug Fixes
