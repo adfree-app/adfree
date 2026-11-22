@@ -1,3 +1,9 @@
+## [1.33.3](https://github.com/adfree-app/adfree/compare/v1.33.2...v1.33.3) (2026-11-22)
+
+### Bug Fixes
+
+* **proxy:** a writable socket on Windows is not a hung-up one ([b54f801](https://github.com/adfree-app/adfree/commit/b54f801eaa8867ba3464d13758cec6cf471286b4))
+
 ## [1.33.2](https://github.com/adfree-app/adfree/compare/v1.33.1...v1.33.2) (2026-11-22)
 
 ### Bug Fixes
