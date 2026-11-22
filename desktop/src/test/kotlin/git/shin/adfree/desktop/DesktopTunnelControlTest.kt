@@ -220,6 +220,20 @@ class DesktopTunnelControlTest {
         assertFalse(redirectOutlivedItsListeners(rulesInstalled = false, proxyRunning = true))
     }
 
+    /**
+     * A launch never turns protection back on.
+     *
+     * The redirect needs a privilege a freshly started process may not have, so
+     * a restored switch would say "on" while nothing filtered — which reads as
+     * the machine having lost its internet. The click is where the privilege is
+     * asked for, so the click is what turns it on.
+     */
+    @Test
+    fun aLaunchDoesNotTurnProtectionBackOn() {
+        val control = controlOn(LocalProxySettings(tcpPort = freeTcpPort(), dnsPort = freeDnsPort()))
+        assertFalse(control.restoresProtectionOnLaunch)
+    }
+
     /** A port the OS just proved is free, released before it is used. */
     private fun freeTcpPort(): Int = ServerSocket(0).use { it.localPort }
 

@@ -431,6 +431,18 @@ class DesktopTunnelControl(
 
     override val isVpnActive: StateFlow<Boolean> = protectionWanted
 
+    /**
+     * Never, and this is the load-bearing part: see [TunnelControl].
+     *
+     * A restored switch on a desktop is a claim about a kernel redirect that
+     * the process starting may have no privilege to install — measured on the
+     * Windows box as a window reading "on" with no listener behind the rules,
+     * which is a machine with no internet rather than a machine that is
+     * filtered. The click is what asks for the privilege, so the click is what
+     * turns it on.
+     */
+    override val restoresProtectionOnLaunch: Boolean = false
+
     /** Set once the person has said no, so one refusal is one dialog. */
     private val privilegeAskRefused = java.util.concurrent.atomic.AtomicBoolean(false)
 

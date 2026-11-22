@@ -88,6 +88,19 @@ class AdGuardViewModel(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    /**
+     * Tunnel starts and stops, one at a time and off the thread that paints.
+     *
+     * A desktop stop joins native threads — the redirect pumps and then the
+     * listeners — and doing that inline froze the window: the shield looked
+     * pressed and the app answered nothing until the joins returned. The stop is
+     * not required to be synchronous, and the protection record the window and
+     * the tray read is written before the work starts, so the switch follows the
+     * record. Serialised because a start that overtook a stop would find the
+     * ports still held by the listeners it was waiting for.
+     */
+    private val tunnelOps = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
+
     /** How often the assistant's queue is read (see the loop in `init`). */
     private val ASSISTANT_POLL_MS = 1_000L
 
@@ -413,15 +426,27 @@ class AdGuardViewModel(
                 updateOutcomeMessage(outcome)?.let { emit(AdGuardEffect.ShowSnackbar(it)) }
             }
         }
-        // Protection that was on when the app last ran comes back by itself;
-        // a first run has nothing saved and waits for the user. The consent
-        // dialog can only be raised by the Activity, hence the flag.
+        // Protection that was on when the app last ran comes back by itself
+        // where the OS owns the tunnel; a first run has nothing saved and waits
+        // for the user. The consent dialog can only be raised by the Activity,
+        // hence the flag.
+        //
+        // A desktop does not restore it. Protection there is a privileged
+        // kernel redirect, and a process that has just started — the login
+        // task's, after an update, unelevated — may be unable to install one at
+        // all; the record says on while nothing filters, which the person reads
+        // as the machine having lost its internet. The switch starts off and
+        // the click that turns it on is the one that asks for the privilege.
         if (repository.protectionWasOn()) {
-            repository.toggleProtection(true)
-            if (tunnel.needsConsent()) {
-                _showVpnPermissionPrompt.value = true
+            if (!tunnel.restoresProtectionOnLaunch) {
+                repository.toggleProtection(false)
             } else {
-                tunnel.startVpnService()
+                repository.toggleProtection(true)
+                if (tunnel.needsConsent()) {
+                    _showVpnPermissionPrompt.value = true
+                } else {
+                    tunnelOps.launch { tunnel.startVpnService() }
+                }
             }
         }
         // The AdGuard Assistant runs *inside the page* and can only reach the
@@ -740,7 +765,7 @@ class AdGuardViewModel(
 
             is AdGuardIntent.RestartVpn -> {
                 if (tunnel.isVpnActive.value) {
-                    tunnel.restartVpnService()
+                    tunnelOps.launch { tunnel.restartVpnService() }
                     emit(AdGuardEffect.ShowSnackbar(UiText.Resource(Strings.vpn_restarting)))
                 } else {
                     emit(AdGuardEffect.ShowSnackbar(UiText.Resource(Strings.vpn_off_changes_next)))
@@ -1059,8 +1084,10 @@ class AdGuardViewModel(
      */
     fun resumeProtection() {
         repository.toggleProtection(true)
-        if (tunnel.isTunnelUp()) tunnel.stopVpnService()
-        tunnel.startVpnService()
+        tunnelOps.launch {
+            if (tunnel.isTunnelUp()) tunnel.stopVpnService()
+            tunnel.startVpnService()
+        }
     }
 
     /**
@@ -1138,11 +1165,11 @@ class AdGuardViewModel(
                 repository.toggleProtection(true)
             } else {
                 repository.toggleProtection(true)
-                tunnel.startVpnService()
+                tunnelOps.launch { tunnel.startVpnService() }
             }
         } else {
             repository.toggleProtection(false)
-            tunnel.stopVpnService()
+            tunnelOps.launch { tunnel.stopVpnService() }
         }
         emit(
             AdGuardEffect.ShowSnackbar(
@@ -1375,9 +1402,11 @@ class AdGuardViewModel(
         if (!localProxy.isUsable) return
         val listenersUp = coreEngine.isProxyRunning()
         repository.updateLocalProxy(localProxy)
-        when {
-            listenersUp -> tunnel.restartVpnService()
-            tunnel.isVpnActive.value -> tunnel.startVpnService()
+        tunnelOps.launch {
+            when {
+                listenersUp -> tunnel.restartVpnService()
+                tunnel.isVpnActive.value -> tunnel.startVpnService()
+            }
         }
     }
 
