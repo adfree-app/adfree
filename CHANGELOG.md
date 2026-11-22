@@ -1,3 +1,9 @@
+## [1.33.7](https://github.com/adfree-app/adfree/compare/v1.33.6...v1.33.7) (2026-11-22)
+
+### Bug Fixes
+
+* **desktop:** the logon task writes the whole program, as XML ([8b35ea5](https://github.com/adfree-app/adfree/commit/8b35ea5a985968f3270f86bd9663baa69b7643ab))
+
 ## [1.33.6](https://github.com/adfree-app/adfree/compare/v1.33.5...v1.33.6) (2026-11-22)
 
 ### Bug Fixes
