@@ -139,6 +139,11 @@ pub fn stop() {
             let _ = thread.join();
         }
     }
+    // The remembered destinations describe flows the redirect was carrying. With
+    // the redirect gone, the ports they were keyed by belong to nobody: a later
+    // protection pass must not hand a client's new connection to an origin the
+    // previous one picked.
+    crate::sys::redirect_targets::clear();
 }
 
 pub fn status() -> RedirectStatus {

@@ -34,6 +34,14 @@ pub mod winproc;
 /// on Windows, and a test that only runs on Windows is a test nobody runs.
 pub mod winsock_bits;
 
+/// The destination a redirected flow asked for, written by the outbound pass and
+/// read back by the proxy that accepted it.
+///
+/// Shared rather than Windows-only for the same reason as `winsock_bits`: the
+/// table is arithmetic, and the fault it answers — a client port that outlives
+/// the flow that used it — can be tested where it is reasoned about.
+pub mod redirect_targets;
+
 /// The `libc` the proxy sees: the real one on Unix, and a Winsock-backed
 /// namesake on Windows (`sys::winlibc`). Modules say `use crate::sys::libc;`
 /// once instead of `extern crate libc`, so both platforms compile the same

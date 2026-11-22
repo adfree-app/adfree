@@ -30,6 +30,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::packet::Packet;
+use crate::sys::redirect_targets;
 use crate::winnat::{self, Decision, Endpoint, Nat, Shape};
 
 pub use crate::sys::windivert_filter::OWN_PORTS;
@@ -478,6 +479,21 @@ impl Redirector {
         match decision {
             Decision::Drop => 0,
             Decision::Destination(to) => {
+                // Written down before the rewrite: the client's port is the only
+                // handle left once both addresses name the loopback hop, and the
+                // proxy that accepts the connection has no other way to learn
+                // where it was going (`sys::windows::original_destination` reads
+                // this back). A TCP flow the proxy will serve is the only kind
+                // that needs it — the UDP arm of the same decision points at the
+                // resolver, which answers the query itself.
+                if to.is_loopback() && shape.proto() == crate::packet::PROTO_TCP {
+                    if let Some(dst) = pkt.dst_ip() {
+                        redirect_targets::note(
+                            pkt.src_port,
+                            std::net::SocketAddr::new(dst.as_ip(), pkt.dst_port),
+                        );
+                    }
+                }
                 if !winnat::set_destination(&mut buf[..len], shape, to) {
                     // A family mismatch: reinjecting the packet unchanged keeps
                     // the machine connected; dropping it would look like a

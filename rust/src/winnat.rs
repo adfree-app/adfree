@@ -266,6 +266,12 @@ impl Shape {
         self.version == 6
     }
 
+    /// The transport protocol the packet carries, which is what tells a flow the
+    /// proxy will serve from one the resolver will answer.
+    pub fn proto(&self) -> u8 {
+        self.proto
+    }
+
     pub fn of(pkt: &Packet<'_>) -> Self {
         Self {
             version: pkt.version,

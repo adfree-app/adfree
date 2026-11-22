@@ -14,10 +14,30 @@ use std::net::SocketAddr;
 
 pub use std::os::windows::raw::SOCKET as RawSock;
 
-/// No conntrack entry to read: the target is named by the request head, or by
-/// the redirect's own bookkeeping (`winnat`) when the driver moved the flow.
-pub fn original_destination(_socket: RawSock) -> Option<SocketAddr> {
-    None
+/// Where a redirected connection was headed.
+///
+/// Windows has no `SO_ORIGINAL_DST`, and the redirect leaves nothing in the
+/// socket that names the origin — except the client's port, which it does not
+/// rewrite. The outbound pass wrote that port's destination down
+/// ([`crate::sys::redirect_targets`]), so the connection finds itself by the
+/// peer it arrived from. An explicit-proxy request never came through the
+/// redirect and has no entry, which is how it still falls back to the head.
+pub fn original_destination(socket: RawSock) -> Option<SocketAddr> {
+    let mut sa: crate::sys::libc::sockaddr_storage = unsafe { std::mem::zeroed() };
+    let mut len =
+        std::mem::size_of::<crate::sys::libc::sockaddr_storage>() as crate::sys::libc::socklen_t;
+    let rc = unsafe {
+        crate::sys::libc::getpeername(
+            socket as crate::sys::libc::RawFd,
+            &mut sa as *mut crate::sys::libc::sockaddr_storage as *mut crate::sys::libc::sockaddr,
+            &mut len,
+        )
+    };
+    if rc != 0 {
+        return None;
+    }
+    let peer = crate::proxy::parse_sockaddr(&sa)?;
+    crate::sys::redirect_targets::lookup(peer.port())
 }
 
 /// Puts the socket's source port inside the range the redirect filter skips.
