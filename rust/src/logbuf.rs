@@ -85,6 +85,14 @@ fn push_at(severity: u8, line: &str) {
     if !kept(severity) {
         return;
     }
+    // The stderr copy is the one a machine can be asked about later. The ring
+    // buffer lives and dies with the process and is only reachable through the
+    // window; a run started with its stderr on a file — a service's journal, a
+    // probe on a machine nobody can click — keeps these lines after the fact.
+    // Cheap, and it is the only channel that survives the process.
+    if severity >= WARN {
+        eprintln!("[core] {}", line.trim());
+    }
     with_queue(|queue| {
         let trimmed = line.trim();
         if trimmed.is_empty() {

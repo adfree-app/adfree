@@ -452,6 +452,22 @@ pub unsafe fn poll(fds: *mut pollfd, nfds: nfds_t, timeout_ms: c_int) -> c_int {
         if err == EINTR {
             return 0;
         }
+        // A wait that fails is invisible from above — `poll_fd` turns it into
+        // `None`, which callers read as "not ready yet" — so the refusal is said
+        // out loud, three times per process at most. It is how the dial on the
+        // Windows box was found: WSAPoll answers SOCKET_ERROR for a socket that
+        // is still connecting, and every request failed with a dial nobody
+        // could explain.
+        {
+            use std::sync::atomic::{AtomicU32, Ordering};
+            static SEEN: AtomicU32 = AtomicU32::new(0);
+            if SEEN.fetch_add(1, Ordering::Relaxed) < 3 {
+                crate::logbuf::push(&format!(
+                    "poll: WSAPoll said {err} — nfds={nfds} asked={:#06x} timeout={timeout_ms}",
+                    ask.first().map(|a| a.events).unwrap_or(0)
+                ));
+            }
+        }
         return -1;
     }
     let mut ready = 0;

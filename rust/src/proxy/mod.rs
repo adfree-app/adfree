@@ -382,6 +382,13 @@ pub(crate) fn poll_readable_alive(fd: RawFd, timeout_ms: i32) -> Option<bool> {
 }
 
 pub(crate) fn poll_writable(fd: RawFd, timeout_ms: i32) -> bool {
+    // Windows answers `WSAPoll` with `SOCKET_ERROR` for a socket that is still
+    // connecting, which reads as "not writable" the millisecond after the SYN
+    // left. `select` is the wait that works there; see `sys::wait_writable`.
+    #[cfg(windows)]
+    if let Some(answer) = crate::sys::wait_writable(fd, timeout_ms) {
+        return answer;
+    }
     poll_fd(fd, libc::POLLOUT, timeout_ms).unwrap_or(false)
 }
 
@@ -448,8 +455,8 @@ pub(crate) fn poll2(client_fd: RawFd, peer_fd: Option<RawFd>, mut timeout_ms: i3
 /// blocks longer than the poll answer: a stalled peer slows this pump, not the
 /// whole proxy.
 pub(crate) fn write_all_nb(fd: RawFd, bytes: &[u8], stop: &AtomicBool) -> std::io::Result<()> {
-    let mut off = 0usize;
     let started = std::time::Instant::now();
+    let mut off = 0usize;
     while off < bytes.len() {
         if stop.load(Ordering::Relaxed) || started.elapsed() > IDLE_TIMEOUT {
             return Err(std::io::Error::new(
@@ -544,6 +551,10 @@ pub(crate) fn dial_marked(addr: std::net::SocketAddr) -> Option<std::net::TcpStr
         }
         Err(kind) => {
             egress::note_dial(addr, Some(kind));
+            // The verdict is the only place this reason exists, and "the dial
+            // failed" on its own says nothing about why a machine loads nothing
+            // once protection is on.
+            crate::logbuf::push(&format!("proxy: dial {addr} attempt: {kind:?}"));
             None
         }
     }

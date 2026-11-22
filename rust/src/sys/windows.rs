@@ -40,6 +40,45 @@ pub fn original_destination(socket: RawSock) -> Option<SocketAddr> {
     crate::sys::redirect_targets::lookup(peer.port())
 }
 
+/// Waits for a socket to become writable, for a dial that is still connecting.
+///
+/// `WSAPoll` is not usable here, and the reason is not a translation mistake:
+/// for a socket in a non-blocking connect it answers `SOCKET_ERROR` at once —
+/// measured on the Windows box as `poll: WSAPoll nfds=1 asked=0x0030
+/// timeout=9999 said rc=-1` for every dial. The dial then read "not writable"
+/// one millisecond after the packet left, closed the socket and reported
+/// `proxy: dial <ip>:443 failed` while the same dial from the same source port
+/// answered `200` through `curl`. A machine with protection on loaded nothing.
+///
+/// `select` has been the way to wait on a connecting socket since before
+/// `WSAPoll` existed: the socket appears in the write set when the attempt
+/// finishes, successfully or not, and `SO_ERROR` then says which.
+///
+/// `None` means the wait itself failed, so the caller can fall back to `poll`.
+pub fn wait_writable(socket: RawSock, timeout_ms: i32) -> Option<bool> {
+    use windows_sys::Win32::Networking::WinSock as ws;
+    let socket = socket as ws::SOCKET;
+    let mut write: ws::FD_SET = unsafe { std::mem::zeroed() };
+    write.fd_count = 1;
+    write.fd_array[0] = socket;
+    // The error set notices a refusal that arrives without readiness.
+    let mut failed: ws::FD_SET = unsafe { std::mem::zeroed() };
+    failed.fd_count = 1;
+    failed.fd_array[0] = socket;
+    let wait = ws::TIMEVAL {
+        tv_sec: timeout_ms.max(0) / 1000,
+        tv_usec: (timeout_ms.max(0) % 1000) * 1000,
+    };
+    let rc = unsafe { ws::select(0, std::ptr::null_mut(), &mut write, &mut failed, &wait) };
+    if rc < 0 {
+        return None;
+    }
+    if rc == 0 {
+        return Some(false);
+    }
+    Some(write.fd_count > 0 || failed.fd_count > 0)
+}
+
 /// Puts the socket's source port inside the range the redirect filter skips.
 ///
 /// Windows has no `SO_MARK`, so a socket that dials an origin from an ordinary
@@ -62,6 +101,7 @@ pub fn mark_own_traffic(socket: RawSock, _mark: u32) {
     static NEXT: AtomicU32 = AtomicU32::new(0);
     static LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     static OUTSIDE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    static BOUND: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
     let fd = socket as libc::RawFd;
     // `getsockname` answers two things at once: the family (which decides
@@ -82,8 +122,9 @@ pub fn mark_own_traffic(socket: RawSock, _mark: u32) {
     } else {
         libc::AF_INET
     };
+    let entry_port = if probed { local_port(&probe) } else { 0 };
 
-    match own_port_state(if probed { local_port(&probe) } else { 0 }) {
+    match own_port_state(entry_port) {
         // The promise is already kept: the DNS half binds its forwarding socket
         // itself, and asking to bind it again failed on all thousand ports and
         // reported `no port in the own-traffic range could be bound (last error
@@ -109,6 +150,14 @@ pub fn mark_own_traffic(socket: RawSock, _mark: u32) {
     for _ in 0..span {
         let port = lo + (NEXT.fetch_add(1, Ordering::Relaxed) % span) as u16;
         if bind_wildcard(fd, family, port) {
+            // Once per process, at the first success: the port is the whole
+            // promise the redirect keeps about this dial, and a dial that is not
+            // bound here is a dial the rules hand straight back to the proxy.
+            if !BOUND.swap(true, Ordering::Relaxed) {
+                crate::logbuf::push(&format!(
+                    "proxy: own traffic bound to port {port} (family {family})"
+                ));
+            }
             return;
         }
         last = std::io::Error::last_os_error().raw_os_error().unwrap_or(-1);
