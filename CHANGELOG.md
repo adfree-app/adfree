@@ -1,3 +1,9 @@
+## [1.33.5](https://github.com/adfree-app/adfree/compare/v1.33.4...v1.33.5) (2026-11-22)
+
+### Bug Fixes
+
+* **desktop:** a cache keyed on size keeps the previous release's core ([4398b72](https://github.com/adfree-app/adfree/commit/4398b72278120194b9e797e43640b17d54a8c442))
+
 ## [1.33.4](https://github.com/adfree-app/adfree/compare/v1.33.3...v1.33.4) (2026-11-22)
 
 ### Bug Fixes
