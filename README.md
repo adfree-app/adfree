@@ -1,4 +1,5 @@
 # AdFree
+[![OctoCounts](https://api.octocounts.com/badge/adfree-app/adfree/branch/main)](https://octocounts.com/github/adfree-app/adfree/tree/main)
 
 An on-device ad and tracker blocker for Android, built on a Rust core.
 Filtering happens entirely on the phone: there is no backend, no API key and no
