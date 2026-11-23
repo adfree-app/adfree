@@ -142,56 +142,56 @@ val javaExecutableName = if (isWindowsHost) "java.exe" else "java"
 // installer and a local run start from the same classes.
 tasks.matching { it.name == "createRuntimeImage" || it.name == "createDistributable" }.configureEach {
     doLast {
+        val roots = outputs.files.files.filter { it.exists() }
         val libjvm =
-            outputs.files.files
-                .filter { it.exists() }
+            roots
                 .asSequence()
                 .flatMap { root -> root.walkTopDown() }
-                .firstOrNull { it.isFile && it.name.startsWith("libjvm.") } ?: return@doLast
+                .firstOrNull { it.isFile && it.name.startsWith("libjvm.") }
+        if (libjvm == null) {
+            logger.lifecycle("cds: no libjvm under ${roots.joinToString { it.absolutePath }}")
+            return@doLast
+        }
         // `<runtime>/lib/server/libjvm.so`: the runtime root is two levels up.
         val runtimeLib = libjvm.parentFile.parentFile
         val runtimeRoot = runtimeLib.parentFile
-        val stagedJava = File(runtimeRoot, "bin/$javaExecutableName")
-        val needsJli = isWindowsHost
-        val stagedJli =
-            if (needsJli) {
-                File(runtimeRoot, "bin/libjli.dll")
-            } else {
-                File(runtimeLib, "libjli.so")
+        val staged = File(runtimeRoot, "bin")
+        val stagedNow = mutableListOf<File>()
+        val dumpLog = File(temporaryDir, "cds-dump.log")
+        val failure =
+            runCatching {
+                // `java` is not the only file it needs: the launcher loads the
+                // rest of `bin` beside it, and which of them a platform wants is
+                // the platform's business.
+                File(hostJavaHome, "bin").listFiles().orEmpty()
+                    .filter { it.isFile && it.length() < 8_000_000 }
+                    .forEach { source ->
+                        val target = File(staged, source.name)
+                        if (!target.exists()) {
+                            staged.mkdirs()
+                            source.copyTo(target, overwrite = true)
+                            target.setExecutable(true)
+                            stagedNow += target
+                        }
+                    }
+                val dump =
+                    ProcessBuilder(File(staged, javaExecutableName).absolutePath, "-Xshare:dump")
+                        .directory(runtimeRoot)
+                        .redirectErrorStream(true)
+                        .redirectOutput(dumpLog)
+                        .start()
+                val code = dump.waitFor()
+                check(code == 0) { "the class archive dump exited $code" }
+                val archive = File(runtimeLib, "server/classes.jsa")
+                check(archive.isFile) { "the dump wrote no archive" }
+                logger.lifecycle("cds: base class archive -> ${archive.absolutePath} (${archive.length()} bytes)")
             }
-        val sourceJli =
-            if (needsJli) File(hostJavaHome, "bin/libjli.dll") else File(hostJavaHome, "lib/libjli.so")
-        val fromHost = File(hostJavaHome, "bin/$javaExecutableName")
-        val staged =
-            listOf(stagedJava to fromHost) +
-                listOfNotNull(stagedJli.takeIf { sourceJli.isFile }?.let { it to sourceJli })
-        // Only what the image did not already have is removed again, so a
-        // second run of this task does not delete a launcher jpackage kept.
-        val added = staged.filterNot { it.first.exists() }
-        runCatching {
-            added.forEach { (target, source) ->
-                target.parentFile.mkdirs()
-                source.copyTo(target, overwrite = true)
-                target.setReadable(true)
-                target.setExecutable(true)
-            }
-            val dump =
-                ProcessBuilder(stagedJava.absolutePath, "-Xshare:dump")
-                    .directory(runtimeRoot)
-                    .redirectErrorStream(true)
-                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
-                    .start()
-            check(dump.waitFor() == 0) { "the class archive dump failed" }
-            logger.lifecycle("cds: base class archive -> ${File(runtimeLib, "server/classes.jsa").absolutePath}")
-        }.also {
-            added.forEach { (target, _) -> target.delete() }
-            added
-                .map { (target, _) -> target.parentFile }
-                .distinct()
-                .filter { parent -> parent.listFiles().isNullOrEmpty() }
-                .forEach { parent -> parent.delete() }
-            if (it.isFailure) logger.warn("cds: no base class archive was written", it.exceptionOrNull())
-        }.getOrThrow()
+        stagedNow.forEach { it.delete() }
+        if (staged.listFiles().isNullOrEmpty()) staged.delete()
+        failure.exceptionOrNull()?.let { cause ->
+            logger.warn("cds: no base class archive was written: ${cause.message}")
+            dumpLog.takeIf { it.isFile }?.readLines()?.takeLast(8)?.forEach { logger.warn("cds:   $it") }
+        }
     }
 }
 
