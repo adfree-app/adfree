@@ -147,14 +147,15 @@ tasks.matching { it.name == "createRuntimeImage" || it.name == "createDistributa
             roots
                 .asSequence()
                 .flatMap { root -> root.walkTopDown() }
-                .firstOrNull { it.isFile && it.name.startsWith("libjvm.") }
+                .firstOrNull { it.isFile && it.name.matches(Regex("libjvm\\.(so|dylib)|^jvm\\.dll$")) }
         if (libjvm == null) {
-            logger.lifecycle("cds: no libjvm under ${roots.joinToString { it.absolutePath }}")
+            logger.lifecycle("cds: no jvm library under ${roots.joinToString { it.absolutePath }}")
             return@doLast
         }
-        // `<runtime>/lib/server/libjvm.so`: the runtime root is two levels up.
-        val runtimeLib = libjvm.parentFile.parentFile
-        val runtimeRoot = runtimeLib.parentFile
+        // The archive lives beside the JVM: `<runtime>/lib/server` on Unix,
+        // `<runtime>/bin/server` on Windows, and the runtime root is two up.
+        val server = libjvm.parentFile
+        val runtimeRoot = server.parentFile.parentFile
         val staged = File(runtimeRoot, "bin")
         val stagedNow = mutableListOf<File>()
         val dumpLog = File(temporaryDir, "cds-dump.log")
@@ -182,7 +183,7 @@ tasks.matching { it.name == "createRuntimeImage" || it.name == "createDistributa
                         .start()
                 val code = dump.waitFor()
                 check(code == 0) { "the class archive dump exited $code" }
-                val archive = File(runtimeLib, "server/classes.jsa")
+                val archive = File(server, "classes.jsa")
                 check(archive.isFile) { "the dump wrote no archive" }
                 logger.lifecycle("cds: base class archive -> ${archive.absolutePath} (${archive.length()} bytes)")
             }
@@ -190,7 +191,11 @@ tasks.matching { it.name == "createRuntimeImage" || it.name == "createDistributa
         if (staged.listFiles().isNullOrEmpty()) staged.delete()
         failure.exceptionOrNull()?.let { cause ->
             logger.warn("cds: no base class archive was written: ${cause.message}")
-            dumpLog.takeIf { it.isFile }?.readLines()?.takeLast(8)?.forEach { logger.warn("cds:   $it") }
+            dumpLog
+                .takeIf { it.isFile }
+                ?.readLines()
+                ?.takeLast(8)
+                ?.forEach { logger.warn("cds:   $it") }
         }
     }
 }
