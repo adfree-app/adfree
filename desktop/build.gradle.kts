@@ -136,21 +136,23 @@ tasks.named("processResources") { dependsOn(stageCoreLibrary, stageNativeHost) }
 // again. What remains is `lib/server/classes.jsa`: JDK classes already resolved,
 // which every launch of the packaged app maps instead of reading.
 val hostJavaHome = File(System.getProperty("java.home"))
-val javaExecutableName = if (System.getProperty("os.name").orEmpty().lowercase().startsWith("windows")) {
-    "java.exe"
-} else {
-    "java"
-}
+val javaExecutableName = if (isWindowsHost) "java.exe" else "java"
 tasks.matching { it.name == "createDistributable" }.configureEach {
     doLast {
-        val image = layout.buildDirectory.dir("compose/binaries/main/app").get().asFile
+        val image =
+            layout.buildDirectory
+                .dir("compose/binaries/main/app")
+                .get()
+                .asFile
         val libjvm =
-            image.walkTopDown().firstOrNull { it.isFile && it.name.startsWith("libjvm.") } ?: return@doLast
+            image
+                .walkTopDown()
+                .firstOrNull { it.isFile && it.name.startsWith("libjvm.") } ?: return@doLast
         // `<runtime>/lib/server/libjvm.so`: the runtime root is two levels up.
         val runtimeLib = libjvm.parentFile.parentFile
         val runtimeRoot = runtimeLib.parentFile
         val stagedJava = File(runtimeRoot, "bin/$javaExecutableName")
-        val needsJli = System.getProperty("os.name").orEmpty().lowercase().startsWith("windows")
+        val needsJli = isWindowsHost
         val stagedJli =
             if (needsJli) {
                 File(runtimeRoot, "bin/libjli.dll")
@@ -159,8 +161,10 @@ tasks.matching { it.name == "createDistributable" }.configureEach {
             }
         val sourceJli =
             if (needsJli) File(hostJavaHome, "bin/libjli.dll") else File(hostJavaHome, "lib/libjli.so")
-        val staged = listOf(stagedJava to File(hostJavaHome, "bin/$javaExecutableName")) +
-            listOfNotNull(stagedJli.takeIf { sourceJli.isFile }?.let { it to sourceJli })
+        val fromHost = File(hostJavaHome, "bin/$javaExecutableName")
+        val staged =
+            listOf(stagedJava to fromHost) +
+                listOfNotNull(stagedJli.takeIf { sourceJli.isFile }?.let { it to sourceJli })
         // Only what the image did not already have is removed again, so a
         // second run of this task does not delete a launcher jpackage kept.
         val added = staged.filterNot { it.first.exists() }
@@ -181,7 +185,8 @@ tasks.matching { it.name == "createDistributable" }.configureEach {
             logger.lifecycle("cds: base class archive -> ${File(runtimeLib, "server/classes.jsa").absolutePath}")
         }.also {
             added.forEach { (target, _) -> target.delete() }
-            added.map { (target, _) -> target.parentFile }
+            added
+                .map { (target, _) -> target.parentFile }
                 .distinct()
                 .filter { parent -> parent.listFiles().isNullOrEmpty() }
                 .forEach { parent -> parent.delete() }
@@ -203,11 +208,12 @@ compose.desktop {
         // whose jars no longer match the archive — replaces it by itself. A
         // Linux install under /opt belongs to root and would only inherit the
         // warning on every launch.
-        if (System.getProperty("os.name").orEmpty().lowercase().startsWith("windows")) {
-            jvmArgs += listOf(
-                "-XX:SharedArchiveFile=\$APPDIR/adfree.jsa",
-                "-XX:+AutoCreateSharedArchive",
-            )
+        if (isWindowsHost) {
+            jvmArgs +=
+                listOf(
+                    "-XX:SharedArchiveFile=\$APPDIR/adfree.jsa",
+                    "-XX:+AutoCreateSharedArchive",
+                )
         }
 
         nativeDistributions {
