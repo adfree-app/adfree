@@ -137,16 +137,16 @@ tasks.named("processResources") { dependsOn(stageCoreLibrary, stageNativeHost) }
 // which every launch of the packaged app maps instead of reading.
 val hostJavaHome = File(System.getProperty("java.home"))
 val javaExecutableName = if (isWindowsHost) "java.exe" else "java"
-tasks.matching { it.name == "createDistributable" }.configureEach {
+// `createRuntimeImage` is the image jpackage is handed, and `createDistributable`
+// is the same image laid out for a dev run; both are dumped so a packaged
+// installer and a local run start from the same classes.
+tasks.matching { it.name == "createRuntimeImage" || it.name == "createDistributable" }.configureEach {
     doLast {
-        val image =
-            layout.buildDirectory
-                .dir("compose/binaries/main/app")
-                .get()
-                .asFile
         val libjvm =
-            image
-                .walkTopDown()
+            outputs.files.files
+                .filter { it.exists() }
+                .asSequence()
+                .flatMap { root -> root.walkTopDown() }
                 .firstOrNull { it.isFile && it.name.startsWith("libjvm.") } ?: return@doLast
         // `<runtime>/lib/server/libjvm.so`: the runtime root is two levels up.
         val runtimeLib = libjvm.parentFile.parentFile
