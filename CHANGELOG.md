@@ -1,3 +1,14 @@
+## [1.34.3](https://github.com/adfree-app/adfree/compare/v1.34.2...v1.34.3) (2026-11-23)
+
+### Bug Fixes
+
+* **build:** the archive goes into the image jpackage is handed ([05056b8](https://github.com/adfree-app/adfree/commit/05056b8d6b7b9c96239887dbbd133ff5d19a4b2f))
+* **build:** the JVM library is called jvm.dll on Windows ([2c2b398](https://github.com/adfree-app/adfree/commit/2c2b398eb030f5dcc9dcc693c9813cb30ba47dea))
+
+### Performance Improvements
+
+* **desktop:** a launch maps its classes instead of reading them ([b4687d7](https://github.com/adfree-app/adfree/commit/b4687d720b22065b145e0b967d54bfe9b6302254))
+
 ## [1.34.2](https://github.com/adfree-app/adfree/compare/v1.34.1...v1.34.2) (2026-11-23)
 
 ### Bug Fixes
