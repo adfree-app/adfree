@@ -1155,34 +1155,65 @@
 
   // What a wrapper still shows once the slot is lifted out of it. A close
   // button hung on an ad frame is a control, not content — it goes with the
-  // frame — so a box smaller than a thumbnail is skipped whatever it draws
-  // inside it (the close button on click2houston.com carries a 16×16 icon, and
-  // asking whether it held a picture kept the 90 px frame on screen). A bigger
-  // box with a picture, a player or words beyond the label keeps the wrapper
-  // alive; `null` means "not empty".
+  // frame — so a control-sized box is skipped whatever it draws inside it (the
+  // close button on click2houston.com carries a 16×16 icon, and asking whether
+  // it held a picture kept the 90 px frame on screen). A bigger box with a
+  // picture, a player or words beyond the label keeps the wrapper alive; `null`
+  // means "not empty".
+  //
+  // A control is small in *both* directions, and that is the whole test: the
+  // seek bar on YouTube is 918×4, its played part a few pixels tall, and asking
+  // either direction alone made every one of them a control — so the bar read
+  // as empty, and the walk hid the player's progress bar with the ad markers it
+  // was climbing out of (reported 23/11/2026). A bar is thin, not small.
+  //
+  // The walk reads everything the wrapper shows, not just its own children.
+  // Reading only the children let one collapse feed the next: the like row's
+  // sponsor button was taken for a slot, the row read as empty once it went,
+  // the owner block read as empty once the row went, and the walk hid the whole
+  // related column above it.
   const CONTROL_W = 60;
   const CONTROL_H = 40;
+  const RESIDUAL_LIMIT = 400;
+  const insideCollapsed = (node, until) => {
+    for (let p = node.parentElement; p && p !== until; p = p.parentElement) {
+      if (p.classList?.contains(SLOT_COLLAPSED)) {
+        return true;
+      }
+    }
+    return false;
+  };
   const slotResidual = (el, slot) => {
     let text = '';
-    for (const node of el.childNodes) {
-      if (node === slot) {
+    let seen = 0;
+    for (const node of el.querySelectorAll('*')) {
+      if (node === slot || slot.contains?.(node) || insideCollapsed(node, el)) {
         continue;
       }
-      if (node.nodeType === 3) {
-        text += node.nodeValue || '';
+      if (node.classList?.contains(SLOT_COLLAPSED)) {
         continue;
       }
-      if (node.nodeType !== 1 || node.classList?.contains(SLOT_COLLAPSED)) {
-        continue;
-      }
-      const rect = node.getBoundingClientRect();
-      if (rect.width < CONTROL_W || rect.height < CONTROL_H) {
-        continue;
-      }
-      if (node.matches?.('img,video,canvas,svg,picture,object,embed') || slotHasContent(node)) {
+      seen += 1;
+      if (seen > RESIDUAL_LIMIT) {
+        // Too much to read: the wrapper is not the empty band this pass is for,
+        // so it keeps its box.
         return null;
       }
-      text += node.textContent || '';
+      const rect = node.getBoundingClientRect();
+      if (rect.width < CONTROL_W && rect.height < CONTROL_H) {
+        continue;
+      }
+      // Anything that kept its own box is something the reader sees, whether or
+      // not it draws a picture or says a word: the played part of a seek bar is
+      // a few-pixel-tall div with no text and no `<img>`, and reading that as
+      // empty is what hid the bar along with the ad markers the walk had begun
+      // at.
+      return null;
+    }
+    for (const node of el.childNodes) {
+      if (node.nodeType === 3) {
+        text += node.nodeValue || '';
+      }
     }
     return text;
   };
@@ -1288,6 +1319,16 @@
     }
     for (const el of slots) {
       if (el.classList?.contains(SLOT_COLLAPSED) || !el.isConnected) {
+        continue;
+      }
+      // A control the reader can press is not an ad slot, whatever the site
+      // named it: YouTube's own Join button is `#sponsor-button`, and taking its
+      // name for a slot hid the button, then the row it sat in, then the block
+      // above that.
+      if (
+        el.matches?.('a,button,input,select,textarea,[role="button"],[role="link"],[contenteditable]') ||
+        el.querySelector?.('a,button,[role="button"],[role="link"]')
+      ) {
         continue;
       }
       // A slot holding anything a reader can see is either filled or not a

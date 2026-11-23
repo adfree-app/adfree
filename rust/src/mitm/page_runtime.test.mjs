@@ -872,6 +872,87 @@ describe('emptied ad slots', () => {
     expect(page.errors).toEqual([]);
   });
 
+  /// YouTube's player keeps an empty `.ytp-ad-progress-list` inside its seek
+  /// bar, and every part of that bar is a few pixels tall. Read one dimension
+  /// at a time, each part of it was a "control", the bar looked empty, and the
+  /// walk hid the seek bar itself — the reported missing progress bar
+  /// (23/11/2026). A bar is thin, not small.
+  test('a thin bar inside a named slot keeps its parent on screen', async () => {
+    const page = await openPage({
+      html: {
+        head:
+          '<style>' +
+          '#player{height:48px;background:#000}' +
+          '#bar{position:relative;width:300px;height:5px;background:#555}' +
+          '.ytp-play-progress{width:180px;height:3px;background:#f00}' +
+          '.ytp-ad-progress-list{width:300px;height:3px}' +
+          '</style>',
+        body:
+          '<div id="player"><div id="bar" class="ytp-progress-bar">' +
+          '<div class="ytp-play-progress"></div>' +
+          '<div class="ytp-ad-progress-list" id="admarkers"></div>' +
+          '</div></div>',
+      },
+    });
+
+    await expect.poll(() => page.display('#admarkers')).toBe('none');
+    await page.page.waitForTimeout(1200);
+    expect(await page.display('#bar')).not.toBe('none');
+    expect(await page.display('#player')).not.toBe('none');
+    expect(page.errors).toEqual([]);
+  });
+
+  /// YouTube's real Join button is `#sponsor-button`, and its name reads as a
+  /// slot. Taking it collapsed the button, then the row it sat in, then the
+  /// block above that — the reported missing like/share row (23/11/2026). A
+  /// control the reader can press is not a slot.
+  test('a named control is not a slot, and its row keeps its box', async () => {
+    const page = await openPage({
+      html: {
+        head:
+          '<style>' +
+          '#owner{display:flex;height:56px;gap:8px}' +
+          '#sponsor-button{width:120px;height:36px}' +
+          '#actions{display:flex;height:40px}' +
+          '</style>',
+        body:
+          '<div id="owner"><div id="avatar" style="width:40px;height:40px;background:#333"></div>' +
+          '<div id="sponsor-button"><button type="button">Join</button></div></div>' +
+          '<div id="actions"><div id="like" style="width:80px;height:36px;background:#444"></div></div>',
+      },
+    });
+
+    await page.page.waitForTimeout(1400);
+    expect(await page.display('#sponsor-button')).not.toBe('none');
+    expect(await page.display('#owner')).not.toBe('none');
+    expect(await page.display('#actions')).not.toBe('none');
+    expect(page.errors).toEqual([]);
+  });
+
+  /// The other direction of the same walk: a genuinely empty ad frame inside a
+  /// column of real cards collapses, and the column keeps its box because it
+  /// still shows the cards — the related column went missing when the walk only
+  /// read a wrapper's own children (23/11/2026).
+  test('a collapsed slot does not take the column it sits in', async () => {
+    const page = await openPage({
+      html: {
+        head:
+          '<style>#related{width:400px;padding:8px}.card{height:90px;background:#222;margin-bottom:8px}</style>',
+        body:
+          '<div id="secondary"><div id="related"><div class="card">' +
+          '<div style="width:160px;height:90px;background:#444"></div></div>' +
+          '<div class="ad-slot ad-wrapper"></div>' +
+          '<div class="card">another video, with words</div></div></div>',
+      },
+    });
+
+    await expect.poll(() => page.display('.ad-slot')).toBe('none');
+    await page.page.waitForTimeout(1400);
+    expect(await page.display('#related')).not.toBe('none');
+    expect(await page.display('#secondary')).not.toBe('none');
+    expect(page.errors).toEqual([]);
+  });
+
   /// `Advertisement` is the page telling the reader an ad would be here; a
   /// sentence is not, and a slot carrying one is left alone rather than
   /// guessed at.
