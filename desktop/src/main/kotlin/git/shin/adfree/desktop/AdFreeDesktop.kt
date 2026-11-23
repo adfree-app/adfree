@@ -130,6 +130,7 @@ fun main() {
     // thread that can least afford them, so the two run side by side and the
     // window no longer waits behind the engine. Nothing here is on a click
     // path: the shield reads a state flow that fills in when it fills in.
+
     fun startEverything() {
         container.start(appScope)
         StartupClock.mark("container started")
@@ -429,9 +430,10 @@ fun main() {
             val frameProbe = AdviseWhenFramesStop(visible)
             LaunchedEffect(Unit) {
                 withFrameNanos {
-                    val sinceLaunch = ProcessHandle.current().info().startInstant()
-                        .map { (System.currentTimeMillis() - it.toEpochMilli()) }
-                        .orElse(-1L)
+                    val handle = ProcessHandle.current()
+                    val launched = handle.info().startInstant().orElse(null)
+                    val sinceLaunch =
+                        if (launched == null) -1L else System.currentTimeMillis() - launched.toEpochMilli()
                     StartupClock.mark("first frame (process age ${sinceLaunch}ms)")
                 }
             }
