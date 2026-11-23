@@ -20,7 +20,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -45,13 +44,13 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberTrayState
 import androidx.compose.ui.window.rememberWindowState
 import git.shin.adfree.data.InspectorLayout
-import git.shin.adfree.l10n.L10n
 import git.shin.adfree.l10n.Strings
 import git.shin.adfree.model.ThemeMode
 import git.shin.adfree.platform.BackRegistry
 import git.shin.adfree.platform.LocalAppInventory
 import git.shin.adfree.platform.LocalBackRegistry
 import git.shin.adfree.platform.LocalFileHost
+import git.shin.adfree.l10n.L10n
 import git.shin.adfree.platform.LocalPlatformHost
 import git.shin.adfree.platform.LocalResumeTick
 import git.shin.adfree.ui.AdGuardApp
@@ -101,7 +100,6 @@ fun main() {
         }
         ElevationHandOff.Unnecessary -> Unit
     }
-    StartupClock.mark("elevation done")
     val container = DesktopContainer()
     // One engine, one set of listeners, one set of redirect rules. A second
     // window is what takes the machine down rather than filtering it: the
@@ -123,33 +121,20 @@ fun main() {
     // Before the first window: a click that waits is what the user calls slow,
     // and only the event thread can say how long it was waiting.
     startEventThreadWatch()
-    // The engine, the certificate and the saved state are what the *window*
-    // needs last, and they take seconds: the CA has to be minted, the driver
-    // files unpacked and the state read back out of SQLite before any of it
-    // answers. Composing the first screen takes seconds of its own, on the
-    // thread that can least afford them, so the two run side by side and the
-    // window no longer waits behind the engine. Nothing here is on a click
-    // path: the shield reads a state flow that fills in when it fills in.
-
-    fun startEverything() {
-        container.start(appScope)
-        StartupClock.mark("container started")
-        // The system bundle is not the only trust store: NSS applications read
-        // their own database, and one a browser creates after this point would
-        // never see the certificate. Writing them every start is idempotent and
-        // costs a `certutil` per database, so it runs off the UI thread instead
-        // of hiding behind the once-per-install flag the HTTPS default uses.
-        container.platformHost.refreshUserTrustStores()
-        // The window does not need to be up for this: the ask runs on its own
-        // thread, so the certificate dialog the system raises never blocks it.
-        container.applyHttpsDefault(appScope)
-        container.applyBridgeDefault()
-        // Desktop logs the requests it allows as well as the ones it refuses;
-        // see the method for why this is a desktop-only default.
-        container.applyLogAllowedDefault()
-        StartupClock.mark("defaults applied")
-    }
-    appScope.launch(Dispatchers.IO) { startEverything() }
+    container.start(appScope)
+    // The system bundle is not the only trust store: NSS applications read
+    // their own database, and one a browser creates after this point would
+    // never see the certificate. Writing them every start is idempotent and
+    // costs a `certutil` per database, so it runs off the UI thread instead of
+    // hiding behind the once-per-install flag the HTTPS default uses.
+    appScope.launch(Dispatchers.IO) { container.platformHost.refreshUserTrustStores() }
+    // The window is not up yet and does not need to be: the ask runs on its own
+    // thread, so the certificate dialog the system raises never blocks it.
+    container.applyHttpsDefault(appScope)
+    container.applyBridgeDefault()
+    // Desktop logs the requests it allows as well as the ones it refuses; see
+    // the method for why this is a desktop-only default.
+    container.applyLogAllowedDefault()
     val resumeTick = MutableStateFlow(0L)
     val backRegistry = BackRegistry()
     // A Wayland session draws AWT's XEmbed icon through KDE's
@@ -198,13 +183,9 @@ fun main() {
 
     if (!displayAvailable) {
         System.err.println("[desktop] no display in this session; filtering without a window")
-        // Nothing here is concurrent: there is no window to compose beside it,
-        // and the process must not outlive a start that never happened.
-        startEverything()
         keepFilteringWithoutWindow()
     }
 
-    StartupClock.mark("compose entry")
     application {
         val windowState = rememberWindowState(width = 1200.dp, height = 800.dp)
         val trayState = rememberTrayState()
@@ -213,7 +194,6 @@ fun main() {
         var pauseJob by remember { mutableStateOf<Job?>(null) }
         var showFilteringLog by remember { mutableStateOf(false) }
         var showInspector by remember { mutableStateOf(false) }
-        LaunchedEffect(Unit) { StartupClock.mark("composition ran") }
         // The log is the AdGuard-for-Windows window: the request table and,
         // beside it, the details of the row that was clicked. Both halves need
         // room, and the pane only docks where the table beside it still has its
@@ -428,15 +408,6 @@ fun main() {
             // every JVM thread sits idle, as a thread dump showed when this last
             // happened. The frame clock is the one signal that separates the two.
             val frameProbe = AdviseWhenFramesStop(visible)
-            LaunchedEffect(Unit) {
-                withFrameNanos {
-                    val handle = ProcessHandle.current()
-                    val launched = handle.info().startInstant().orElse(null)
-                    val sinceLaunch =
-                        if (launched == null) -1L else System.currentTimeMillis() - launched.toEpochMilli()
-                    StartupClock.mark("first frame (process age ${sinceLaunch}ms)")
-                }
-            }
 
             // A hidden-to-tray window comes back where it was left, which on
             // this desktop means behind whatever the user was working in and

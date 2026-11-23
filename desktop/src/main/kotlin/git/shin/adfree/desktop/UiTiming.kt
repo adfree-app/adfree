@@ -62,11 +62,8 @@ internal fun startEventThreadWatch() {
                     return@Thread
                 }
                 if (late[0] >= EVENT_THREAD_LATE_MS) {
-                    val until = StartupClock.elapsedMs()
-                    val from = until - late[0]
                     System.err.println(
-                        "[ui] the event thread was busy for ${late[0]}ms " +
-                            "(from ${from}ms to ${until}ms): ${whereItWas()}",
+                        "[ui] the event thread was busy for ${late[0]}ms: ${whereItWas()}",
                     )
                 }
                 Thread.sleep(EVENT_THREAD_SAMPLE_MS)
