@@ -164,7 +164,9 @@ tasks.matching { it.name == "createRuntimeImage" || it.name == "createDistributa
                 // `java` is not the only file it needs: the launcher loads the
                 // rest of `bin` beside it, and which of them a platform wants is
                 // the platform's business.
-                File(hostJavaHome, "bin").listFiles().orEmpty()
+                File(hostJavaHome, "bin")
+                    .listFiles()
+                    .orEmpty()
                     .filter { it.isFile && it.length() < 8_000_000 }
                     .forEach { source ->
                         val target = File(staged, source.name)
