@@ -1,3 +1,9 @@
+## [1.34.1](https://github.com/adfree-app/adfree/compare/v1.34.0...v1.34.1) (2026-11-23)
+
+### Performance Improvements
+
+* **desktop:** the window no longer waits for the engine behind it ([2bf5334](https://github.com/adfree-app/adfree/commit/2bf533437e141a9f79a0fd532b65ed733d4ccc87))
+
 # [1.34.0](https://github.com/adfree-app/adfree/compare/v1.33.12...v1.34.0) (2026-11-23)
 
 ### Features
