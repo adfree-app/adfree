@@ -1,3 +1,9 @@
+## [1.34.4](https://github.com/adfree-app/adfree/compare/v1.34.3...v1.34.4) (2026-11-23)
+
+### Bug Fixes
+
+* **filter:** a thin bar is not a control, and a named control is not a slot ([ab38e67](https://github.com/adfree-app/adfree/commit/ab38e67a60fa858c64f7655d2cfc5e1461fe37ba))
+
 ## [1.34.3](https://github.com/adfree-app/adfree/compare/v1.34.2...v1.34.3) (2026-11-23)
 
 ### Bug Fixes
