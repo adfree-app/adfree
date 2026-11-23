@@ -234,10 +234,12 @@ class DesktopContainer(
         // never looked at. Android does this in its Application; the desktop
         // has the same hour, and hydration acts on the answer.
         coreEngine.ensureCa()
+        StartupClock.mark("ca ready")
         // The Windows redirect loads a DLL and a driver; both travel inside this
         // jar, and both have to be on disk before the driver is asked for. The
         // call is a no-op on Linux and Android.
         WinDivertFiles.install()
+        StartupClock.mark("windivert files installed")
         // On Windows this is the difference between an app that filters and an
         // app that looks like it does: say it once, in the log, before the
         // driver refuses to open and the reason has to be reconstructed.
@@ -248,6 +250,7 @@ class DesktopContainer(
             )
         }
         repository.hydrateState()
+        StartupClock.mark("state hydrated")
         scope.launch {
             repository.settings.map { it.isProtectionActive }.collect { protectionWanted.value = it }
         }

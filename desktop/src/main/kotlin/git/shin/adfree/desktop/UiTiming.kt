@@ -40,18 +40,33 @@ internal fun startEventThreadWatch() {
                         late[0] = (System.nanoTime() - posted) / 1_000_000
                         answer.countDown()
                     }
-                    // A thread that never answers is the case this whole file
-                    // exists to notice; waiting forever would notice nothing.
-                    if (!answer.await(30, java.util.concurrent.TimeUnit.SECONDS)) {
-                        System.err.println("[ui] the event thread did not answer for 30s")
+                    // A stall is sampled while it is happening: the stack of
+                    // the thread that has not answered yet is the only place
+                    // the work is, and asking afterwards answers "it is free".
+                    var dumped = 0
+                    while (!answer.await(500, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                        val busyFor = (System.nanoTime() - posted) / 1_000_000
+                        if (busyFor >= EVENT_THREAD_LATE_MS && dumped < 3) {
+                            dumped++
+                            System.err.println(
+                                "[ui] still busy at ${busyFor}ms: ${whereItWas(22)}",
+                            )
+                        }
+                        if (busyFor > 30_000) {
+                            System.err.println("[ui] the event thread did not answer for 30s")
+                            break
+                        }
                     }
                 } catch (e: Throwable) {
                     System.err.println("[ui] event thread watch: ${e.message}")
                     return@Thread
                 }
                 if (late[0] >= EVENT_THREAD_LATE_MS) {
+                    val until = StartupClock.elapsedMs()
+                    val from = until - late[0]
                     System.err.println(
-                        "[ui] the event thread was busy for ${late[0]}ms: ${whereItWas()}",
+                        "[ui] the event thread was busy for ${late[0]}ms " +
+                            "(from ${from}ms to ${until}ms): ${whereItWas()}",
                     )
                 }
                 Thread.sleep(EVENT_THREAD_SAMPLE_MS)
@@ -67,7 +82,7 @@ private val started =
         .AtomicBoolean(false)
 
 /** The event thread's own stack, which is where the wait is happening. */
-private fun whereItWas(): String {
+private fun whereItWas(depth: Int = 6): String {
     val stack =
         Thread
             .getAllStackTraces()
@@ -75,7 +90,7 @@ private fun whereItWas(): String {
             .firstOrNull { it.key.name.startsWith("AWT-EventQueue") }
             ?.value
             ?: return "the event thread has no stack to show"
-    return stack.take(6).joinToString(" <- ") { frame ->
+    return stack.take(depth).joinToString(" <- ") { frame ->
         val where = frame.className.substringAfterLast('.') + "." + frame.methodName
         if (frame.lineNumber >= 0) "$where:${frame.lineNumber}" else where
     }
