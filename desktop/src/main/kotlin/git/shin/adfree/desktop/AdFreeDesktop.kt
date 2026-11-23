@@ -118,6 +118,9 @@ fun main() {
     }
     container.instanceLock = lock
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    // Before the first window: a click that waits is what the user calls slow,
+    // and only the event thread can say how long it was waiting.
+    startEventThreadWatch()
     container.start(appScope)
     // The system bundle is not the only trust store: NSS applications read
     // their own database, and one a browser creates after this point would
