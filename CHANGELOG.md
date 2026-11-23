@@ -1,3 +1,9 @@
+## [1.34.2](https://github.com/adfree-app/adfree/compare/v1.34.1...v1.34.2) (2026-11-23)
+
+### Bug Fixes
+
+* **desktop:** the engine starts before the window again, because the window dies otherwise ([a7fb92c](https://github.com/adfree-app/adfree/commit/a7fb92c48632d896dd014fa1c1e2b44fda6e7781))
+
 ## [1.34.1](https://github.com/adfree-app/adfree/compare/v1.34.0...v1.34.1) (2026-11-23)
 
 ### Performance Improvements
