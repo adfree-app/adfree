@@ -1,3 +1,9 @@
+# [1.34.0](https://github.com/adfree-app/adfree/compare/v1.33.12...v1.34.0) (2026-11-23)
+
+### Features
+
+* **desktop:** the window says when a click had to wait, and how long ([0fba72b](https://github.com/adfree-app/adfree/commit/0fba72b758fd6adeefa872d23c06848d67bb96e7))
+
 ## [1.33.12](https://github.com/adfree-app/adfree/compare/v1.33.11...v1.33.12) (2026-11-22)
 
 ### Bug Fixes
