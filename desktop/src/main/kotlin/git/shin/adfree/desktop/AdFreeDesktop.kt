@@ -20,6 +20,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -59,6 +60,7 @@ import git.shin.adfree.ui.screens.FilteringLogScreen
 import git.shin.adfree.ui.screens.RequestInspectorScreen
 import git.shin.adfree.ui.AdGuardTab
 import git.shin.adfree.ui.theme.MyApplicationTheme
+import kotlin.system.exitProcess
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -80,7 +82,11 @@ import androidx.compose.runtime.produceState
  * listeners and the redirect rules filtering, the way AdGuard for Windows
  * keeps filtering with its window shut.
  */
-fun main() {
+fun main(args: Array<String>) {
+    // A training run is the app composing itself once so the launcher can map
+    // the classes it loaded next time; it owns nothing and filters nothing, so
+    // it neither elevates nor takes the instance lock.
+    val training = args.contains(CdsArchive.TRAIN_ARG)
     // A unit installed in one login wakes up in the next one, where the X
     // cookie it was written with is gone. Fix that before AWT is loaded: the
     // first AWT call is what throws, and it throws hard enough to end the
@@ -90,7 +96,8 @@ fun main() {
     // filter needs Administrator, and an un-elevated instance would take the
     // ports and the lock from the elevated copy that can actually use them. The
     // hand-off happens first so this process owns nothing to let go of.
-    when (val handOff = DesktopElevation().handOff()) {
+    val handOff = if (training) ElevationHandOff.Unnecessary else DesktopElevation().handOff()
+    when (handOff) {
         is ElevationHandOff.Started -> {
             System.err.println("[desktop] starting an elevated instance through ${handOff.how}")
             return
@@ -110,31 +117,36 @@ fun main() {
     // hand-over: the instance being replaced has to let go before the new one
     // reads the lock.
     val lock = InstanceLock(container.dataRoot)
-    if (!lock.acquire()) {
+    if (!training && !lock.acquire()) {
         System.err.println(
             "[desktop] AdFree is already running; this window will not start a second engine",
         )
         return
     }
-    container.instanceLock = lock
+    if (!training) container.instanceLock = lock
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     // Before the first window: a click that waits is what the user calls slow,
     // and only the event thread can say how long it was waiting.
     startEventThreadWatch()
-    container.start(appScope)
-    // The system bundle is not the only trust store: NSS applications read
-    // their own database, and one a browser creates after this point would
-    // never see the certificate. Writing them every start is idempotent and
-    // costs a `certutil` per database, so it runs off the UI thread instead of
-    // hiding behind the once-per-install flag the HTTPS default uses.
-    appScope.launch(Dispatchers.IO) { container.platformHost.refreshUserTrustStores() }
-    // The window is not up yet and does not need to be: the ask runs on its own
-    // thread, so the certificate dialog the system raises never blocks it.
-    container.applyHttpsDefault(appScope)
-    container.applyBridgeDefault()
-    // Desktop logs the requests it allows as well as the ones it refuses; see
-    // the method for why this is a desktop-only default.
-    container.applyLogAllowedDefault()
+    // A training run composes the window and nothing else: it must not take the
+    // ports the running app owns, and the classes it exists to record are the
+    // ones the window loads, not the engine's.
+    if (!training) {
+        container.start(appScope)
+        // The system bundle is not the only trust store: NSS applications read
+        // their own database, and one a browser creates after this point would
+        // never see the certificate. Writing them every start is idempotent and
+        // costs a `certutil` per database, so it runs off the UI thread instead
+        // of hiding behind the once-per-install flag the HTTPS default uses.
+        appScope.launch(Dispatchers.IO) { container.platformHost.refreshUserTrustStores() }
+        // The window is not up yet and does not need to be: the ask runs on its
+        // own thread, so the certificate dialog the system raises never blocks it.
+        container.applyHttpsDefault(appScope)
+        container.applyBridgeDefault()
+        // Desktop logs the requests it allows as well as the ones it refuses;
+        // see the method for why this is a desktop-only default.
+        container.applyLogAllowedDefault()
+    }
     val resumeTick = MutableStateFlow(0L)
     val backRegistry = BackRegistry()
     // A Wayland session draws AWT's XEmbed icon through KDE's
@@ -408,6 +420,22 @@ fun main() {
             // every JVM thread sits idle, as a thread dump showed when this last
             // happened. The frame clock is the one signal that separates the two.
             val frameProbe = AdviseWhenFramesStop(visible)
+            LaunchedEffect(Unit) {
+                withFrameNanos {
+                    markFirstFrame()
+                    // The archive is only written on a clean exit, so the run
+                    // that exists to write it ends here, by itself.
+                    // Compose's own shutdown hooks join a thread from inside the
+                    // frame that asked for the exit, so the exit is asked for
+                    // from a thread of its own a moment later.
+                    if (training) {
+                        Thread {
+                            Thread.sleep(1_500)
+                            exitProcess(0)
+                        }.start()
+                    }
+                }
+            }
 
             // A hidden-to-tray window comes back where it was left, which on
             // this desktop means behind whatever the user was working in and

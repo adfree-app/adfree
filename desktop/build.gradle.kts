@@ -124,12 +124,91 @@ val stageNativeHost by tasks.registering(Copy::class) {
 sourceSets["main"].resources.srcDir(layout.buildDirectory.dir("coreResources"))
 tasks.named("processResources") { dependsOn(stageCoreLibrary, stageNativeHost) }
 
+// A class archive needs a base archive to be written from, and jpackage's
+// runtime image ships `libjvm` without one: every attempt at a dynamic archive
+// in such an image answers `-XX:ArchiveClassesAtExit is unsupported when base
+// CDS archive is not loaded`. The base archive is a property of the image's own
+// `lib/modules` — the one beside the build JDK does not fit, because jlink
+// prunes the module set — so it is dumped here, by the image's own JVM.
+//
+// The image carries no `java` launcher to dump with (jpackage strips it), so
+// the build stages one from the JDK that made the image, dumps, and removes it
+// again. What remains is `lib/server/classes.jsa`: JDK classes already resolved,
+// which every launch of the packaged app maps instead of reading.
+val hostJavaHome = File(System.getProperty("java.home"))
+val javaExecutableName = if (System.getProperty("os.name").orEmpty().lowercase().startsWith("windows")) {
+    "java.exe"
+} else {
+    "java"
+}
+tasks.matching { it.name == "createDistributable" }.configureEach {
+    doLast {
+        val image = layout.buildDirectory.dir("compose/binaries/main/app").get().asFile
+        val libjvm =
+            image.walkTopDown().firstOrNull { it.isFile && it.name.startsWith("libjvm.") } ?: return@doLast
+        // `<runtime>/lib/server/libjvm.so`: the runtime root is two levels up.
+        val runtimeLib = libjvm.parentFile.parentFile
+        val runtimeRoot = runtimeLib.parentFile
+        val stagedJava = File(runtimeRoot, "bin/$javaExecutableName")
+        val needsJli = System.getProperty("os.name").orEmpty().lowercase().startsWith("windows")
+        val stagedJli =
+            if (needsJli) {
+                File(runtimeRoot, "bin/libjli.dll")
+            } else {
+                File(runtimeLib, "libjli.so")
+            }
+        val sourceJli =
+            if (needsJli) File(hostJavaHome, "bin/libjli.dll") else File(hostJavaHome, "lib/libjli.so")
+        val staged = listOf(stagedJava to File(hostJavaHome, "bin/$javaExecutableName")) +
+            listOfNotNull(stagedJli.takeIf { sourceJli.isFile }?.let { it to sourceJli })
+        // Only what the image did not already have is removed again, so a
+        // second run of this task does not delete a launcher jpackage kept.
+        val added = staged.filterNot { it.first.exists() }
+        runCatching {
+            added.forEach { (target, source) ->
+                target.parentFile.mkdirs()
+                source.copyTo(target, overwrite = true)
+                target.setReadable(true)
+                target.setExecutable(true)
+            }
+            val dump =
+                ProcessBuilder(stagedJava.absolutePath, "-Xshare:dump")
+                    .directory(runtimeRoot)
+                    .redirectErrorStream(true)
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                    .start()
+            check(dump.waitFor() == 0) { "the class archive dump failed" }
+            logger.lifecycle("cds: base class archive -> ${File(runtimeLib, "server/classes.jsa").absolutePath}")
+        }.also {
+            added.forEach { (target, _) -> target.delete() }
+            added.map { (target, _) -> target.parentFile }
+                .distinct()
+                .filter { parent -> parent.listFiles().isNullOrEmpty() }
+                .forEach { parent -> parent.delete() }
+            if (it.isFailure) logger.warn("cds: no base class archive was written", it.exceptionOrNull())
+        }.getOrThrow()
+    }
+}
+
 compose.desktop {
     application {
         mainClass = "git.shin.adfree.desktop.AdFreeDesktopKt"
         // The core registers native upcalls; without this flag every one of
         // them is a warning on a JDK that has started enforcing it.
         jvmArgs += listOf("--enable-native-access=ALL-UNNAMED")
+        // Windows only, because Windows is the one install directory the
+        // process owns and can write: the archive is written where the app
+        // lives. `AutoCreateSharedArchive` maps `adfree.jsa` when it is there
+        // and writes it on the first clean exit when it is not, so an update —
+        // whose jars no longer match the archive — replaces it by itself. A
+        // Linux install under /opt belongs to root and would only inherit the
+        // warning on every launch.
+        if (System.getProperty("os.name").orEmpty().lowercase().startsWith("windows")) {
+            jvmArgs += listOf(
+                "-XX:SharedArchiveFile=\$APPDIR/adfree.jsa",
+                "-XX:+AutoCreateSharedArchive",
+            )
+        }
 
         nativeDistributions {
             // The whole JDK, because a hand-listed runtime fails silently and

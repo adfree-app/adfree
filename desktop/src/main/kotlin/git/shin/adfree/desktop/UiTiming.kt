@@ -21,6 +21,21 @@ internal const val EVENT_THREAD_SAMPLE_MS = 100L
 /** What a click is made to wait behind before it is worth saying out loud. */
 internal const val EVENT_THREAD_LATE_MS = 300L
 
+/** When `main` was entered, so a launch can say how long the window took. */
+private val mainEnteredAt = System.nanoTime()
+
+/**
+ * Says the one number a user feels: the time from launch to a painted window.
+ *
+ * Kept in the shipped build rather than added while measuring, because "it
+ * opens slowly" needs a number beside it and the number is worthless if it only
+ * exists in the builds somebody remembered to instrument.
+ */
+internal fun markFirstFrame() {
+    val millis = (System.nanoTime() - mainEnteredAt) / 1_000_000
+    System.err.println("[desktop] first frame after ${millis}ms")
+}
+
 /**
  * Watches the event thread from the outside, and says so when it is late.
  *
