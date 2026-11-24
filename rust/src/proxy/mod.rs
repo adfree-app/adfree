@@ -974,6 +974,222 @@ mod lifecycle_tests {
         server.join().unwrap();
     }
 
+    /// Windows' schannel will not finish a chain whose revocation state it
+    /// cannot read, so the CA publishes a list and every leaf names it. The
+    /// name resolves to an address that hosts nothing: the redirect catches the
+    /// fetch and the proxy answers it, which is what this pair asserts — a
+    /// resolver that answers, and a proxy that serves the CA's own bytes.
+    #[test]
+    fn the_revocation_host_resolves_to_the_placeholder() {
+        let _guard = PROXY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(
+            start(31333, 35357, true).running,
+            "listeners must come up on free ports"
+        );
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        socket
+            .send_to(
+                &crate::dns::build_query(crate::mitm::ca::CRL_HOST, crate::dns::TYPE_A, 0x4321)
+                    .unwrap(),
+                "127.0.0.1:35357",
+            )
+            .unwrap();
+        socket
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut answer = vec![0u8; 4096];
+        let n = socket.recv(&mut answer).unwrap();
+        stop();
+        assert_eq!(&answer[0..2], &0x4321u16.to_be_bytes(), "the id is echoed");
+        assert_eq!(&answer[6..8], &1u16.to_be_bytes(), "exactly one record");
+        assert!(
+            answer[..n]
+                .windows(4)
+                .any(|w| w == crate::mitm::ca::CRL_ADDR),
+            "the placeholder reaches the client"
+        );
+    }
+
+    /// Asked with DNS protection off, the list's name is still answered: the
+    /// leaf a client is holding names it, and a forwarded lookup would leave a
+    /// revocation-checking client with nowhere to fetch from — the failure this
+    /// list exists to end, arriving through the switch instead of the chain.
+    #[test]
+    fn the_revocation_host_answers_even_with_dns_protection_off() {
+        let _guard = PROXY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(start(31335, 35361, true).running, "listeners must come up");
+        crate::core().set_config(crate::engine::Config {
+            dns_protection: false,
+            ..crate::core().config()
+        });
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        socket
+            .send_to(
+                &crate::dns::build_query(crate::mitm::ca::CRL_HOST, crate::dns::TYPE_A, 0x4322)
+                    .unwrap(),
+                "127.0.0.1:35361",
+            )
+            .unwrap();
+        socket
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut answer = vec![0u8; 4096];
+        let n = socket.recv(&mut answer).unwrap();
+        // Back on, so the rest of the suite does not inherit this switch.
+        crate::core().set_config(crate::engine::Config {
+            dns_protection: true,
+            ..crate::core().config()
+        });
+        stop();
+        assert_eq!(&answer[0..2], &0x4322u16.to_be_bytes(), "the id is echoed");
+        assert_eq!(&answer[6..8], &1u16.to_be_bytes(), "exactly one record");
+        assert!(
+            answer[..n]
+                .windows(4)
+                .any(|w| w == crate::mitm::ca::CRL_ADDR),
+            "the placeholder reaches the client with the switch off too"
+        );
+    }
+
+    /// A connection that names no destination used to hold a core: the wait
+    /// for a request peeked at bytes it never consumed, so a client that sent
+    /// something which would never read as a head — a hello, a line still being
+    /// typed — left `poll` answering instantly for as long as it stayed
+    /// connected. The wait is a budget now, and nothing arriving is its end.
+    #[test]
+    #[cfg(unix)]
+    fn a_connection_that_names_nothing_does_not_hold_a_core() {
+        let mut fds = [0 as libc::c_int; 2];
+        let created =
+            unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, fds.as_mut_ptr()) };
+        assert_eq!(created, 0, "a socket pair on this machine");
+        let hello: Vec<u8> = (0u8..64).map(|b| 0x16u8.wrapping_add(b)).collect();
+        let written =
+            unsafe { libc::write(fds[0], hello.as_ptr() as *const libc::c_void, hello.len()) };
+        assert_eq!(written as usize, hello.len());
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        let started = std::time::Instant::now();
+        let target = super::tcp::resolve_target_within(fds[1], &stop, Duration::from_millis(50));
+        let spent = started.elapsed();
+        unsafe {
+            libc::close(fds[0]);
+            libc::close(fds[1]);
+        }
+        assert!(target.is_none(), "a hello names no destination");
+        assert!(
+            spent < Duration::from_secs(2),
+            "the connection is not waited on forever: {spent:?}"
+        );
+    }
+
+    /// The list's port is a fixed, guessable address that this proxy answers
+    /// like a server, so the wait for a request has to end on its own: a client
+    /// that sends something which will never read as a head — a TLS hello sent
+    /// to the placeholder, a head that stops halfway — must not turn one
+    /// connection into a thread that never blocks again.
+    #[test]
+    #[cfg(unix)]
+    fn a_stranger_on_the_placeholders_port_is_not_waited_for() {
+        let mut fds = [0 as libc::c_int; 2];
+        let created =
+            unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, fds.as_mut_ptr()) };
+        assert_eq!(created, 0, "a socket pair on this machine");
+        // A hello: binary, and no `\r\n\r\n` anywhere in it.
+        let hello: Vec<u8> = (0u8..64).map(|b| 0x16u8.wrapping_add(b)).collect();
+        let written =
+            unsafe { libc::write(fds[0], hello.as_ptr() as *const libc::c_void, hello.len()) };
+        assert_eq!(written as usize, hello.len(), "the hello is written");
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        let started = std::time::Instant::now();
+        assert!(
+            !super::tcp::drain_head(fds[1], &stop, Duration::from_millis(50)),
+            "a head that never arrives is not a head"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "and the wait is the one that was asked for"
+        );
+        assert!(
+            !super::tcp::drain_head(fds[1], &stop, Duration::from_millis(50)),
+            "the bytes were read, so nothing readable is left behind"
+        );
+
+        // The other way round: a request ends the wait as soon as it is whole,
+        // and half of one does not.
+        let request = b"GET /adfree.crl HTTP/1.1\r\nHost: crl.adfree.internal\r\n\r\n";
+        let half =
+            unsafe { libc::write(fds[0], request[..12].as_ptr() as *const libc::c_void, 12) };
+        assert_eq!(half, 12);
+        // Written before the call: the wait either sees a whole head or it does
+        // not, and both answers are checked below.
+        let rest = unsafe {
+            libc::write(
+                fds[0],
+                request[12..].as_ptr() as *const libc::c_void,
+                request.len() - 12,
+            )
+        };
+        assert_eq!(rest as usize, request.len() - 12);
+        assert!(
+            super::tcp::drain_head(fds[1], &stop, Duration::from_millis(500)),
+            "a whole request ends the wait"
+        );
+        unsafe {
+            libc::close(fds[0]);
+            libc::close(fds[1]);
+        }
+    }
+
+    #[test]
+    fn a_revocation_fetch_is_answered_by_the_proxy_itself() {
+        let _guard = PROXY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let list = crate::core().mitm_ca.read().unwrap().crl_der();
+        assert!(!list.is_empty(), "a CA always has a list to publish");
+        assert!(
+            start(31334, 35359, true).running,
+            "listeners must come up on free ports"
+        );
+        let mut client = TcpStream::connect("127.0.0.1:31334").unwrap();
+        client
+            .write_all(
+                format!(
+                    "GET http://{}{} HTTP/1.1\r\nHost: {}\r\n\r\n",
+                    crate::mitm::ca::CRL_HOST,
+                    crate::mitm::ca::CRL_PATH,
+                    crate::mitm::ca::CRL_HOST
+                )
+                .as_bytes(),
+            )
+            .unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        let mut reply = Vec::new();
+        let _ = client.read_to_end(&mut reply);
+        stop();
+        let head_end = reply
+            .windows(4)
+            .position(|w| w == b"\r\n\r\n")
+            .map(|p| p + 4)
+            .unwrap_or(0);
+        let head = String::from_utf8_lossy(&reply[..head_end]).into_owned();
+        assert!(
+            head.starts_with("HTTP/1.1 200 OK"),
+            "the client saw: {head}"
+        );
+        assert!(
+            head.to_ascii_lowercase()
+                .contains("content-type: application/pkix-crl"),
+            "the list is named as one: {head}"
+        );
+        assert_eq!(
+            &reply[head_end..],
+            list.as_slice(),
+            "the body is the CA's own list"
+        );
+        assert_eq!(reply[head_end], 0x30, "a DER SEQUENCE, not a PEM block");
+    }
+
     /// A request aimed at the proxy's own port must be refused, not dialled.
     /// `SO_ORIGINAL_DST` answers with the listener's address whenever no
     /// redirect rule touched the connection, and treating that as a real

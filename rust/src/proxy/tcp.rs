@@ -27,6 +27,17 @@ use std::sync::Arc;
 /// the middle of a load looks like from the outside.
 const DRAIN: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// How long the revocation list's connection may take to say what it wants,
+/// and how much of it is read before the wait is called a stranger's. Both are
+/// floors rather than budgets: a client that fetches a list says so in a line,
+/// and one that says nothing is not owed the list.
+/// How long a connection may take to name a destination before it is called
+/// a stranger's. The documented three seconds, now spent on the whole wait.
+const RESOLVE_BUDGET: std::time::Duration = std::time::Duration::from_secs(3);
+
+const HEAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+const MAX_HEAD_BYTES: usize = 8192;
+
 /// Said once per stop, by whichever flow notices first: a browser leaves dozens
 /// open, and one line each turns a deliberate pause into a wall of log.
 static DRAIN_ANNOUNCED: AtomicBool = AtomicBool::new(false);
@@ -146,7 +157,7 @@ pub(crate) fn accept_loop(listener: TcpListener, stop: Arc<AtomicBool>) {
 
 /// Which way the destination is known, and what the client's first bytes
 /// still owe the pump.
-enum Target {
+pub(super) enum Target {
     /// Set by the redirect rules: bytes start at the protocol itself.
     Original(SocketAddr),
     /// `CONNECT host:port` was parsed and answered; the head is consumed.
@@ -223,6 +234,21 @@ fn handle(client: TcpStream, stop: &AtomicBool) {
             crate::events::protocol::TCP,
         ));
         reset_on_close(client_fd);
+        return;
+    }
+
+    // A revocation list this CA published (see `mitm::ca::CRL_HOST`). Windows'
+    // schannel asks for it in the middle of a handshake, and a client that
+    // cannot read it fails the connection with `CRYPT_E_NO_REVOCATION_CHECK`.
+    // The address the resolver handed out names no machine; the request stops
+    // here instead of being dialled.
+    //
+    // After the app firewall, not before it: this answers like a server, and an
+    // app the firewall barred must not get an answer from one — the address is
+    // fixed and guessable, so serving it first would hand a blocked app a way
+    // to read bytes from this machine.
+    if addr.ip() == crate::mitm::ca::crl_ip() {
+        serve_crl(client_fd, &target, stop);
         return;
     }
 
@@ -634,6 +660,19 @@ fn local_addr(fd: RawFd) -> Option<SocketAddr> {
 /// Where this connection is headed: the redirected destination, or the one
 /// named by a plain proxy request.
 fn resolve_target(fd: RawFd, stop: &AtomicBool) -> Option<Target> {
+    resolve_target_within(fd, stop, RESOLVE_BUDGET)
+}
+
+/// [`resolve_target`], with the wait for a request made explicit so a test can
+/// ask for a short one. The wait is a budget and not a per-round timeout: a
+/// client that keeps readable bytes readable — anything that will never read as
+/// a head, which is every TLS hello and every line still being typed — used to
+/// find `poll` answering instantly forever, and the loop turned with it.
+pub(super) fn resolve_target_within(
+    fd: RawFd,
+    stop: &AtomicBool,
+    budget: std::time::Duration,
+) -> Option<Target> {
     if let Some(addr) = original_dst(fd) {
         // A socket nobody redirected has no conntrack entry, and the kernel
         // then answers `SO_ORIGINAL_DST` with the connection's *current*
@@ -647,11 +686,18 @@ fn resolve_target(fd: RawFd, stop: &AtomicBool) -> Option<Target> {
     // Explicit proxy mode: the first request names the destination. Peek
     // until a head terminates (or 3 seconds give up).
     let mut peek = vec![0u8; 8192];
+    let started = std::time::Instant::now();
+    let mut last_len = 0usize;
+    let mut stalled = 0u32;
     let head = loop {
         if stop.load(Ordering::Relaxed) {
             return None;
         }
-        if !super::poll_readable(fd, 3000) {
+        let left = budget.saturating_sub(started.elapsed());
+        if left.is_zero() {
+            return None;
+        }
+        if !super::poll_readable(fd, left.as_millis().min(i32::MAX as u128) as i32) {
             return None;
         }
         let rc = unsafe {
@@ -676,6 +722,17 @@ fn resolve_target(fd: RawFd, stop: &AtomicBool) -> Option<Target> {
         if (rc as usize) == peek.len() {
             return None; // A head over 8 KiB is not a proxy request.
         }
+        // Readable, and no more of it than the last look: nothing is on its
+        // way, and waiting longer only spends the slot and the core.
+        if bytes.len() == last_len {
+            stalled += 1;
+            if stalled >= STALL_ROUNDS {
+                return None;
+            }
+        } else {
+            stalled = 0;
+            last_len = bytes.len();
+        }
     };
     let text = String::from_utf8_lossy(&head).into_owned();
     let first_line = text.split("\r\n").next().unwrap_or("");
@@ -698,7 +755,17 @@ fn resolve_target(fd: RawFd, stop: &AtomicBool) -> Option<Target> {
                 Some(i) => (&rest[..i], &rest[i..]),
                 None => (rest, "/"),
             };
-            let addr = resolve_authority(authority, 80)?;
+            // The revocation host is named by address, not resolved: it exists
+            // only as a request the proxy answers itself (see `serve_crl`).
+            let crl = authority
+                .split(':')
+                .next()
+                .is_some_and(|h| h.eq_ignore_ascii_case(crate::mitm::ca::CRL_HOST));
+            let addr = if crl {
+                SocketAddr::new(crate::mitm::ca::crl_ip(), 80)
+            } else {
+                resolve_authority(authority, 80)?
+            };
             // Rebuild the head with an origin-form request line; every other
             // line (and everything after it) travels untouched.
             let mut rebuilt: Vec<u8> = Vec::with_capacity(head.len() + 16);
@@ -748,6 +815,84 @@ fn resolve_authority(text: &str, default_port: u16) -> Option<SocketAddr> {
     }
     let mut addrs = (host, port).to_socket_addrs().ok()?;
     addrs.find(SocketAddr::is_ipv4).or_else(|| addrs.next())
+}
+
+/// Answer the fetch for this CA's revocation list (see `mitm::ca::CRL_HOST`).
+///
+/// Windows' schannel asks for the list from inside a handshake and will not
+/// finish the chain without it, so this is on the critical path of every
+/// hard-failing client. Two shapes arrive: an absolute-form request from a
+/// client configured with this proxy, whose head `resolve_target` already
+/// consumed, and a redirected connection that names the placeholder address,
+/// whose head is still in the socket.
+/// Reads — does not peek at — the request whose answer is the revocation list.
+///
+/// A peek leaves every byte it looked at readable, so a client that says
+/// something this function will never understand as a head (a TLS hello sent to
+/// the placeholder, a head that stops halfway) would turn the wait into a loop
+/// that never blocks and never ends, holding a core with it. Consuming the
+/// bytes and bounding both the size and the time spent on them ends the wait
+/// where it should end: at the first head, or at the door.
+pub(super) fn drain_head(fd: RawFd, stop: &AtomicBool, budget: std::time::Duration) -> bool {
+    let started = std::time::Instant::now();
+    let mut head = Vec::new();
+    let mut chunk = [0u8; 1024];
+    while head.len() < MAX_HEAD_BYTES {
+        if stop.load(Ordering::Relaxed) || started.elapsed() > budget {
+            return false;
+        }
+        let left = (budget - started.elapsed())
+            .as_millis()
+            .min(i32::MAX as u128);
+        if !super::poll_readable(fd, left as i32) {
+            return false;
+        }
+        let rc = unsafe { libc::recv(fd, chunk.as_mut_ptr() as *mut libc::c_void, chunk.len(), 0) };
+        if rc < 0 {
+            let err = std::io::Error::last_os_error();
+            match err.raw_os_error() {
+                Some(libc::EAGAIN) | Some(libc::EINTR) => continue,
+                _ => return false,
+            }
+        }
+        if rc == 0 {
+            return false;
+        }
+        head.extend_from_slice(&chunk[..rc as usize]);
+        if find_head_end(&head).is_some() {
+            return true;
+        }
+    }
+    false
+}
+
+fn serve_crl(fd: RawFd, target: &Target, stop: &AtomicBool) {
+    let head_consumed = matches!(target, Target::PlainHttp { .. });
+    if !head_consumed && !drain_head(fd, stop, HEAD_TIMEOUT) {
+        return;
+    }
+
+    let crl = core().mitm_ca.read().unwrap().crl_der();
+    let reply = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/pkix-crl\r\nContent-Length: {}\r\n\
+         Connection: close\r\n\r\n",
+        crl.len()
+    );
+    if write_all_nb(fd, reply.as_bytes(), stop).is_err() {
+        crate::logbuf::push("proxy: the revocation list could not be written");
+        return;
+    }
+    if write_all_nb(fd, &crl, stop).is_err() {
+        crate::logbuf::push("proxy: the revocation list could not be written");
+        return;
+    }
+    crate::logbuf::push(&format!(
+        "proxy: served the revocation list ({} bytes)",
+        crl.len()
+    ));
+    // A half-close, not a reset: the client is reading the answer and a reset
+    // would drop it. Nothing else is owed on this connection.
+    unsafe { libc::shutdown(fd, libc::SHUT_WR) };
 }
 
 fn find_head_end(bytes: &[u8]) -> Option<usize> {
