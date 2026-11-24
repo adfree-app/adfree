@@ -4,6 +4,7 @@ import git.shin.adfree.core.CoreEngine
 import git.shin.adfree.model.LocalProxySettings
 import java.net.DatagramSocket
 import java.net.ServerSocket
+import java.nio.file.Files
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -238,4 +239,67 @@ class DesktopTunnelControlTest {
     private fun freeTcpPort(): Int = ServerSocket(0).use { it.localPort }
 
     private fun freeDnsPort(): Int = DatagramSocket(0).use { it.localPort }
+
+    /**
+     * After a hand-over the unit owns the listeners, the rules and the lock,
+     * and this window owns none of them. "Is protection on" then has one
+     * answer, and it is the unit's: answering it with this process's own
+     * listeners said no for as long as the machine was filtered, so the switch
+     * showed off over a filtered machine and the tap meant to turn it back on
+     * was answered with a hand-over already in force (reported 23/11/2026).
+     */
+    @Test
+    fun theSwitchIsOnWhileTheHandedOverUnitFilters() {
+        val privileges = DesktopPrivileges(isWindows = false, serviceActive = { true })
+        val control =
+            DesktopTunnelControl(
+                coreEngine = core,
+                protectionWanted = MutableStateFlow(true),
+                privileges = privileges,
+                localProxy = { LocalProxySettings(tcpPort = freeTcpPort(), dnsPort = freeDnsPort()) },
+            )
+
+        assertFalse("this window is not the one listening", core.isProxyRunning())
+        assertTrue("the machine is filtered all the same", control.isTunnelUp())
+    }
+
+    /**
+     * And stopping it is the unit's stop. Removing this window's rules and
+     * listeners would be removing what it does not have: the machine would stay
+     * filtered under a switch that reads off.
+     */
+    @Test
+    fun stoppingAHandedOverMachineStopsTheUnitAndLeavesThisWindowAlone() {
+        val dirPath = Files.createTempDirectory("adfree-unit-stop")
+        val dir = dirPath.toFile()
+        val log = java.io.File(dir, "calls")
+        val systemctl = java.io.File(dir, "systemctl")
+        systemctl.writeText("#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + log.absolutePath + "\nexit 0\n")
+        systemctl.setExecutable(true)
+        val privileges =
+            DesktopPrivileges(
+                isWindows = false,
+                systemctl = systemctl.absolutePath,
+                serviceActive = { true },
+                elevated = { true },
+            )
+        val control =
+            DesktopTunnelControl(
+                coreEngine = core,
+                protectionWanted = MutableStateFlow(true),
+                privileges = privileges,
+                localProxy = { LocalProxySettings(tcpPort = freeTcpPort(), dnsPort = freeDnsPort()) },
+            )
+
+        control.stopVpnService()
+
+        assertEquals("the unit is asked, and nothing else", listOf("stop adfree-desktop"), recordedCalls(log))
+        assertFalse(core.isProxyRunning())
+    }
+
+    /** What the recording `systemctl` script was asked to do. */
+    private fun recordedCalls(log: java.io.File): List<String> {
+        if (!log.isFile) return emptyList()
+        return log.readLines().filter { it.isNotBlank() }
+    }
 }

@@ -26,6 +26,7 @@ import git.shin.adfree.model.LogWindowTotals
 import git.shin.adfree.model.NetworkRequestLog
 import git.shin.adfree.model.ProtectionSettings
 import git.shin.adfree.model.ProtectionStats
+import git.shin.adfree.model.ProtectionTapGate
 import git.shin.adfree.model.ProxyAccess
 import git.shin.adfree.model.ProxySettings
 import git.shin.adfree.model.ServiceUsage
@@ -101,8 +102,20 @@ class AdGuardViewModel(
      */
     private val tunnelOps = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
 
+    /** One protection transition at a time; see [ProtectionTapGate]. */
+    private val protectionTap = ProtectionTapGate()
+
     /** How often the assistant's queue is read (see the loop in `init`). */
     private val ASSISTANT_POLL_MS = 1_000L
+
+    /**
+     * How long a tap holds the switch while the tunnel catches up, and how
+     * often it looks. Stopping joins two listener threads and starting can
+     * answer a privileged instance, so this is a wait in seconds; a tap that
+     * outlives it is answered by the state the screen then shows.
+     */
+    private val protectionSettleMs = 20_000L
+    private val protectionSettlePollMs = 100L
 
     // ---------------------------------------------------------------- local UI
 
@@ -437,9 +450,16 @@ class AdGuardViewModel(
         // all; the record says on while nothing filters, which the person reads
         // as the machine having lost its internet. The switch starts off and
         // the click that turns it on is the one that asks for the privilege.
+        //
+        // Off, though, only when nothing is filtering: a desktop that handed
+        // protection over to its privileged instance left that instance
+        // filtering, and a switch reading "off" over a machine that is
+        // filtered is the same lie in the other direction — the tap that would
+        // fix it is read as "turn it on" and answered with a hand-over that is
+        // already in force.
         if (repository.protectionWasOn()) {
             if (!tunnel.restoresProtectionOnLaunch) {
-                repository.toggleProtection(false)
+                repository.toggleProtection(tunnel.isTunnelUp())
             } else {
                 repository.toggleProtection(true)
                 if (tunnel.needsConsent()) {
@@ -1152,11 +1172,19 @@ class AdGuardViewModel(
     fun currentAppUsageTransport(): AppUsageTransport = repository.currentAppUsageTransport()
 
     private fun toggleProtection() {
-        // The switch follows the VPN itself, not a remembered flag: the flag
-        // reads true from the moment a start is dispatched, so a start whose
-        // binder work failed left the first tap after it switching protection
-        // *off* — turning off a tunnel that had never come up — and only the
-        // tap after that brought the tunnel back.
+        // One transition at a time. The switch follows the VPN itself, not a
+        // remembered flag: the flag reads true from the moment a start is
+        // dispatched, so a start whose binder work failed left the first tap
+        // after it switching protection *off* — turning off a tunnel that had
+        // never come up — and only the tap after that brought the tunnel back.
+        //
+        // Following the tunnel has the mirror cost: it answers with the state
+        // it has *now*, so a tap arriving while a stop is still joining its
+        // listeners is read as another "stop" and the tunnel never comes back
+        // up. That is the reported "cannot turn protection on again once it is
+        // off" (23/11/2026), and the gate is what makes the second tap wait for
+        // the first one to land.
+        if (!protectionTap.admit()) return
         val next = !tunnel.isTunnelUp()
         if (next) {
             val needsPermission = tunnel.needsConsent()
@@ -1180,6 +1208,28 @@ class AdGuardViewModel(
                 },
             ),
         )
+        awaitProtectionSettled(next)
+    }
+
+    /**
+     * Holds the switch until the tunnel reaches the state the tap asked for.
+     *
+     * The wait is bounded and the gate is given back either way: a tunnel that
+     * never reaches the target is a refusal the screen explains, not a switch
+     * that stops answering.
+     */
+    private fun awaitProtectionSettled(target: Boolean) {
+        scope.launch {
+            val deadline = System.currentTimeMillis() + protectionSettleMs
+            try {
+                while (System.currentTimeMillis() < deadline) {
+                    if (tunnel.isTunnelUp() == target) return@launch
+                    delay(protectionSettlePollMs)
+                }
+            } finally {
+                protectionTap.settled()
+            }
+        }
     }
 
     /** The rewrite editor's inline check; the repository re-runs it on save. */
