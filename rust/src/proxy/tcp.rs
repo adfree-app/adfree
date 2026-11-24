@@ -184,6 +184,16 @@ fn handle(client: TcpStream, stop: &AtomicBool) {
         return;
     }
 
+    // A revocation list this CA published (see `mitm::ca::CRL_HOST`). Windows'
+    // schannel asks for it in the middle of a handshake, and a client that
+    // cannot read it fails the connection with `CRYPT_E_NO_REVOCATION_CHECK`.
+    // The address the resolver handed out names no machine; the request stops
+    // here instead of being dialled.
+    if addr.ip() == crate::mitm::ca::crl_ip() {
+        serve_crl(client_fd, &target, stop);
+        return;
+    }
+
     // The per-app firewall decides before any socket is opened, exactly as
     // `engine::complete_setup` does on the tun path. On this path the
     // connecting process is knowable, and naming it is what makes the desktop
@@ -698,7 +708,17 @@ fn resolve_target(fd: RawFd, stop: &AtomicBool) -> Option<Target> {
                 Some(i) => (&rest[..i], &rest[i..]),
                 None => (rest, "/"),
             };
-            let addr = resolve_authority(authority, 80)?;
+            // The revocation host is named by address, not resolved: it exists
+            // only as a request the proxy answers itself (see `serve_crl`).
+            let crl = authority
+                .split(':')
+                .next()
+                .is_some_and(|h| h.eq_ignore_ascii_case(crate::mitm::ca::CRL_HOST));
+            let addr = if crl {
+                SocketAddr::new(crate::mitm::ca::crl_ip(), 80)
+            } else {
+                resolve_authority(authority, 80)?
+            };
             // Rebuild the head with an origin-form request line; every other
             // line (and everything after it) travels untouched.
             let mut rebuilt: Vec<u8> = Vec::with_capacity(head.len() + 16);
@@ -748,6 +768,75 @@ fn resolve_authority(text: &str, default_port: u16) -> Option<SocketAddr> {
     }
     let mut addrs = (host, port).to_socket_addrs().ok()?;
     addrs.find(SocketAddr::is_ipv4).or_else(|| addrs.next())
+}
+
+/// Answer the fetch for this CA's revocation list (see `mitm::ca::CRL_HOST`).
+///
+/// Windows' schannel asks for the list from inside a handshake and will not
+/// finish the chain without it, so this is on the critical path of every
+/// hard-failing client. Two shapes arrive: an absolute-form request from a
+/// client configured with this proxy, whose head `resolve_target` already
+/// consumed, and a redirected connection that names the placeholder address,
+/// whose head is still in the socket.
+fn serve_crl(fd: RawFd, target: &Target, stop: &AtomicBool) {
+    let head_consumed = matches!(target, Target::PlainHttp { .. });
+    if !head_consumed {
+        let mut head = None;
+        let mut peek = vec![0u8; 4096];
+        while head.is_none() {
+            if stop.load(Ordering::Relaxed) {
+                return;
+            }
+            if !super::poll_readable(fd, 3000) {
+                return;
+            }
+            let rc = unsafe {
+                libc::recv(
+                    fd,
+                    peek.as_mut_ptr() as *mut libc::c_void,
+                    peek.len(),
+                    libc::MSG_PEEK,
+                )
+            };
+            if rc < 0 {
+                let err = std::io::Error::last_os_error();
+                match err.raw_os_error() {
+                    Some(libc::EAGAIN) | Some(libc::EINTR) => continue,
+                    _ => return,
+                }
+            }
+            if rc == 0 {
+                return;
+            }
+            head = find_head_end(&peek[..rc as usize]);
+        }
+        let mut sink = vec![0u8; head.unwrap_or(0)];
+        if read_exact_nb(fd, &mut sink, stop).is_none() {
+            return;
+        }
+    }
+
+    let crl = core().mitm_ca.read().unwrap().crl_der();
+    let reply = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/pkix-crl\r\nContent-Length: {}\r\n\
+         Connection: close\r\n\r\n",
+        crl.len()
+    );
+    if write_all_nb(fd, reply.as_bytes(), stop).is_err() {
+        crate::logbuf::push("proxy: the revocation list could not be written");
+        return;
+    }
+    if write_all_nb(fd, &crl, stop).is_err() {
+        crate::logbuf::push("proxy: the revocation list could not be written");
+        return;
+    }
+    crate::logbuf::push(&format!(
+        "proxy: served the revocation list ({} bytes)",
+        crl.len()
+    ));
+    // A half-close, not a reset: the client is reading the answer and a reset
+    // would drop it. Nothing else is owed on this connection.
+    unsafe { libc::shutdown(fd, libc::SHUT_WR) };
 }
 
 fn find_head_end(bytes: &[u8]) -> Option<usize> {

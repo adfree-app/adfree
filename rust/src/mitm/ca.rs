@@ -33,6 +33,29 @@ const MAX_CACHED_LEAVES: usize = 4_096;
 #[cfg(test)]
 const MAX_CACHED_LEAVES: usize = 8;
 
+/// The host a leaf names as the place its revocation list lives, and the path
+/// there. Windows' schannel will not finish a chain for a certificate whose
+/// revocation state it cannot learn, and a leaf minted here is signed by a CA
+/// that publishes nothing — the fetch fails, the handshake fails with
+/// `CRYPT_E_NO_REVOCATION_CHECK` (0x80092012), and `git`, which hard-fails
+/// revocation, cannot clone through the filter while the same clone works with
+/// the filter off (reported 23/11/2026).
+///
+/// The answer is to publish something after all: an empty list, served by the
+/// proxy itself. No real host resolves here — see [`CRL_ADDR`] and
+/// `proxy::tcp::serve_crl`.
+pub const CRL_HOST: &str = "crl.adfree.internal";
+pub const CRL_PATH: &str = "/adfree.crl";
+/// The address the resolver hands out for [`CRL_HOST`]. It names nothing real:
+/// the redirect catches the fetch on its way out and the proxy answers it, so
+/// the only thing this address has to be is an address a client will dial.
+pub const CRL_ADDR: [u8; 4] = [203, 0, 113, 7];
+
+/// [`CRL_ADDR`] as an address to compare a dial against.
+pub fn crl_ip() -> std::net::IpAddr {
+    std::net::IpAddr::V4(std::net::Ipv4Addr::from(CRL_ADDR))
+}
+
 /// The local CA: mints leaf certs for the hosts we intercept.
 ///
 /// A `failed()` instance stands in for "no CA loaded yet": issuing reports an
@@ -44,6 +67,8 @@ pub struct CertificateAuthority {
     /// CA object used only as the issuer (DN/KID/key usages) when signing leaves.
     ca_object: rcgen::Certificate,
     ca_key: rcgen::KeyPair,
+    /// The empty revocation list this CA publishes, signed by `ca_key`.
+    crl_der: Vec<u8>,
     /// True when a real CA is loaded (as opposed to `failed()`).
     valid: bool,
     /// Leaf cache keyed by host.
@@ -62,10 +87,12 @@ impl CertificateAuthority {
     pub fn generate() -> Result<Self, String> {
         let ca_key = rcgen::KeyPair::generate().map_err(|e| format!("keygen: {e}"))?;
         let (ca_object, cert_der) = self_signed_ca(&ca_key)?;
+        let crl_der = revocation_list(&ca_object, &ca_key)?;
         Ok(Self {
             cert_der,
             ca_object,
             ca_key,
+            crl_der,
             cache: Mutex::new(HashMap::new()),
             valid: true,
         })
@@ -75,11 +102,13 @@ impl CertificateAuthority {
     pub fn failed(reason: &str) -> Self {
         let ca_key = rcgen::KeyPair::generate().expect("keygen");
         let (ca_object, cert_der) = self_signed_ca(&ca_key).expect("self-sign");
+        let crl_der = revocation_list(&ca_object, &ca_key).unwrap_or_default();
         let _ = reason;
         Self {
             cert_der,
             ca_object,
             ca_key,
+            crl_der,
             cache: Mutex::new(HashMap::new()),
             valid: false,
         }
@@ -97,13 +126,21 @@ impl CertificateAuthority {
             rcgen::KeyPair::from_pkcs8_pem_and_sign_algo(key_pem, &rcgen::PKCS_ECDSA_P256_SHA256)
                 .map_err(|e| format!("key pem: {e}"))?;
         let (ca_object, _fresh) = self_signed_ca(&ca_key)?;
+        let crl_der = revocation_list(&ca_object, &ca_key)?;
         Ok(Self {
             cert_der,
             ca_object,
             ca_key,
+            crl_der,
             cache: Mutex::new(HashMap::new()),
             valid: true,
         })
+    }
+
+    /// The revocation list a leaf points at: DER, signed by this CA, listing no
+    /// certificate as revoked (see [`CRL_HOST`]).
+    pub fn crl_der(&self) -> Vec<u8> {
+        self.crl_der.clone()
     }
 
     /// CA in DER form (fed to rustls' RootCertStore when a client verifies).
@@ -164,6 +201,16 @@ impl CertificateAuthority {
             rcgen::KeyUsagePurpose::KeyEncipherment,
         ];
         params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ServerAuth];
+        // Where this leaf's revocation state can be read. Windows' schannel
+        // refuses a chain it cannot check (see [`CRL_HOST`]); the list is empty
+        // and the proxy serves it, which is the same statement `noRevAvail`
+        // makes in RFC 5280 terms — except Windows ignores that extension, as
+        // measured on a real 10.0.26300 box: a leaf carrying it still answered
+        // `RevocationStatusUnknown`, and only a list it could fetch cleared the
+        // chain.
+        params.crl_distribution_points = vec![rcgen::CrlDistributionPoint {
+            uris: vec![format!("http://{CRL_HOST}{CRL_PATH}")],
+        }];
         let yesterday = time::OffsetDateTime::now_utc() - time::Duration::days(1);
         let in_400_days = time::OffsetDateTime::now_utc() + time::Duration::days(400);
         params.not_before = yesterday;
@@ -220,6 +267,30 @@ fn leaf_key() -> Result<&'static rcgen::KeyPair, String> {
     KEY.get_or_init(|| rcgen::KeyPair::generate().ok())
         .as_ref()
         .ok_or_else(|| "leaf keygen failed".to_string())
+}
+
+/// The revocation list this CA publishes: DER, signed by `key`, naming no
+/// revoked certificate.
+///
+/// Dates are fixed and far apart on purpose. Windows compares them against the
+/// machine clock and a `thisUpdate` in the future is a list it will not use, so
+/// a list minted "now" would be rejected by a box whose clock is a few seconds
+/// behind the one that signed the leaf. The range runs to 2099 so no client
+/// ever sees it expire; nothing is ever revoked, so there is nothing to
+/// re-publish.
+fn revocation_list(cert: &rcgen::Certificate, key: &rcgen::KeyPair) -> Result<Vec<u8>, String> {
+    let params = rcgen::CertificateRevocationListParams {
+        this_update: rcgen::date_time_ymd(2000, 1, 1),
+        next_update: rcgen::date_time_ymd(2099, 1, 1),
+        crl_number: rcgen::SerialNumber::from(1u64),
+        issuing_distribution_point: None,
+        revoked_certs: Vec::new(),
+        key_identifier_method: rcgen::KeyIdMethod::Sha256,
+    };
+    let list = params
+        .signed_by(cert, key)
+        .map_err(|e| format!("crl: {e}"))?;
+    Ok(list.der().to_vec())
 }
 
 /// Self-sign a CA object and return its DER.
@@ -351,6 +422,38 @@ mod tests {
             .add(rustls::pki_types::CertificateDer::from(ca.cert_der()))
             .expect("root accepted");
         assert_eq!(roots.len(), 1);
+    }
+
+    #[test]
+    fn a_leaf_names_a_list_and_the_ca_publishes_it() {
+        let ca = CertificateAuthority::generate().expect("ca");
+        let leaf = ca.issue("git.example.com").expect("leaf");
+        let has =
+            |hay: &[u8], needle: &str| hay.windows(needle.len()).any(|w| w == needle.as_bytes());
+        // A client that insists on revocation (Windows' schannel does) follows
+        // this to the list below.
+        assert!(
+            has(&leaf.cert, CRL_HOST),
+            "the leaf names a distribution point"
+        );
+        assert!(has(&leaf.cert, CRL_PATH));
+
+        let crl = ca.crl_der();
+        assert!(!crl.is_empty(), "the CA publishes a list");
+        // `CN=AdFree Personal CA` in the issuer field: the list is signed by the
+        // CA the leaf chains to, not by a key nobody installed.
+        assert!(has(&crl, "AdFree Personal CA"));
+        // One `revokedCertificates` field is absent, not empty: an empty list
+        // is a 30 00 at the tail of the tbsCertList, so the shortest possible
+        // list is well under a kilobyte.
+        assert!(
+            crl.len() < 1024,
+            "an empty list stays small: {} bytes",
+            crl.len()
+        );
+        // The signature is the CA's, so the same bytes verify against the CA.
+        let other = CertificateAuthority::generate().expect("second ca");
+        assert_ne!(other.crl_der(), crl, "each CA signs its own list");
     }
 
     #[test]

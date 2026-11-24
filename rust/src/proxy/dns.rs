@@ -681,6 +681,24 @@ fn serve_one(listener: &Listener, query: &Inquiry, stop: &AtomicBool) {
             },
             None => Served::Forwarded(forward_query(&query.body, stop, plain)),
         }
+    } else if host.trim_end_matches('.') == crate::mitm::ca::CRL_HOST {
+        // The list a Windows chain fetches before it will finish (see
+        // `mitm::ca::CRL_HOST`). The address is a placeholder: the redirect
+        // catches the fetch on its way out and the proxy answers it, so nothing
+        // is expected to be listening there. Only `A` — there is no v6 address
+        // to hand out, and an empty `AAAA` sends the client to `A` at once.
+        if parsed.qtype == dns::TYPE_A {
+            let address = crate::mitm::ca::crl_ip();
+            match dns::answer_message(&parsed, &[address], 60) {
+                Some(message) => Served::Rewritten {
+                    message,
+                    answer: address.to_string(),
+                },
+                None => Served::Forwarded(forward_query(&query.body, stop, plain)),
+            }
+        } else {
+            Served::Nodata(dns::nodata_message(&parsed).unwrap_or_default())
+        }
     } else {
         let filter = core.filter_engine();
         let mut verdict = filter.check_host(&host);

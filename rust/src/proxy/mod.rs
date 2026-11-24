@@ -974,6 +974,92 @@ mod lifecycle_tests {
         server.join().unwrap();
     }
 
+    /// Windows' schannel will not finish a chain whose revocation state it
+    /// cannot read, so the CA publishes a list and every leaf names it. The
+    /// name resolves to an address that hosts nothing: the redirect catches the
+    /// fetch and the proxy answers it, which is what this pair asserts — a
+    /// resolver that answers, and a proxy that serves the CA's own bytes.
+    #[test]
+    fn the_revocation_host_resolves_to_the_placeholder() {
+        let _guard = PROXY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(
+            start(31333, 35357, true).running,
+            "listeners must come up on free ports"
+        );
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        socket
+            .send_to(
+                &crate::dns::build_query(crate::mitm::ca::CRL_HOST, crate::dns::TYPE_A, 0x4321)
+                    .unwrap(),
+                "127.0.0.1:35357",
+            )
+            .unwrap();
+        socket
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut answer = vec![0u8; 4096];
+        let n = socket.recv(&mut answer).unwrap();
+        stop();
+        assert_eq!(&answer[0..2], &0x4321u16.to_be_bytes(), "the id is echoed");
+        assert_eq!(&answer[6..8], &1u16.to_be_bytes(), "exactly one record");
+        assert!(
+            answer[..n]
+                .windows(4)
+                .any(|w| w == crate::mitm::ca::CRL_ADDR),
+            "the placeholder reaches the client"
+        );
+    }
+
+    #[test]
+    fn a_revocation_fetch_is_answered_by_the_proxy_itself() {
+        let _guard = PROXY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let list = crate::core().mitm_ca.read().unwrap().crl_der();
+        assert!(!list.is_empty(), "a CA always has a list to publish");
+        assert!(
+            start(31334, 35359, true).running,
+            "listeners must come up on free ports"
+        );
+        let mut client = TcpStream::connect("127.0.0.1:31334").unwrap();
+        client
+            .write_all(
+                format!(
+                    "GET http://{}{} HTTP/1.1\r\nHost: {}\r\n\r\n",
+                    crate::mitm::ca::CRL_HOST,
+                    crate::mitm::ca::CRL_PATH,
+                    crate::mitm::ca::CRL_HOST
+                )
+                .as_bytes(),
+            )
+            .unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        let mut reply = Vec::new();
+        let _ = client.read_to_end(&mut reply);
+        stop();
+        let head_end = reply
+            .windows(4)
+            .position(|w| w == b"\r\n\r\n")
+            .map(|p| p + 4)
+            .unwrap_or(0);
+        let head = String::from_utf8_lossy(&reply[..head_end]).into_owned();
+        assert!(
+            head.starts_with("HTTP/1.1 200 OK"),
+            "the client saw: {head}"
+        );
+        assert!(
+            head.to_ascii_lowercase()
+                .contains("content-type: application/pkix-crl"),
+            "the list is named as one: {head}"
+        );
+        assert_eq!(
+            &reply[head_end..],
+            list.as_slice(),
+            "the body is the CA's own list"
+        );
+        assert_eq!(reply[head_end], 0x30, "a DER SEQUENCE, not a PEM block");
+    }
+
     /// A request aimed at the proxy's own port must be refused, not dialled.
     /// `SO_ORIGINAL_DST` answers with the listener's address whenever no
     /// redirect rule touched the connection, and treating that as a real
