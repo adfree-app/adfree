@@ -1057,6 +1057,7 @@ mod lifecycle_tests {
     /// typed — left `poll` answering instantly for as long as it stayed
     /// connected. The wait is a budget now, and nothing arriving is its end.
     #[test]
+    #[cfg(unix)]
     fn a_connection_that_names_nothing_does_not_hold_a_core() {
         let mut fds = [0 as libc::c_int; 2];
         let created =
@@ -1087,6 +1088,7 @@ mod lifecycle_tests {
     /// to the placeholder, a head that stops halfway — must not turn one
     /// connection into a thread that never blocks again.
     #[test]
+    #[cfg(unix)]
     fn a_stranger_on_the_placeholders_port_is_not_waited_for() {
         let mut fds = [0 as libc::c_int; 2];
         let created =
