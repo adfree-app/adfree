@@ -1823,6 +1823,20 @@ impl ProxySession {
             || stealth.strips_third_party_authorization()
             || stealth.hides_third_party_referer())
             && crate::mitm::stealth::is_third_party(&host, referer.as_deref(), site.as_deref());
+        // A top-level navigation is never a third-party request: it is what
+        // makes the destination the first party. Chrome marks the document in
+        // a popup a person just clicked exactly as it marks an image from
+        // another site — `Sec-Fetch-Site: cross-site` — and taking that
+        // document's cookies away logs them out of the site the popup exists
+        // for. Measured 24/11: "Sign in with Google" from qodo.ai asked for a
+        // password on a machine that was signed in, and this log line said so:
+        //
+        //     mitm accounts.google.com: third-party set-cookie dropped
+        //
+        // `Sec-Fetch-Dest: document` is the word that separates the two: a
+        // subresource, an iframe and a fetch all answer something else.
+        let navigates = is_navigation(facts.dest, facts.mode);
+        let third_party_cookies = cross_site && !navigates;
 
         if stealth.strips_utm() && rewritable(&method) {
             if let Some(stripped) = crate::mitm::stealth::strip_tracking_params(&url) {
@@ -1849,7 +1863,7 @@ impl ProxySession {
                 crate::logbuf::push_debug(&format!("mitm {host}: cookies stripped"));
             }
             plan.block_cookies = true;
-        } else if stealth.blocks_third_party_cookies() && cross_site {
+        } else if stealth.blocks_third_party_cookies() && third_party_cookies {
             if drop_request_headers(buffer, &mut head_end, &["cookie".to_string()]) {
                 crate::logbuf::push_debug(&format!("mitm {host}: third-party cookies stripped"));
             }
@@ -3973,6 +3987,10 @@ pub(super) struct RequestFacts<'a> {
     pub(super) site: Option<&'a str>,
     /// `Sec-Fetch-Dest`, the only trustworthy word on what the request is for.
     pub(super) dest: Option<&'a str>,
+    /// `Sec-Fetch-Mode`. With [`RequestFacts::dest`] it is what tells a
+    /// navigation — the request that *makes* a page the first party — from a
+    /// resource some other page asked for.
+    pub(super) mode: Option<&'a str>,
     /// The body the head announced, when there is one and it said how to
     /// count it — what a locally served answer has to swallow
     /// ([`swallow_body`]). A bodyless request leaves this `None`.
@@ -4005,6 +4023,24 @@ impl RequestFacts<'_> {
 
 /// Parses a request head. `None` when it is not an HTTP/1.x request at all
 /// (the injected assets and any non-HTTP bytes never get this far).
+/// Whether this request is the one that *makes* its host a page — a top-level
+/// navigation, which is never a third-party request, whatever
+/// `Sec-Fetch-Site` says about where the click came from.
+///
+/// `Sec-Fetch-Dest: document` is the word that separates it from a subresource,
+/// an iframe and a fetch; `Sec-Fetch-Mode: navigate` says the same thing from
+/// the other side. Both are required when both are present, so a header pair
+/// that contradicts itself is not read as the reader would like.
+pub(super) fn is_navigation(dest: Option<&str>, mode: Option<&str>) -> bool {
+    let named = |value: &str, want: &str| value.trim().eq_ignore_ascii_case(want);
+    match (dest, mode) {
+        (Some(dest), Some(mode)) => named(dest, "document") && named(mode, "navigate"),
+        (Some(dest), None) => named(dest, "document"),
+        (None, Some(mode)) => named(mode, "navigate"),
+        (None, None) => false,
+    }
+}
+
 pub(super) fn request_facts(head: &[u8]) -> Option<RequestFacts<'_>> {
     let text = std::str::from_utf8(head).ok()?;
     let mut lines = text.split("\r\n");
@@ -4022,6 +4058,7 @@ pub(super) fn request_facts(head: &[u8]) -> Option<RequestFacts<'_>> {
         referer: None,
         site: None,
         dest: None,
+        mode: None,
         body: None,
         closes: false,
     };
@@ -4039,6 +4076,7 @@ pub(super) fn request_facts(head: &[u8]) -> Option<RequestFacts<'_>> {
             "referer" => facts.referer = Some(value),
             "sec-fetch-site" => facts.site = Some(value),
             "sec-fetch-dest" => facts.dest = Some(value),
+            "sec-fetch-mode" => facts.mode = Some(value),
             "connection" => connection = Some(value),
             "transfer-encoding" => {
                 facts.body = Some(RequestBody::Chunked);
