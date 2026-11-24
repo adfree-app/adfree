@@ -5,12 +5,15 @@
 //! on top of TLS: the response rewriter that injects scripts into HTML.
 
 use super::proxy::{
-    blocked_response, closing_response, content_hash, local_asset, origin_form, preflight_response,
-    rebuilt_head, redirect_response, request_facts, request_url, rewritable, swallow_body,
-    take_local_request, with_cors, ClientDiscard, ProxySession, RequestBody, HIDE_PATH,
+    blocked_response, closing_response, content_hash, is_navigation, local_asset, origin_form,
+    preflight_response, rebuilt_head, redirect_response, request_facts, request_url, rewritable,
+    swallow_body, take_local_request, with_cors, ClientDiscard, ProxySession, RequestBody,
+    HIDE_PATH,
 };
 use super::*;
+use crate::engine::StealthConfig;
 use crate::mitm::ca::CertificateAuthority;
+use crate::mitm::decide::RequestPlan;
 use crate::mitm::tls::{open_session, SniCertResolver};
 use std::io::{Read, Write};
 use std::sync::Arc;
@@ -2742,4 +2745,61 @@ fn the_request_tracker_keeps_a_websockets_frames() {
         socket.frames.iter().all(|frame| frame.opcode == 1),
         "text frames stay text frames"
     );
+}
+
+/// A popup a person just clicked arrives marked `Sec-Fetch-Site: cross-site` —
+/// the same word a tracking pixel from another site carries — because the page
+/// that opened it was another site. Taking that document's cookies away is
+/// what logs someone out of the page the popup *is*: on 24/11, "Sign in with
+/// Google" from qodo.ai asked for a password on a machine that was signed in,
+/// and the log said `mitm accounts.google.com: third-party set-cookie dropped`.
+///
+/// `Sec-Fetch-Dest: document` is the word that tells the two apart, so a
+/// navigation keeps its cookies and its answer may still set new ones, while a
+/// resource from another site still loses both.
+#[test]
+fn a_navigation_keeps_its_cookies_whatever_sec_fetch_site_says() {
+    let stealth = StealthConfig {
+        enabled: true,
+        block_third_party_cookies: true,
+        ..StealthConfig::default()
+    };
+    let run = |dest: &str| {
+        let mut buffer = format!(
+            "GET /v3/signin/identifier HTTP/1.1\r\nHost: accounts.google.com\r\n\
+             Cookie: SID=abc; __Secure-1PSID=def\r\n\
+             Sec-Fetch-Site: cross-site\r\nSec-Fetch-Dest: {dest}\r\n\
+             Sec-Fetch-Mode: navigate\r\nReferer: https://qodo.ai/\r\n\r\n"
+        )
+        .into_bytes();
+        let mut plan = RequestPlan::default();
+        ProxySession::apply_stealth(&mut buffer, &mut plan, Some("accounts.google.com"), stealth);
+        let text = String::from_utf8_lossy(&buffer).into_owned();
+        (text.contains("Cookie: SID=abc"), plan.block_cookies)
+    };
+
+    let (kept, dropped) = run("document");
+    assert!(kept, "a navigation carries the sign-in cookies");
+    assert!(!dropped, "and its answer may set new ones");
+
+    for dest in ["empty", "iframe", "image"] {
+        let (kept, dropped) = run(dest);
+        assert!(!kept, "a {dest} from another site carries none");
+        assert!(dropped, "and may not be handed one either ({dest})");
+    }
+}
+
+/// The word that makes a request a navigation comes as a pair, and a pair that
+/// contradicts itself is not a navigation: `document` with `no-cors` is what a
+/// page fetching an HTML file looks like, and that request is a third party's.
+#[test]
+fn only_a_document_navigation_counts_as_one() {
+    assert!(is_navigation(Some("document"), Some("navigate")));
+    assert!(is_navigation(Some("document"), None));
+    assert!(is_navigation(None, Some("navigate")));
+    assert!(!is_navigation(Some("document"), Some("no-cors")));
+    for dest in ["empty", "iframe", "image", "script"] {
+        assert!(!is_navigation(Some(dest), Some("navigate")), "{dest}");
+    }
+    assert!(!is_navigation(None, None));
 }

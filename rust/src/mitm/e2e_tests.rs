@@ -1758,7 +1758,10 @@ fn stealth_edits_both_halves_of_the_https_exchange() {
         &mut tcp,
         &mut conn,
         "/cookies?utm_source=news&fbclid=abc",
-        "Sec-Fetch-Dest: document\r\nSec-Fetch-Site: cross-site\r\n\
+        // A subresource, not a navigation: a navigation *makes* its host the
+        // first party and keeps its own cookies (see
+        // `a_navigation_keeps_its_cookies_whatever_sec_fetch_site_says`).
+        "Sec-Fetch-Dest: empty\r\nSec-Fetch-Site: cross-site\r\n\
          Referer: https://other.test/\r\nCookie: sid=1\r\n\
          User-Agent: real-browser\r\nSec-CH-UA: \"Chromium\";v=\"124\"\r\n",
     );
@@ -1773,7 +1776,7 @@ fn stealth_edits_both_halves_of_the_https_exchange() {
         );
         assert!(
             !sent.to_lowercase().contains("cookie:"),
-            "a cross-site request must not carry cookies: {sent:?}"
+            "a third-party subresource must not carry cookies: {sent:?}"
         );
         assert!(
             sent.contains(crate::mitm::stealth::DISGUISED_USER_AGENT),
@@ -1786,7 +1789,7 @@ fn stealth_edits_both_halves_of_the_https_exchange() {
     }
     assert!(
         !head.to_lowercase().contains("set-cookie:"),
-        "a cross-site answer may not set cookies: {head}"
+        "a third-party answer may not set cookies: {head}"
     );
 
     tcp.close();
