@@ -1,3 +1,10 @@
+## [1.34.5](https://github.com/adfree-app/adfree/compare/v1.34.4...v1.34.5) (2026-11-24)
+
+### Bug Fixes
+
+* **mitm:** publish a revocation list so Windows can finish the chain ([#4](https://github.com/adfree-app/adfree/issues/4)) ([0b7f989](https://github.com/adfree-app/adfree/commit/0b7f9896559f95676b55ea0a9ceac5ec35a596b5)), closes [#2](https://github.com/adfree-app/adfree/issues/2)
+* **protection:** a switch that answers the state it was clicked against ([#3](https://github.com/adfree-app/adfree/issues/3)) ([928f404](https://github.com/adfree-app/adfree/commit/928f40423f49dad4941fe4a020d150e6fab9cb6b)), closes [#1](https://github.com/adfree-app/adfree/issues/1)
+
 ## [1.34.4](https://github.com/adfree-app/adfree/compare/v1.34.3...v1.34.4) (2026-11-23)
 
 ### Bug Fixes
