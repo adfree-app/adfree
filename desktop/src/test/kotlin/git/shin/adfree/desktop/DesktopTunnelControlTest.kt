@@ -297,6 +297,43 @@ class DesktopTunnelControlTest {
         assertFalse(core.isProxyRunning())
     }
 
+    /**
+     * A window that holds the mark is the instance, not a guest of it: on Linux
+     * the unit's `ExecStart` is this very program, so "the unit is active" is
+     * true about the window that is asking. Stopping the unit from there stops
+     * the window — 24/11, a switch that read "off" closed the app on the tap
+     * meant to turn filtering on — so the window that can set the mark takes
+     * its own rules and listeners down and leaves the unit alone.
+     */
+    @Test
+    fun aWindowThatHoldsTheMarkTakesItsOwnRulesDown() {
+        val dirPath = Files.createTempDirectory("adfree-privileged-stop")
+        val log = java.io.File(dirPath.toFile(), "calls")
+        val systemctl = java.io.File(dirPath.toFile(), "systemctl")
+        systemctl.writeText("#!/bin/sh\nprintf '%s\n' \"$*\" >> " + log.absolutePath + "\nexit 0\n")
+        systemctl.setExecutable(true)
+        val privileges =
+            DesktopPrivileges(
+                isWindows = false,
+                systemctl = systemctl.absolutePath,
+                serviceActive = { true },
+                elevated = { true },
+                markCapable = { true },
+            )
+        val control =
+            DesktopTunnelControl(
+                coreEngine = core,
+                protectionWanted = MutableStateFlow(true),
+                privileges = privileges,
+                localProxy = { LocalProxySettings(tcpPort = freeTcpPort(), dnsPort = freeDnsPort()) },
+            )
+
+        control.stopVpnService()
+
+        assertEquals("the window does not ask the unit to stop itself", emptyList<String>(), recordedCalls(log))
+        assertFalse("and it is not filtering either", core.isProxyRunning())
+    }
+
     /** What the recording `systemctl` script was asked to do. */
     private fun recordedCalls(log: java.io.File): List<String> {
         if (!log.isFile) return emptyList()
