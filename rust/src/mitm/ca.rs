@@ -208,9 +208,18 @@ impl CertificateAuthority {
         // measured on a real 10.0.26300 box: a leaf carrying it still answered
         // `RevocationStatusUnknown`, and only a list it could fetch cleared the
         // chain.
-        params.crl_distribution_points = vec![rcgen::CrlDistributionPoint {
-            uris: vec![format!("http://{CRL_HOST}{CRL_PATH}")],
-        }];
+        //
+        // Only where something answers. The list is served by the desktop's
+        // local proxy ([`super::super::proxy::tcp`]) from a placeholder address
+        // the desktop's resolver hands out; the phone's tunnel is a userspace
+        // stack that answers neither, so a leaf minted there names nothing —
+        // and naming a list nothing will serve is worse than naming none: the
+        // client fetches, fails, and refuses the chain it could have accepted.
+        if !cfg!(target_os = "android") {
+            params.crl_distribution_points = vec![rcgen::CrlDistributionPoint {
+                uris: vec![format!("http://{CRL_HOST}{CRL_PATH}")],
+            }];
+        }
         let yesterday = time::OffsetDateTime::now_utc() - time::Duration::days(1);
         let in_400_days = time::OffsetDateTime::now_utc() + time::Duration::days(400);
         params.not_before = yesterday;
@@ -425,6 +434,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_os = "android"))]
     fn a_leaf_names_a_list_and_the_ca_publishes_it() {
         let ca = CertificateAuthority::generate().expect("ca");
         let leaf = ca.issue("git.example.com").expect("leaf");

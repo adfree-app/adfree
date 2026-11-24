@@ -666,21 +666,6 @@ fn serve_one(listener: &Listener, query: &Inquiry, stop: &AtomicBool) {
             list: "App firewall".to_string(),
             category: crate::filter::CAT_AD,
         }
-    } else if !cfg.dns_protection || core.is_paused() {
-        Served::Forwarded(forward_query(&query.body, stop, plain))
-    } else if matches!(parsed.qtype, dns::TYPE_A | dns::TYPE_AAAA)
-        && core.dns_rewrite_for(&host).is_some()
-    {
-        // A user rewrite answers the query here — explicit intent, before
-        // the lists, and only for the family it names.
-        let address = core.dns_rewrite_for(&host).expect("checked");
-        match dns::answer_message(&parsed, &[address], 60) {
-            Some(message) => Served::Rewritten {
-                message,
-                answer: address.to_string(),
-            },
-            None => Served::Forwarded(forward_query(&query.body, stop, plain)),
-        }
     } else if host.trim_end_matches('.') == crate::mitm::ca::CRL_HOST {
         // The list a Windows chain fetches before it will finish (see
         // `mitm::ca::CRL_HOST`). The address is a placeholder: the redirect
@@ -698,6 +683,21 @@ fn serve_one(listener: &Listener, query: &Inquiry, stop: &AtomicBool) {
             }
         } else {
             Served::Nodata(dns::nodata_message(&parsed).unwrap_or_default())
+        }
+    } else if !cfg.dns_protection || core.is_paused() {
+        Served::Forwarded(forward_query(&query.body, stop, plain))
+    } else if matches!(parsed.qtype, dns::TYPE_A | dns::TYPE_AAAA)
+        && core.dns_rewrite_for(&host).is_some()
+    {
+        // A user rewrite answers the query here — explicit intent, before
+        // the lists, and only for the family it names.
+        let address = core.dns_rewrite_for(&host).expect("checked");
+        match dns::answer_message(&parsed, &[address], 60) {
+            Some(message) => Served::Rewritten {
+                message,
+                answer: address.to_string(),
+            },
+            None => Served::Forwarded(forward_query(&query.body, stop, plain)),
         }
     } else {
         let filter = core.filter_engine();
