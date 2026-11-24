@@ -106,6 +106,8 @@ class DesktopPrivileges(
      * machine to change its own firewall.
      */
     private val exec: ((List<String>) -> PrivilegeOutcome)? = null,
+    /** Whether this process may mark its own sockets; replaced in the tests. */
+    private val markCapable: (() -> Boolean)? = null,
 ) {
 
     /** The executor itself: the test's recorder when there is one, a child of ours otherwise. */
@@ -124,6 +126,7 @@ class DesktopPrivileges(
         // proxy's own port range by number instead, so a socket needs no
         // privilege to be left alone.
         if (isWindows) return true
+        markCapable?.let { return it() }
         val fd = CLib.INSTANCE.socket(AF_INET, SOCK_DGRAM, 0)
         if (fd < 0) return false
         return try {

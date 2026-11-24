@@ -459,8 +459,19 @@ class DesktopTunnelControl(
      * then on "is protection on" is a question about the unit, and answering it
      * with this process's own listeners says no for as long as the machine is
      * filtered.
+     *
+     * A window that can set the mark is not one of those hand-overs: the unit's
+     * `ExecStart` is this very program, so the window the unit started answers
+     * "the unit is active" about itself. Reading that as a hand-over made the
+     * switch's *off* tap ask the unit to stop — which stopped the window that
+     * was doing the asking (24/11: the switch read off, and the tap meant to
+     * turn filtering on closed the app instead). The capability settles it: the
+     * window holding the mark owns the redirect and takes it down itself.
      */
-    private fun privilegedInstanceFilters(): Boolean = privileges?.privilegedUnitActive() == true
+    private fun privilegedInstanceFilters(): Boolean {
+        val unitActive = privileges?.privilegedUnitActive() == true
+        return unitActive && privileges.canSetFirewallMark().not()
+    }
 
     override fun needsConsent(): Boolean = false
 
