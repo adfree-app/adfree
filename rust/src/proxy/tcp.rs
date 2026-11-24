@@ -31,6 +31,10 @@ const DRAIN: std::time::Duration = std::time::Duration::from_secs(10);
 /// and how much of it is read before the wait is called a stranger's. Both are
 /// floors rather than budgets: a client that fetches a list says so in a line,
 /// and one that says nothing is not owed the list.
+/// How long a connection may take to name a destination before it is called
+/// a stranger's. The documented three seconds, now spent on the whole wait.
+const RESOLVE_BUDGET: std::time::Duration = std::time::Duration::from_secs(3);
+
 const HEAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 const MAX_HEAD_BYTES: usize = 8192;
 
@@ -153,7 +157,7 @@ pub(crate) fn accept_loop(listener: TcpListener, stop: Arc<AtomicBool>) {
 
 /// Which way the destination is known, and what the client's first bytes
 /// still owe the pump.
-enum Target {
+pub(super) enum Target {
     /// Set by the redirect rules: bytes start at the protocol itself.
     Original(SocketAddr),
     /// `CONNECT host:port` was parsed and answered; the head is consumed.
@@ -656,6 +660,19 @@ fn local_addr(fd: RawFd) -> Option<SocketAddr> {
 /// Where this connection is headed: the redirected destination, or the one
 /// named by a plain proxy request.
 fn resolve_target(fd: RawFd, stop: &AtomicBool) -> Option<Target> {
+    resolve_target_within(fd, stop, RESOLVE_BUDGET)
+}
+
+/// [`resolve_target`], with the wait for a request made explicit so a test can
+/// ask for a short one. The wait is a budget and not a per-round timeout: a
+/// client that keeps readable bytes readable — anything that will never read as
+/// a head, which is every TLS hello and every line still being typed — used to
+/// find `poll` answering instantly forever, and the loop turned with it.
+pub(super) fn resolve_target_within(
+    fd: RawFd,
+    stop: &AtomicBool,
+    budget: std::time::Duration,
+) -> Option<Target> {
     if let Some(addr) = original_dst(fd) {
         // A socket nobody redirected has no conntrack entry, and the kernel
         // then answers `SO_ORIGINAL_DST` with the connection's *current*
@@ -669,11 +686,18 @@ fn resolve_target(fd: RawFd, stop: &AtomicBool) -> Option<Target> {
     // Explicit proxy mode: the first request names the destination. Peek
     // until a head terminates (or 3 seconds give up).
     let mut peek = vec![0u8; 8192];
+    let started = std::time::Instant::now();
+    let mut last_len = 0usize;
+    let mut stalled = 0u32;
     let head = loop {
         if stop.load(Ordering::Relaxed) {
             return None;
         }
-        if !super::poll_readable(fd, 3000) {
+        let left = budget.saturating_sub(started.elapsed());
+        if left.is_zero() {
+            return None;
+        }
+        if !super::poll_readable(fd, left.as_millis().min(i32::MAX as u128) as i32) {
             return None;
         }
         let rc = unsafe {
@@ -697,6 +721,17 @@ fn resolve_target(fd: RawFd, stop: &AtomicBool) -> Option<Target> {
         }
         if (rc as usize) == peek.len() {
             return None; // A head over 8 KiB is not a proxy request.
+        }
+        // Readable, and no more of it than the last look: nothing is on its
+        // way, and waiting longer only spends the slot and the core.
+        if bytes.len() == last_len {
+            stalled += 1;
+            if stalled >= STALL_ROUNDS {
+                return None;
+            }
+        } else {
+            stalled = 0;
+            last_len = bytes.len();
         }
     };
     let text = String::from_utf8_lossy(&head).into_owned();

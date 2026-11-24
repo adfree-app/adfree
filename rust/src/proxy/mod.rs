@@ -1051,6 +1051,36 @@ mod lifecycle_tests {
         );
     }
 
+    /// A connection that names no destination used to hold a core: the wait
+    /// for a request peeked at bytes it never consumed, so a client that sent
+    /// something which would never read as a head — a hello, a line still being
+    /// typed — left `poll` answering instantly for as long as it stayed
+    /// connected. The wait is a budget now, and nothing arriving is its end.
+    #[test]
+    fn a_connection_that_names_nothing_does_not_hold_a_core() {
+        let mut fds = [0 as libc::c_int; 2];
+        let created =
+            unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, fds.as_mut_ptr()) };
+        assert_eq!(created, 0, "a socket pair on this machine");
+        let hello: Vec<u8> = (0u8..64).map(|b| 0x16u8.wrapping_add(b)).collect();
+        let written =
+            unsafe { libc::write(fds[0], hello.as_ptr() as *const libc::c_void, hello.len()) };
+        assert_eq!(written as usize, hello.len());
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        let started = std::time::Instant::now();
+        let target = super::tcp::resolve_target_within(fds[1], &stop, Duration::from_millis(50));
+        let spent = started.elapsed();
+        unsafe {
+            libc::close(fds[0]);
+            libc::close(fds[1]);
+        }
+        assert!(target.is_none(), "a hello names no destination");
+        assert!(
+            spent < Duration::from_secs(2),
+            "the connection is not waited on forever: {spent:?}"
+        );
+    }
+
     /// The list's port is a fixed, guessable address that this proxy answers
     /// like a server, so the wait for a request has to end on its own: a client
     /// that sends something which will never read as a head — a TLS hello sent
