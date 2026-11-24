@@ -1,3 +1,9 @@
+## [1.34.6](https://github.com/adfree-app/adfree/compare/v1.34.5...v1.34.6) (2026-11-24)
+
+### Bug Fixes
+
+* **desktop:** the off tap stops filtering, not the window ([#6](https://github.com/adfree-app/adfree/issues/6)) ([8c09e1e](https://github.com/adfree-app/adfree/commit/8c09e1e4ac263ee298a4e3457f1f9be251c84c4d))
+
 ## [1.34.5](https://github.com/adfree-app/adfree/compare/v1.34.4...v1.34.5) (2026-11-24)
 
 ### Bug Fixes
