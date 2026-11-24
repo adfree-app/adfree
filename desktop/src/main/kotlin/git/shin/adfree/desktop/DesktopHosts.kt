@@ -449,7 +449,18 @@ class DesktopTunnelControl(
     /** The thread that watches the redirect against the listeners it feeds. */
     private var redirectGuard: Thread? = null
 
-    override fun isTunnelUp(): Boolean = coreEngine.isProxyRunning()
+    override fun isTunnelUp(): Boolean = coreEngine.isProxyRunning() || privilegedInstanceFilters()
+
+    /**
+     * Whether the instance this window handed protection over to is filtering.
+     *
+     * The hand-over is a one-way door: this process releases the engine lock,
+     * the ports and the assistant's socket, and the unit takes all three. From
+     * then on "is protection on" is a question about the unit, and answering it
+     * with this process's own listeners says no for as long as the machine is
+     * filtered.
+     */
+    private fun privilegedInstanceFilters(): Boolean = privileges?.privilegedUnitActive() == true
 
     override fun needsConsent(): Boolean = false
 
@@ -545,6 +556,20 @@ class DesktopTunnelControl(
 
     override fun stopVpnService() {
         coreEngine.setProtectionPaused(false)
+        if (privilegedInstanceFilters()) {
+            // The listeners, the rules and the lock belong to the privileged
+            // instance; this window holds none of them, so stopping here would
+            // leave the machine filtered under a switch that reads "off" — and
+            // the tap meant to put it back on would hand over to the instance
+            // that never stopped.
+            System.err.println("[desktop] protection stopping: asking the privileged instance")
+            when (val outcome = privileges?.stopInstalledService()) {
+                is PrivilegeOutcome.Failed -> report(outcome.reason)
+                is PrivilegeOutcome.Denied -> report(outcome.reason)
+                else -> Unit
+            }
+            return
+        }
         System.err.println("[desktop] protection stopping: removing rules and listeners")
         stopRedirectGuard()
         privileges?.removeRules()

@@ -857,6 +857,65 @@ class DesktopPrivilegesTest {
         .map { it.trim() }
         .filter { it.isNotEmpty() && !it.startsWith("#") }
 
+    /**
+     * A window that handed protection over has no listener of its own, so the
+     * only answer to "is the machine filtered" is the unit's. Without this the
+     * switch read "off" over a filtered machine, and the tap meant to turn it
+     * back on was answered with a hand-over that was already in force — the
+     * reported "cannot enable protection after disabling it" (23/11/2026).
+     */
+    @Test
+    fun theUnitIsWhatSaysWhetherAHandedOverMachineIsFiltered() {
+        val active = DesktopPrivileges(isWindows = false, serviceActive = { true })
+        val idle = DesktopPrivileges(isWindows = false, serviceActive = { false })
+        assertTrue("an active unit is a filtered machine", active.privilegedUnitActive())
+        assertFalse("an inactive unit is not", idle.privilegedUnitActive())
+    }
+
+    /**
+     * The answer costs a child process, and the switch asks it from a poll that
+     * runs once a second: within the window a second ask does not spawn one.
+     */
+    @Test
+    fun theUnitIsAskedOncePerWindowNotOncePerQuestion() {
+        var asked = 0
+
+        fun answer(): Boolean {
+            asked += 1
+            return true
+        }
+
+        val privileges =
+            DesktopPrivileges(
+                isWindows = false,
+                serviceActive = ::answer,
+            )
+
+        repeat(20) { privileges.privilegedUnitActive() }
+
+        assertEquals("one systemctl per window, got $asked", 1, asked)
+    }
+
+    /**
+     * Stopping a handed-over machine is the unit's stop, and it is answered
+     * without a dialog — the rule written at install time already carries it.
+     */
+    @Test
+    fun stoppingAHandedOverMachineStopsTheUnit() {
+        val calls = recordingSystemctl()
+        val installed = installedOnThisMachine()
+        val privileges =
+            DesktopPrivileges(
+                systemctl = calls.first,
+                servicePath = installed.first,
+                stamp = installed.second,
+                serviceActive = { true },
+            )
+
+        assertSame(PrivilegeOutcome.Ok, privileges.stopInstalledService())
+        assertEquals(listOf("stop adfree-desktop"), calls.second())
+    }
+
     private fun repositoryRules(): File {
         var dir = File(".").absoluteFile
         repeat(5) {

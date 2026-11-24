@@ -3,6 +3,7 @@ package git.shin.adfree.desktop
 import com.sun.jna.Library
 import com.sun.jna.Native
 import com.sun.jna.ptr.IntByReference
+import git.shin.adfree.core.coreRedirectStop
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Paths
@@ -110,6 +111,13 @@ class DesktopPrivileges(
     /** The executor itself: the test's recorder when there is one, a child of ours otherwise. */
     private val runExec: (List<String>) -> PrivilegeOutcome = exec ?: { argv -> runCommand(argv) }
 
+    /** The last answer [privilegedUnitActive] got, and when it got it. */
+    @Volatile
+    private var unitActiveAt: Long = 0L
+
+    @Volatile
+    private var unitActiveValue: Boolean = false
+
     /** True when this process may mark its own sockets, i.e. holds `CAP_NET_ADMIN`. */
     fun canSetFirewallMark(): Boolean {
         // Nothing is marked on Windows: the redirect's filter excludes the
@@ -163,6 +171,49 @@ class DesktopPrivileges(
         // by the driver's own loader on first use, and the app is already
         // elevated, so there is no one-time step that could be missing.
         isWindows || (File(servicePath).isFile && stampMatchesThisBuild())
+
+    /**
+     * Whether the privileged instance is the one filtering right now.
+     *
+     * A window that handed protection over gave up its engine lock, its
+     * listeners and its rules: the unit holds all three, and this process has
+     * no socket of its own to look at. Asking systemd is the only way to know
+     * that the machine *is* filtered — and, without it, the switch read "off"
+     * over a filtered machine and the tap meant to turn it back on was answered
+     * with a hand-over that was already in force (reported 23/11/2026).
+     *
+     * Cached for a moment because the answer costs a child process, and this is
+     * asked by the switch, the status line and once a second by the assistant's
+     * poll. Windows has no second instance to ask: the app is the redirect.
+     */
+    fun privilegedUnitActive(now: Long = System.currentTimeMillis()): Boolean {
+        if (isWindows) return false
+        val age = now - unitActiveAt
+        if (unitActiveAt != 0L && age in 0..UNIT_ACTIVE_TTL_MS) return unitActiveValue
+        val active =
+            runCatching { serviceActive() }
+                .getOrDefault(false)
+        unitActiveValue = active
+        unitActiveAt = now
+        return active
+    }
+
+    /**
+     * Stops the privileged instance. No dialog: the rule written at install
+     * time answers for this user on this unit, exactly as it does for a start.
+     */
+    fun stopInstalledService(): PrivilegeOutcome {
+        if (isWindows) {
+            // Nothing to ask: this process owns the redirect.
+            runCatching { coreRedirectStop() }
+            return PrivilegeOutcome.Ok
+        }
+        val outcome = run(systemctl, "stop", UNIT_NAME)
+        // The cache must not keep saying "active" for a unit this just stopped.
+        unitActiveAt = 0L
+        unitActiveValue = false
+        return outcome
+    }
 
     /**
      * Whether the unit on disk was written by this build, not merely by some
@@ -949,6 +1000,14 @@ class DesktopPrivileges(
         const val DEFAULT_DNS_PORT = 5300
         /** How long a probe waits for the local proxy to accept a connection. */
         const val LISTENER_PROBE_MS = 400
+
+        /**
+         * How long "is the privileged instance filtering" is believed, in
+         * milliseconds: long enough that one page of UI costs one `systemctl`,
+         * short enough that a start or a stop is seen before a person gives up
+         * on the switch.
+         */
+        const val UNIT_ACTIVE_TTL_MS = 2_000L
         /** The ports the redirect claims, and so the ports a stale connection can be on. */
         val STALE_FLOW_PORTS = listOf(443, 80)
         const val CA_INSTALL_MAIN = "git.shin.adfree.desktop.CaInstallKt"
