@@ -531,10 +531,9 @@ fn live_roots() -> rustls::RootCertStore {
             let Ok(bytes) = std::fs::read(path) else {
                 continue;
             };
-            for cert in rustls_pemfile::read_all(&mut std::io::Cursor::new(&bytes)).flatten() {
-                if let rustls_pemfile::Item::X509Certificate(der) = cert {
-                    store.add(CertificateDer::from(der.to_vec())).ok();
-                }
+            use rustls::pki_types::pem::PemObject;
+            for der in CertificateDer::pem_slice_iter(&bytes).flatten() {
+                store.add(der).ok();
             }
         }
     }

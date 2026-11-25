@@ -65,7 +65,6 @@ libc = "0.2"
 rcgen = "0.13"
 ring = "0.17"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
-rustls-pemfile = "2"
 # rcgen needs a wall-clock type for validity windows.
 time = { version = "0.3", default-features = false, features = ["std"] }
 # OpenSSL's `subject_hash_old` names Android's system CA files; the hash is
@@ -94,7 +93,7 @@ base64 = "0.22"
 # rewritten and re-compressed so the page still travels compressed to the phone.
 # Pure-Rust backend: no C toolchain in the Android cross build.
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
-rusqlite = { version = "0.40.2", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
 # Blocking HTTP for filter lists and userscripts. The core stays free of
 # async runtimes: the platform calls these from its own IO threads, and ureq
 # reuses the rustls/ring stack the MITM stage already builds on.
@@ -135,3 +134,9 @@ panic = "abort"
 # generator needs, so only debug info is stripped.
 strip = "debuginfo"
 incremental = false
+
+[lints.rust]
+# `cfg(kani)` is set by the verifier and by nothing else: the proofs in
+# `src/proofs.rs` exist only under it, and a build that does not know the name
+# would warn on every compile.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)", "cfg(miri)"] }

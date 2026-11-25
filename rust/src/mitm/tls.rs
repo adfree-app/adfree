@@ -27,6 +27,7 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 
+use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::CertificateDer;
 use rustls::server::{ClientHello, ResolvesServerCert};
 use rustls::sign::CertifiedKey;
@@ -242,10 +243,10 @@ fn add_pem_file(path: &std::path::Path, store: &mut rustls::RootCertStore) {
     let Ok(bytes) = std::fs::read(path) else {
         return;
     };
-    for cert in rustls_pemfile::read_all(&mut std::io::Cursor::new(&bytes)).flatten() {
-        if let rustls_pemfile::Item::X509Certificate(der) = cert {
-            store.add(CertificateDer::from(der.to_vec())).ok();
-        }
+    // The PEM reader is `rustls`'s own: `rustls-pemfile` is unmaintained
+    // (RUSTSEC-2025-0134), and this is the reading it hands over to.
+    for der in CertificateDer::pem_slice_iter(&bytes).flatten() {
+        store.add(der).ok();
     }
 }
 

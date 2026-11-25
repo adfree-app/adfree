@@ -332,14 +332,12 @@ fn self_signed_ca(key: &rcgen::KeyPair) -> Result<(rcgen::Certificate, Vec<u8>),
 /// Also the core's only PEM reader that needs no engine, so the desktop's
 /// short-lived elevated helper can install a CA without opening the database.
 pub fn decode_cert_pem(pem: &str) -> Result<Vec<u8>, String> {
-    let mut found = None;
-    for block in rustls_pemfile::read_all(&mut std::io::Cursor::new(pem.as_bytes())).flatten() {
-        if let rustls_pemfile::Item::X509Certificate(cert) = block {
-            found = Some(cert.to_vec());
-            break;
-        }
-    }
-    found.ok_or_else(|| "ca pem: no certificate".to_string())
+    use rustls::pki_types::pem::PemObject;
+    rustls::pki_types::CertificateDer::pem_slice_iter(pem.as_bytes())
+        .flatten()
+        .next()
+        .map(|cert| cert.to_vec())
+        .ok_or_else(|| "ca pem: no certificate".to_string())
 }
 
 /// Private key of a leaf in the form rustls wants.
