@@ -59,8 +59,9 @@ impl QName {
 
     #[inline]
     pub fn as_str(&self) -> &str {
-        // SAFETY: only ASCII lower-case letters, digits, dots and hyphens are
-        // ever written into the buffer.
+        // SAFETY: `parse_query` writes only ASCII bytes into the buffer — it
+        // refuses a label that carries anything else, because this type hands
+        // the bytes out as a `&str`.
         unsafe { std::str::from_utf8_unchecked(&self.buf[..self.len as usize]) }
     }
 
@@ -124,7 +125,6 @@ pub fn parse_query<'a>(body: &'a [u8]) -> Option<Query<'a>> {
     let mut buf = [0u8; 255];
     let mut len = 0usize;
     let mut off = 12usize;
-    let mut label_len_total = 0usize;
     loop {
         let label_len = *body.get(off)? as usize;
         off += 1;
@@ -135,11 +135,16 @@ pub fn parse_query<'a>(body: &'a [u8]) -> Option<Query<'a>> {
         if label_len & 0xc0 != 0 {
             return None;
         }
-        label_len_total += label_len;
-        if label_len_total > 253 {
-            return None; // name too long
-        }
         if off + label_len > body.len() {
+            return None;
+        }
+        // The buffer holds the name in presentation form, dots included, so
+        // the budget is 253 bytes of *written* name — not the sum of the label
+        // lengths. A datagram can carry 253 one-byte labels, which is 505
+        // bytes with their dots: counting only the labels writes past the end
+        // of `buf` (found by the `dns_query` fuzzer).
+        let separator = usize::from(len != 0);
+        if len + separator + label_len > 253 {
             return None;
         }
         if len != 0 {
@@ -148,6 +153,12 @@ pub fn parse_query<'a>(body: &'a [u8]) -> Option<Query<'a>> {
         }
         for i in 0..label_len {
             let b = body[off + i];
+            // `QName::as_str` hands the buffer out as a `&str`, so a name this
+            // decoder cannot write as ASCII is a name it must not claim to
+            // have read. The query is forwarded untouched instead.
+            if !b.is_ascii() {
+                return None;
+            }
             buf[len] = b.to_ascii_lowercase();
             len += 1;
         }
@@ -1514,5 +1525,58 @@ mod tests {
         let mut junk = response_skeleton(1);
         add_answer(&mut junk, TYPE_HTTPS, &svcb_rdata(&[(5, &[0xab; 6])]));
         assert_eq!(ech_config_list(&junk), None);
+    }
+
+    /// Two datagrams the `dns_query` fuzzer produced within ten thousand runs.
+    /// Both are on the resolver's front door, where any local program and any
+    /// LAN peer can put them.
+    #[test]
+    fn a_question_that_is_not_ascii_is_refused_not_read_as_text() {
+        // A label carrying 0xFE: the buffer is handed out as a `&str`, so this
+        // used to panic on the next `.matches('.')` inside a `&str`.
+        let packet = [
+            171u8, 204, 252, 0, 0, 1, 0, 0, 0, 0, 0, 174, 1, 197, 0, 0, 1, 0, 0, 0, 0, 0, 0, 3, 97,
+            254, 204, 254, 50, 1, 38, 0, 0, 0, 0, 0, 0, 0, 0, 174, 1, 197, 254, 204, 254, 50, 1,
+            38, 45, 97, 100, 0, 97,
+        ];
+        assert!(parse_query(&packet).is_none());
+    }
+
+    #[test]
+    fn a_name_of_one_byte_labels_cannot_run_past_its_buffer() {
+        // 253 labels of one byte are 505 bytes in presentation form. Counting
+        // only the labels let the dots go over the end of a 255-byte buffer.
+        let mut packet = vec![0u8; 12];
+        packet[4] = 0;
+        packet[5] = 1; // one question
+        for _ in 0..253 {
+            packet.push(1);
+            packet.push(b'a');
+        }
+        packet.push(0);
+        packet.extend_from_slice(&1u16.to_be_bytes());
+        packet.extend_from_slice(&1u16.to_be_bytes());
+        assert!(parse_query(&packet).is_none());
+    }
+
+    /// The same shape just inside the budget still reads: 253 bytes of name is
+    /// the RFC 1035 maximum and every filter matches on it.
+    #[test]
+    fn a_name_that_exactly_fills_the_budget_still_answers() {
+        // Two bytes plus a dot is three per label, so 84 labels fill 251 of
+        // the 253 bytes. Past that the name is refused, which the test above
+        // covers.
+        let labels: Vec<&[u8]> = std::iter::repeat_n(&b"ab"[..], 84).collect();
+        let mut packet = vec![0u8; 12];
+        packet[5] = 1;
+        for label in &labels {
+            packet.push(label.len() as u8);
+            packet.extend_from_slice(label);
+        }
+        packet.push(0);
+        packet.extend_from_slice(&1u16.to_be_bytes());
+        packet.extend_from_slice(&1u16.to_be_bytes());
+        let query = parse_query(&packet).expect("a name inside the budget is a name");
+        assert!(query.qname.as_str().starts_with("ab.ab."));
     }
 }
