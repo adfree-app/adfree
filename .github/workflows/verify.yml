@@ -150,15 +150,19 @@ jobs:
           if-no-files-found: ignore
 
   mutants:
-    name: Mutation testing — ${{ matrix.file }}
+    name: Mutation testing — ${{ matrix.file }} (${{ matrix.shard }}/12)
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
-        # One job per file rather than one job for both: a mutant costs a build,
-        # and `dns.rs` alone carries 716 of the 832.
+        # Twelve slices of each file's mutant list, one job per slice. The
+        # number is not a preference: a mutant costs one full recompile of the
+        # 87k-line crate — measured at 76 s for the baseline and 82 s per
+        # mutant in place — so `dns.rs`'s 716 mutants are 16 hours of one job
+        # and 80 minutes of twelve.
         file: ["src/dns.rs", "src/pathmask.rs"]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     steps:
       - uses: actions/checkout@v5
 
@@ -173,9 +177,27 @@ jobs:
         run: cargo install cargo-mutants --locked
 
       # A survivor is a test that asserts nothing about the line it covers.
-      - name: Mutants in ${{ matrix.file }}
+      #
+      # `--in-place` mutates the checkout rather than a copy per mutant, so the
+      # incremental build is reused — that is what makes 80 minutes instead of
+      # 16 hours possible. The checkout is thrown away with the job, so a
+      # half-written file at the end costs nothing; it also rules out `--jobs`,
+      # which is why the parallelism lives in the matrix.
+      - name: Mutants ${{ matrix.shard }}/12 of ${{ matrix.file }}
         working-directory: rust
-        run: cargo mutants --file "${{ matrix.file }}" --timeout 60
+        run: >
+          cargo mutants --file "${{ matrix.file }}"
+          --in-place --shard ${{ matrix.shard }}/12 --timeout 60
+
+      # `missed.txt` is the list of lines a wrong answer slipped past, which is
+      # the whole output of this job: each line is a test that asserts nothing
+      # about the code it claims to cover.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutants-${{ strategy.job-index }}
+          path: rust/mutants.out/
+          retention-days: 14
 
   proofs:
     name: Proofs — Kani
