@@ -1,0 +1,195 @@
+# The checks that are too slow or too sharp to stand in front of every pull
+# request, run once a week and on demand.
+#
+#   sanitizers  the same tests, built with AddressSanitizer and then with
+#               UndefinedBehaviorSanitizer. This is the only tool here that
+#               sees inside the `unsafe` blocks that talk to the OS — 334 of
+#               them, in sockets, epoll, WinDivert and the packet ring — which
+#               is where a real bug would be.
+#   miri        the pure parsers interpreted with every pointer access checked.
+#               It cannot run the syscall layer at all, so it is pointed at the
+#               modules that never open a socket.
+#   fuzzing     five parsers that eat bytes a stranger chose, sixty seconds
+#               each, with the corpus in `rust/fuzz/corpus/`.
+#   mutants     does the test suite notice when the code is wrong? Mutants are
+#               generated in the modules that decide a request, and a survivor
+#               is a test that asserts nothing about the line it covers.
+#   proofs      a bounded Kani proof over the DNS name decoder, whose two memory
+#               bugs were found in one afternoon — ASCII in a `&str`, and a name
+#               that wrote past its buffer. Two further harnesses were written
+#               and removed for not converging; `rust/src/proofs.rs` says why.
+#
+# Nothing here fails a release; everything here opens an issue worth reading.
+# A red run is a finding, and the finding is the deliverable.
+name: Verification
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Mondays, after the dependency gate and before the week starts.
+    - cron: "41 4 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verification-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  sanitizers:
+    name: Sanitizers — ${{ matrix.sanitizer }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - sanitizer: address
+            rust_flags: "-Zsanitizer=address -Cdebuginfo=1"
+            # LeakSanitizer at exit sees the process-lifetime singletons the
+            # tests leave behind (the engine, the TLS configs, the CA) and
+            # reports them as leaks; the leak that matters — an arena the
+            # proxy keeps while it runs — is measured by `mem`'s own tests.
+            asan_options: "detect_leaks=0"
+          - sanitizer: undefined
+            rust_flags: "-Zsanitizer=undefined -Cdebuginfo=1"
+            asan_options: ""
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@nightly
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+          key: ${{ matrix.sanitizer }}
+
+      - name: Tests under ${{ matrix.sanitizer }}
+        working-directory: rust
+        env:
+          RUSTFLAGS: ${{ matrix.rust_flags }}
+          ASAN_OPTIONS: ${{ matrix.asan_options }}
+          # `mem`'s test measures glibc's arena; a sanitizer replaces the
+          # allocator, so there is nothing there for it to measure.
+          ADFREE_SKIP_ALLOCATOR_TEST: "1"
+        # The target is named explicitly because a sanitizer build needs its own
+        # artifacts: without it, cargo would reuse the ordinary ones.
+        run: cargo test --lib --target x86_64-unknown-linux-gnu
+
+  miri:
+    name: Miri — ${{ matrix.group }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        # One job per module group: Miri is roughly a thousand times slower than
+        # the machine, and a group that hangs must not hold the others.
+        group: ["dns::tests", "pathmask::tests", "htmlfilter::tests"]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+          key: miri
+
+      - name: Tests under Miri
+        working-directory: rust
+        env:
+          # The tests in these groups read files they ship with; isolation
+          # would turn every `statx` into an unsupported operation.
+          MIRIFLAGS: "-Zmiri-disable-isolation"
+        # Miri has no sockets, no threads and no FFI, so the filter names the
+        # modules that have none, and `--skip` keeps the forwarding tests that
+        # live under `proxy::dns` out of the `dns` group.
+        run: cargo miri test --lib -- "${{ matrix.group }}" --skip "proxy::"
+
+  fuzzing:
+    name: Fuzzing — ${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          [dns_query, filter_rule, hls_playlist, extension_frame, base64_body]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@nightly
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+          key: fuzz-${{ matrix.target }}
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Fuzz for sixty seconds
+        working-directory: rust/fuzz
+        env:
+          # `cargo fuzz` shells out to plain `cargo`, which is stable here.
+          RUSTUP_TOOLCHAIN: nightly
+        # The corpus is committed, so each run starts from the inputs the last
+        # run found; `-rss_limit_mb` keeps a runaway allocation a finding
+        # rather than an out-of-memory kill.
+        run: cargo fuzz run ${{ matrix.target }} -- -max_total_time=60 -rss_limit_mb=2048
+
+      - name: Keep the input that crashed it
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-${{ matrix.target }}-artifacts
+          path: rust/fuzz/artifacts/
+          if-no-files-found: ignore
+
+  mutants:
+    name: Mutation testing
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+          key: mutants
+
+      - name: Install cargo-mutants
+        run: cargo install cargo-mutants --locked
+
+      # Two files, not the tree: the question is whether the tests that exist
+      # notice a wrong answer in the code that decides one, and a run over
+      # 88 000 lines would not finish before the next one starts.
+      - name: Mutants in the decision modules
+        working-directory: rust
+        run: |
+          cargo mutants --file src/dns.rs --timeout 60
+          cargo mutants --file src/pathmask.rs --timeout 60
+
+  proofs:
+    name: Proofs — Kani
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: model-checking/kani-github-action@v1
+        with:
+          # Bounded: the harness states its own unwind limit, and this keeps the
+          # run inside a few minutes.
+          args: --lib
+          working-directory: rust

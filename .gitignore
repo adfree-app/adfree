@@ -10,6 +10,8 @@ local.properties
 # Rust build artifacts. They are produced by :app:buildRust (cargo-ndk) and are
 # never committed: the crate source in rust/ is the single source of truth.
 rust/target/
+# cargo-mutants writes its report beside the crate it mutated.
+rust/mutants.out/
 app/src/main/jniLibs/
 *.so
 

@@ -41,6 +41,9 @@ pub mod mem;
 pub mod packet;
 pub mod page_exception;
 pub mod pathmask;
+/// Bounded proofs, compiled only under `cargo kani`.
+#[cfg(kani)]
+mod proofs;
 pub mod proxy;
 pub mod safesearch;
 pub mod services;

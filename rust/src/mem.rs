@@ -67,6 +67,13 @@ mod tests {
     /// the whole arena is free and the trim has something to give back.
     #[test]
     fn a_freed_arena_goes_back_to_the_system() {
+        // What is measured here is glibc's allocator. A sanitizer replaces it
+        // and Miri emulates it, so there is no arena to trim and the numbers
+        // say nothing; the sanitizer job sets this and the reading is skipped
+        // rather than reported as a failure of the code under test.
+        if std::env::var_os("ADFREE_SKIP_ALLOCATOR_TEST").is_some() {
+            return;
+        }
         let before = rss_kb();
         let mut blocks: Vec<Vec<u8>> = Vec::with_capacity(4096);
         for _ in 0..4096 {

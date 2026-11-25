@@ -1,0 +1,73 @@
+# Fuzzing the parsers that eat bytes from the network.
+#
+# Each target is a function the core calls with data a stranger chose: a DNS
+# packet, a browser-extension frame, a filter rule out of a downloaded list, an
+# HLS playlist a page loaded, a body the inspector decoded. A panic there is a
+# process that dies on bad input; a hang is a proxy thread that stops serving.
+# Neither is reachable by the unit tests, which use the inputs we thought of.
+#
+# Local, thirty seconds per target:
+#   cd rust/fuzz && cargo +nightly fuzz run dns_query -- -max_total_time=30
+#
+# CI: the `Fuzzing` job in `.github/workflows/verify.yml`, sixty seconds each.
+
+[package]
+name = "adfree-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Detached from the core's manifest on purpose: `cargo build` in `rust/` must
+# not build the fuzzers, and the fuzzers need nightly while the core does not.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+serde_json = "1"
+adfree-core = { path = ".." }
+
+# Every target builds in release with debug assertions: an overflow that wraps
+# silently in release is the bug we are looking for, and the panic message is
+# worth the extra symbols.
+[profile.release]
+debug = 1
+overflow-checks = true
+debug-assertions = true
+
+[[bin]]
+name = "dns_query"
+path = "fuzz_targets/dns_query.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "filter_rule"
+path = "fuzz_targets/filter_rule.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "hls_playlist"
+path = "fuzz_targets/hls_playlist.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "extension_frame"
+path = "fuzz_targets/extension_frame.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "base64_body"
+path = "fuzz_targets/base64_body.rs"
+test = false
+doc = false
+bench = false
