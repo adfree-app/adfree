@@ -177,7 +177,9 @@ jobs:
         # mutant in place — so `dns.rs`'s 716 mutants are 16 hours of one job
         # and 80 minutes of twelve.
         file: ["src/dns.rs", "src/pathmask.rs"]
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        # `--shard k/n` counts from zero and needs `k < n`, so the last
+        # slice of twelve is 11/12, not 12/12.
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
     if: github.event_name == 'schedule' || inputs.only == 'all' || inputs.only == 'mutants'
     steps:
       - uses: actions/checkout@v5
@@ -199,11 +201,35 @@ jobs:
       # 16 hours possible. The checkout is thrown away with the job, so a
       # half-written file at the end costs nothing; it also rules out `--jobs`,
       # which is why the parallelism lives in the matrix.
+      # A missed mutant is the answer this job was asked for, not a fault in
+      # it: the first slice of `pathmask.rs` reported two, both naming a guard
+      # that let `//` match every URL, and that is how the bug was found. So the
+      # step may fail and the job may not, the report goes to the log in full,
+      # and `missed.txt` is uploaded either way.
       - name: Mutants ${{ matrix.shard }}/12 of ${{ matrix.file }}
+        id: mutants
+        continue-on-error: true
         working-directory: rust
         run: >
           cargo mutants --file "${{ matrix.file }}"
           --in-place --shard ${{ matrix.shard }}/12 --timeout 60
+
+      - name: What the tests did not notice
+        if: always()
+        working-directory: rust
+        run: |
+          echo "cargo-mutants exited ${{ steps.mutants.outcome }}"
+          if [ -f mutants.out/missed.txt ]; then
+            echo "--- missed (a test that asserts nothing about this line) ---"
+            cat mutants.out/missed.txt
+          fi
+          if [ -f mutants.out/timeout.txt ]; then
+            echo "--- timed out (a mutant that made the suite hang) ---"
+            cat mutants.out/timeout.txt
+          fi
+          echo "--- summary ---"
+          cat mutants.out/caught.txt 2>/dev/null | wc -l | sed 's/^/caught: /'
+          cat mutants.out/missed.txt 2>/dev/null | wc -l | sed 's/^/missed: /'
 
       # `missed.txt` is the list of lines a wrong answer slipped past, which is
       # the whole output of this job: each line is a test that asserts nothing
