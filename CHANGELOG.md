@@ -1,3 +1,9 @@
+## [1.34.8](https://github.com/adfree-app/adfree/compare/v1.34.7...v1.34.8) (2026-11-25)
+
+### Bug Fixes
+
+* **pathmask:** a target of two slashes matched every url ([3a5a6a0](https://github.com/adfree-app/adfree/commit/3a5a6a0780adcd804f49225c36c0ad6356e44049))
+
 ## [1.34.7](https://github.com/adfree-app/adfree/compare/v1.34.6...v1.34.7) (2026-11-25)
 
 ### Bug Fixes
