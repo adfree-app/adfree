@@ -150,9 +150,15 @@ jobs:
           if-no-files-found: ignore
 
   mutants:
-    name: Mutation testing
+    name: Mutation testing — ${{ matrix.file }}
     runs-on: ubuntu-24.04
     timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        # One job per file rather than one job for both: a mutant costs a build,
+        # and `dns.rs` alone carries 716 of the 832.
+        file: ["src/dns.rs", "src/pathmask.rs"]
     steps:
       - uses: actions/checkout@v5
 
@@ -161,19 +167,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-          key: mutants
+          key: mutants-${{ matrix.file }}
 
       - name: Install cargo-mutants
         run: cargo install cargo-mutants --locked
 
-      # Two files, not the tree: the question is whether the tests that exist
-      # notice a wrong answer in the code that decides one, and a run over
-      # 88 000 lines would not finish before the next one starts.
-      - name: Mutants in the decision modules
+      # A survivor is a test that asserts nothing about the line it covers.
+      - name: Mutants in ${{ matrix.file }}
         working-directory: rust
-        run: |
-          cargo mutants --file src/dns.rs --timeout 60
-          cargo mutants --file src/pathmask.rs --timeout 60
+        run: cargo mutants --file "${{ matrix.file }}" --timeout 60
 
   proofs:
     name: Proofs — Kani
