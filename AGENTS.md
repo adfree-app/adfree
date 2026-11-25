@@ -57,6 +57,42 @@ gets nothing, which is the state that let six clippy warnings reach the default
 branch as six red builds. `git commit --no-verify`, or `ADFREE_SKIP_HOOKS=1`,
 skips it when that is the deliberate choice.
 
+## The verification tools
+
+The core is 88 000 lines of Rust with 334 `unsafe` blocks, all of them at the
+operating-system seam: sockets, `epoll`, WinDivert, the packet ring. Two of the
+six checks below look at that seam, and each is aimed at what the others cannot
+reach. Nothing here is a release gate; a red run is a finding, and the finding
+is the point.
+
+| Where | What | Command |
+| --- | --- | --- |
+| `ci.yml` — every push | advisories, licences, bans, sources | `cd rust && cargo deny check` |
+| `verify.yml` — Mondays | the suite under AddressSanitizer and UBSan | `RUSTFLAGS="-Zsanitizer=address -Cdebuginfo=1" ADFREE_SKIP_ALLOCATOR_TEST=1 cargo +nightly test --lib --target x86_64-unknown-linux-gnu` |
+| `verify.yml` — Mondays | the pure parsers under Miri | `cargo +nightly miri test --lib -- 'dns::tests' --skip 'proxy::'` |
+| `verify.yml` — Mondays | five parsers, a minute each | `cd rust/fuzz && RUSTUP_TOOLCHAIN=nightly cargo fuzz run dns_query -- -max_total_time=60` |
+| `verify.yml` — Mondays | does the suite notice a wrong line | `cd rust && cargo mutants --file src/dns.rs --timeout 60` |
+| `verify.yml` — Mondays | a bounded Kani proof of the DNS decoder | `cd rust && cargo kani --lib` |
+
+What each one can and cannot see, so nobody asks the wrong one:
+
+- **Miri has no sockets, no threads and no FFI**, so it is pointed at the
+  modules that open none: `dns`, `pathmask`, `htmlfilter`, `safesearch`. It is
+  the only check that reads every pointer access in the parsers, and it is
+  roughly a thousand times slower than the machine.
+- **A sanitizer replaces the allocator**, so `mem::tests`' arena reading is
+  skipped through `ADFREE_SKIP_ALLOCATOR_TEST` rather than reported as a
+  failure, and LeakSanitizer's exit report is switched off
+  (`ASAN_OPTIONS=detect_leaks=0`) because the process-lifetime singletons the
+  tests create are not leaks.
+- **Kani needs the proof to fit in a bound.** `src/proofs.rs` states its own
+  unwind limits, and a harness that stops converging is a signal to lower the
+  bound, not to wait.
+- **A new parser gets a fuzz target.** `rust/fuzz/Cargo.toml` lists them; the
+  corpus under `rust/fuzz/corpus/` is committed, so each run starts from the
+  inputs the last one found. The `dns_query` target found a stack overflow and
+  a `&str` built from non-ASCII bytes within ten thousand runs of each other.
+
 ## The website
 
 The landing page, the extension and this app are three repositories now
