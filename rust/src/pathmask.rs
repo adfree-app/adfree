@@ -926,4 +926,41 @@ mod tests {
         assert_eq!(path_and_query("https://shop.test"), "/");
         assert_eq!(path_and_query("shop.test/tv"), "/tv");
     }
+
+    /// The stride past `://` is three characters. Every case above has a host
+    /// long enough that a wrong stride lands on another `/` and reads the same,
+    /// so one short host is what tells the two apart — and with `http://a.b/c`
+    /// a stride of `index * 3` runs past the end of the URL entirely.
+    #[test]
+    fn path_and_query_skips_exactly_the_scheme() {
+        assert_eq!(path_and_query("http://a.b/c"), "/c");
+        assert_eq!(path_and_query("http://a.b"), "/");
+    }
+
+    /// `any` decides whether a rule is pinned to a location at all, so each of
+    /// the three masks has to answer for itself: one mask set is enough.
+    #[test]
+    fn a_location_is_any_mask_that_names_something() {
+        let empty = Location {
+            path: None,
+            url: None,
+            authority: None,
+        };
+        assert!(!empty.any());
+        assert!(Location {
+            path: Some(mask("/page.html")),
+            ..empty.clone()
+        }
+        .any());
+        assert!(Location {
+            url: Some(UrlMask::parse("||example.com/content/*").expect("mask")),
+            ..empty.clone()
+        }
+        .any());
+        assert!(Location {
+            authority: Some(UrlMask::parse("||example.com/*").expect("mask")),
+            ..empty
+        }
+        .any());
+    }
 }
