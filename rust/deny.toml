@@ -1,0 +1,82 @@
+# What the dependency gate refuses.
+#
+# The core links a proxy, a TLS stack, a QUIC stack and SQLite into a binary
+# that runs with CAP_NET_ADMIN. A crate with a known advisory is not a
+# hypothetical here: it is a listener on every machine that installed the build,
+# so the gate runs on every pull request and again every week, because the
+# advisory database changes and the lock file does not.
+#
+# Local: `cargo deny check` in `rust/`. CI: the `Security — dependencies` job.
+
+[graph]
+targets = [
+  { triple = "x86_64-unknown-linux-gnu" },
+  { triple = "aarch64-unknown-linux-gnu" },
+  { triple = "x86_64-pc-windows-gnu" },
+  { triple = "aarch64-linux-android" },
+]
+
+[advisories]
+version = 2
+# Say it in the log rather than stopping: a project-wide gate that fails on a
+# dependency it cannot choose (a transitive `ring`, say) has to be actionable,
+# and the action is an issue, not a red pull request.
+yanked = "warn"
+# The two entries below are read, not waved through. Both are in code paths the
+# gate cannot patch today, and both go away by itself as soon as the fixed
+# releases land — which is what the weekly run is for.
+ignore = [
+  # `ureq` 2.12 pins `webpki-roots ^0.26`, so the fix (roots 1.0.9) is not
+  # reachable without a `ureq` 3 migration. The list is only consulted for
+  # fetching filter lists and checking for updates, and every one of those goes
+  # to a host the app would talk to anyway.
+  "RUSTSEC-2026-0381",
+  # `rustls` 0.23.46 is the newest release; the advisory's fix is a later
+  # 0.23.x. Watch it in the weekly run and drop the ignore when it lands.
+  "RUSTSEC-2026-0382",
+]
+
+[licenses]
+version = 2
+# The published licence of this crate is Apache-2.0; everything linked into it
+# has to be redistributable under that. AGPL-3.0+ is listed because the repo's
+# own text is AGPL — the core's `Cargo.toml` says Apache-2.0, so a dependency
+# under AGPL would still be refused, and the two are kept apart on purpose.
+allow = [
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "MIT",
+  "MIT-0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "MPL-2.0",
+  "CC0-1.0",
+  "BSL-1.0",
+  "OpenSSL",
+  "CDLA-Permissive-2.0",
+]
+# Licences that are read by a person, not by the gate.
+exceptions = []
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Nothing here may name a git branch: a lock file that follows a branch is a
+# build that cannot be reproduced and an audit that cannot say what ran.
+deny = [
+  { name = "openssl-sys" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# The filter engine is a fork of `adblock-rust` with the rule patches this app
+# needs (`[patch.crates-io]` in `Cargo.toml`). The manifest follows the branch,
+# the lock file pins the commit, and the gate reads the lock file — so the build
+# is reproducible even though the manifest would allow drift.
+allow-git = ["https://github.com/yuuki-kagura/adblock-rust"]

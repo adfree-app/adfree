@@ -74,6 +74,22 @@ jobs:
         working-directory: rust
         run: cargo build --examples --locked
 
+  dependencies:
+    name: Security — dependencies
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      # The gate reads `Cargo.lock`, so no toolchain and no build: a known
+      # advisory is a red pull request even when the fix is a version bump
+      # nobody has made yet, which is exactly the conversation to have before
+      # the merge rather than after the release.
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: rust/Cargo.toml
+          command: check advisories licenses bans sources
+          arguments: --all-features
+
   javascript:
     name: JavaScript — lint and node tests
     runs-on: ubuntu-24.04
