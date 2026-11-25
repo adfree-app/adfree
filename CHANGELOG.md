@@ -1,3 +1,10 @@
+## [1.34.7](https://github.com/adfree-app/adfree/compare/v1.34.6...v1.34.7) (2026-11-25)
+
+### Bug Fixes
+
+* **deps:** six advisories answered, and the PEM reader moves off a dead crate ([24a636e](https://github.com/adfree-app/adfree/commit/24a636eb96f06da45492caa4b964f05344362ba4))
+* **dns:** a question that is not ascii, or that overflows its buffer, is refused ([cbd553e](https://github.com/adfree-app/adfree/commit/cbd553eb902a4b54e036b5b2b81cddaa993b6836))
+
 ## [1.34.6](https://github.com/adfree-app/adfree/compare/v1.34.5...v1.34.6) (2026-11-24)
 
 ### Bug Fixes
