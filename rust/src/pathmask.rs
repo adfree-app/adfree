@@ -297,8 +297,14 @@ pub fn parse_targets(prefix: &str) -> TargetsParse {
         if part.starts_with('/') {
             // A leading `/` names a whole-target regexp; the knowledge base's
             // spelling closes it. An unterminated one is a path-only target
-            // the syntax does not have, not a pattern to apply everywhere.
-            if part.len() < 2 || !part.ends_with('/') {
+            // the syntax does not have, not a pattern to apply everywhere —
+            // and `//` is the closing slash around an empty body, which
+            // compiles to the empty regexp and matches every URL, so it is
+            // refused for the same reason.
+            let body = part
+                .strip_prefix('/')
+                .and_then(|rest| rest.strip_suffix('/'));
+            if body.is_none_or(str::is_empty) {
                 return TargetsParse::Unsupported;
             }
             let value = unescape_syntax(part);
@@ -890,6 +896,15 @@ mod tests {
             parse_targets("example.com/path,,other.com"),
             TargetsParse::Unsupported
         ));
+    }
+
+    /// A whole-target regexp has to name something. `//` is a pair of slashes
+    /// around an empty body, and an empty regexp matches every URL — a rule
+    /// written that way would be applied to every page, which is the one thing
+    /// this module exists to refuse.
+    #[test]
+    fn a_target_that_is_only_slashes_is_refused() {
+        assert!(matches!(parse_targets("//"), TargetsParse::Unsupported));
     }
 
     #[test]
