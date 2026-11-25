@@ -1218,6 +1218,93 @@ mod tests {
         assert_eq!(recs[0].ttl, 300);
     }
 
+    /// The six fields of a learned record, and what each refusal is for.
+    ///
+    /// These are the offsets `parse_answers` walks with: a response is not
+    /// trusted to be well formed, so every count is bounded and every read is
+    /// checked against the length before it happens.
+    #[test]
+    fn a_learned_record_has_to_fit_inside_the_response() {
+        // An AAAA record is learned as well as an A one.
+        let mut six = response_skeleton(1);
+        add_answer(
+            &mut six,
+            TYPE_AAAA,
+            &[0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+        );
+        let learned = parse_answers(&six);
+        assert_eq!(learned.len(), 1);
+        assert_eq!(learned[0].ip.as_ip().to_string(), "2001:db8::1");
+
+        // An A record whose length is not four bytes names no address.
+        let mut wrong = response_skeleton(1);
+        add_answer(&mut wrong, TYPE_A, &[1, 2, 3, 4, 5]);
+        assert!(parse_answers(&wrong).is_empty());
+
+        // A record header cut short: the counts promise more than the bytes.
+        let mut cut = response_skeleton(1);
+        add_answer(&mut cut, TYPE_A, &[1, 2, 3, 4]);
+        let culled = cut.len() - 6;
+        cut.truncate(culled);
+        assert!(parse_answers(&cut).is_empty());
+
+        // RDATA that runs past the end of the response.
+        let mut rdata = response_skeleton(1);
+        add_answer(&mut rdata, TYPE_A, &[1, 2, 3, 4]);
+        rdata.truncate(rdata.len() - 2);
+        assert!(parse_answers(&rdata).is_empty());
+
+        // A header that is not a DNS message at all.
+        assert!(parse_answers(&[0u8; 11]).is_empty());
+    }
+
+    /// The bounds are inclusive: four questions and sixty-four answers are
+    /// walked, a fifth question or sixty-fifth answer is not. The counts are
+    /// what keep a hostile response from making the walk unbounded, so the
+    /// edge is worth a test with the records actually present — a refusal that
+    /// only fires on a response that would have failed anyway proves nothing.
+    #[test]
+    fn the_last_record_inside_the_bound_is_still_read() {
+        let mut four = response_skeleton(1);
+        four[5] = 4;
+        for _ in 1..4 {
+            four.extend_from_slice(&[0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01]);
+        }
+        add_answer(&mut four, TYPE_A, &[9, 9, 9, 9]);
+        assert_eq!(parse_answers(&four).len(), 1, "four questions are walked");
+
+        let mut five = response_skeleton(1);
+        five[5] = 5;
+        for _ in 1..5 {
+            five.extend_from_slice(&[0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01]);
+        }
+        add_answer(&mut five, TYPE_A, &[9, 9, 9, 9]);
+        assert!(
+            parse_answers(&five).is_empty(),
+            "a fifth question is past the bound"
+        );
+
+        let mut full = response_skeleton(64);
+        for last in 1..=64u8 {
+            add_answer(&mut full, TYPE_A, &[10, 0, 0, last]);
+        }
+        assert_eq!(parse_answers(&full).len(), 64);
+
+        let mut over = response_skeleton(65);
+        for last in 1..=65u8 {
+            add_answer(&mut over, TYPE_A, &[10, 0, 0, last]);
+        }
+        assert!(
+            parse_answers(&over).is_empty(),
+            "sixty-five is past the bound"
+        );
+
+        // No answers at all is not a failure, just nothing learned.
+        let mut none = response_skeleton(1);
+        none[7] = 0;
+        assert!(parse_answers(&none).is_empty());
+    }
+
     /// SVCB/HTTPS RDATA: priority, root target, then the given parameters.
     fn svcb_rdata(params: &[(u16, &[u8])]) -> Vec<u8> {
         let mut rdata = Vec::new();
