@@ -1,11 +1,16 @@
 # The checks that are too slow or too sharp to stand in front of every pull
 # request, run once a week and on demand.
 #
-#   sanitizers  the same tests, built with AddressSanitizer and then with
-#               UndefinedBehaviorSanitizer. This is the only tool here that
-#               sees inside the `unsafe` blocks that talk to the OS — 334 of
-#               them, in sockets, epoll, WinDivert and the packet ring — which
-#               is where a real bug would be.
+#   sanitizers  the same tests, built with AddressSanitizer. This is the only
+#               tool here that sees inside the `unsafe` blocks that talk to the
+#               OS — 334 of them, in sockets, epoll, WinDivert and the packet
+#               ring — which is where a real bug would be.
+#
+#               One sanitizer and not two: Rust has no `-Zsanitizer=undefined`
+#               at all, and ThreadSanitizer refuses a precompiled standard
+#               library (`mixing -Zsanitizer will cause an ABI mismatch`), which
+#               would mean `-Zbuild-std` over a crate that links bundled SQLite
+#               and `ring`'s assembly.
 #   miri        the pure parsers interpreted with every pointer access checked.
 #               It cannot run the syscall layer at all, so it is pointed at the
 #               modules that never open a socket.
@@ -42,23 +47,9 @@ env:
 
 jobs:
   sanitizers:
-    name: Sanitizers — ${{ matrix.sanitizer }}
+    name: Sanitizers — address
     runs-on: ubuntu-24.04
     timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - sanitizer: address
-            rust_flags: "-Zsanitizer=address -Cdebuginfo=1"
-            # LeakSanitizer at exit sees the process-lifetime singletons the
-            # tests leave behind (the engine, the TLS configs, the CA) and
-            # reports them as leaks; the leak that matters — an arena the
-            # proxy keeps while it runs — is measured by `mem`'s own tests.
-            asan_options: "detect_leaks=0"
-          - sanitizer: undefined
-            rust_flags: "-Zsanitizer=undefined -Cdebuginfo=1"
-            asan_options: ""
     steps:
       - uses: actions/checkout@v5
 
@@ -67,13 +58,17 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-          key: ${{ matrix.sanitizer }}
+          key: sanitizer
 
-      - name: Tests under ${{ matrix.sanitizer }}
+      - name: Tests under AddressSanitizer
         working-directory: rust
         env:
-          RUSTFLAGS: ${{ matrix.rust_flags }}
-          ASAN_OPTIONS: ${{ matrix.asan_options }}
+          RUSTFLAGS: "-Zsanitizer=address -Cdebuginfo=1"
+          # LeakSanitizer at exit sees the process-lifetime singletons the
+          # tests leave behind (the engine, the TLS configs, the CA) and
+          # reports them as leaks; the leak that matters — an arena the proxy
+          # keeps while it runs — is measured by `mem`'s own tests.
+          ASAN_OPTIONS: "detect_leaks=0"
           # `mem`'s test measures glibc's arena; a sanitizer replaces the
           # allocator, so there is nothing there for it to measure.
           ADFREE_SKIP_ALLOCATOR_TEST: "1"

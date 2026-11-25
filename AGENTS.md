@@ -68,7 +68,7 @@ is the point.
 | Where | What | Command |
 | --- | --- | --- |
 | `ci.yml` — every push | advisories, licences, bans, sources | `cd rust && cargo deny check` |
-| `verify.yml` — Mondays | the suite under AddressSanitizer and UBSan | `RUSTFLAGS="-Zsanitizer=address -Cdebuginfo=1" ADFREE_SKIP_ALLOCATOR_TEST=1 cargo +nightly test --lib --target x86_64-unknown-linux-gnu` |
+| `verify.yml` — Mondays | the suite under AddressSanitizer | `RUSTFLAGS="-Zsanitizer=address -Cdebuginfo=1" ADFREE_SKIP_ALLOCATOR_TEST=1 cargo +nightly test --lib --target x86_64-unknown-linux-gnu` |
 | `verify.yml` — Mondays | the pure parsers under Miri | `cargo +nightly miri test --lib -- 'dns::tests' --skip 'proxy::'` |
 | `verify.yml` — Mondays | five parsers, a minute each | `cd rust/fuzz && RUSTUP_TOOLCHAIN=nightly cargo fuzz run dns_query -- -max_total_time=60` |
 | `verify.yml` — Mondays | does the suite notice a wrong line | `cd rust && cargo mutants --file src/dns.rs --timeout 60` |
@@ -85,6 +85,10 @@ What each one can and cannot see, so nobody asks the wrong one:
   failure, and LeakSanitizer's exit report is switched off
   (`ASAN_OPTIONS=detect_leaks=0`) because the process-lifetime singletons the
   tests create are not leaks.
+- **AddressSanitizer is the only sanitizer here.** Rust has no
+  `-Zsanitizer=undefined`, and ThreadSanitizer refuses a precompiled standard
+  library, which would mean `-Zbuild-std` over bundled SQLite and `ring`'s
+  assembly.
 - **Kani needs the proof to fit in a bound.** `src/proofs.rs` states its own
   unwind limits, and a harness that stops converging is a signal to lower the
   bound, not to wait.
