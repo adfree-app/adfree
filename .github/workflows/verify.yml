@@ -30,6 +30,12 @@ name: Verification
 
 on:
   workflow_dispatch:
+    inputs:
+      only:
+        description: "Run one group, or everything"
+        type: choice
+        default: all
+        options: [all, sanitizers, miri, fuzzing, mutants, proofs]
   schedule:
     # Mondays, after the dependency gate and before the week starts.
     - cron: "41 4 * * 1"
@@ -50,6 +56,7 @@ jobs:
     name: Sanitizers — address
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    if: github.event_name == 'schedule' || inputs.only == 'all' || inputs.only == 'sanitizers'
     steps:
       - uses: actions/checkout@v5
 
@@ -74,7 +81,13 @@ jobs:
           ADFREE_SKIP_ALLOCATOR_TEST: "1"
         # The target is named explicitly because a sanitizer build needs its own
         # artifacts: without it, cargo would reuse the ordinary ones.
-        run: cargo test --lib --target x86_64-unknown-linux-gnu
+        # One test thread. Two of glibc 2.39's own bookkeeping paths do not
+        # survive AddressSanitizer's allocator: a suite that forks while other
+        # threads hold arenas aborts at thread exit with
+        # `arena.c:907 (__malloc_arena_thread_freeres): assertion failed:
+        # a->attached_threads > 0` — a glibc assertion, not a finding. One
+        # thread at a time keeps the run's own report meaningful.
+        run: cargo test --lib --target x86_64-unknown-linux-gnu -- --test-threads=1
 
   miri:
     name: Miri — ${{ matrix.group }}
@@ -86,6 +99,7 @@ jobs:
         # One job per module group: Miri is roughly a thousand times slower than
         # the machine, and a group that hangs must not hold the others.
         group: ["dns::tests", "pathmask::tests", "htmlfilter::tests"]
+    if: github.event_name == 'schedule' || inputs.only == 'all' || inputs.only == 'miri'
     steps:
       - uses: actions/checkout@v5
 
@@ -118,6 +132,7 @@ jobs:
       matrix:
         target:
           [dns_query, filter_rule, hls_playlist, extension_frame, base64_body]
+    if: github.event_name == 'schedule' || inputs.only == 'all' || inputs.only == 'fuzzing'
     steps:
       - uses: actions/checkout@v5
 
@@ -163,6 +178,7 @@ jobs:
         # and 80 minutes of twelve.
         file: ["src/dns.rs", "src/pathmask.rs"]
         shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    if: github.event_name == 'schedule' || inputs.only == 'all' || inputs.only == 'mutants'
     steps:
       - uses: actions/checkout@v5
 
@@ -203,6 +219,7 @@ jobs:
     name: Proofs — Kani
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    if: github.event_name == 'schedule' || inputs.only == 'all' || inputs.only == 'proofs'
     steps:
       - uses: actions/checkout@v5
 
