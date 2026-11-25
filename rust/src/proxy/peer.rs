@@ -713,9 +713,20 @@ mod tests {
         // The port the redirect sent it to, which no row of the client's own
         // socket names.
         let our: SocketAddr = "127.0.0.1:3129".parse().unwrap();
-        let peer = table
-            .owner(from, our)
-            .expect("the source port alone names the process");
+        // The connection and the `/proc` snapshot are two events: under a suite
+        // that opens sockets on a dozen threads at once, the row can be one
+        // instant behind the socket that made it. Waiting for it is what the
+        // test means — the port does name the process — and it keeps a real
+        // failure (no row at all) a failure half a second later.
+        let mut found = None;
+        for _ in 0..50 {
+            found = table.owner(from, our);
+            if found.is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let peer = found.expect("the source port alone names the process");
         assert_eq!(peer.pid, std::process::id());
         drop((accepted, client));
     }
