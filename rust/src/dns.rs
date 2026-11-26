@@ -1480,6 +1480,24 @@ mod tests {
         two_questions[5] = 2;
         add_answer_ttl(&mut two_questions, TYPE_A, 300, &[1, 2, 3, 4]);
         assert_eq!(clamp_answer_ttl(&mut two_questions, 60), 0);
+
+        // The same counts `cache_ttl` bounds, because the walk is the same:
+        // sixty-four answers are lowered, sixty-five are not touched at all.
+        let mut full = response_skeleton(64);
+        for last in 1..=64u8 {
+            add_answer_ttl(&mut full, TYPE_A, 300, &[10, 0, 0, last]);
+        }
+        assert_eq!(clamp_answer_ttl(&mut full, 60), 64);
+
+        let mut over = response_skeleton(65);
+        for last in 1..=65u8 {
+            add_answer_ttl(&mut over, TYPE_A, 300, &[10, 0, 0, last]);
+        }
+        assert_eq!(clamp_answer_ttl(&mut over, 60), 0);
+
+        // And a reply with no answers has nothing to lower.
+        let mut none = response_skeleton(0);
+        assert_eq!(clamp_answer_ttl(&mut none, 60), 0);
     }
 
     #[test]
