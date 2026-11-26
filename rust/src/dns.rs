@@ -1373,6 +1373,115 @@ mod tests {
         assert_eq!(cache_ttl(&response_skeleton(0)), None);
     }
 
+    /// The predicate is the header, and each bit of it is a way to be wrong:
+    /// a query is not an answer, a reply for an opcode this cache does not
+    /// speak has no answer shape to hold, and a truncated reply is not a
+    /// record. Each is tested with a body that would otherwise be cacheable,
+    /// because a refusal that fires on a message nothing would cache proves
+    /// nothing.
+    #[test]
+    fn only_a_plain_untouched_answer_is_cacheable() {
+        let shaped = |flags_hi: u8, flags_lo: u8| {
+            let mut msg = response_skeleton(1);
+            msg[2] = flags_hi;
+            msg[3] = flags_lo;
+            add_answer_ttl(&mut msg, TYPE_A, 300, &[1, 2, 3, 4]);
+            msg
+        };
+        // QR set, opcode 0, no TC: the shape every other test writes.
+        assert_eq!(cache_ttl(&shaped(0x84, 0x80)), Some(300));
+        // QR clear — a query, not an answer.
+        assert_eq!(cache_ttl(&shaped(0x04, 0x80)), None);
+        // Opcode 1 — a reply to something other than a query.
+        assert_eq!(cache_ttl(&shaped(0x88, 0x80)), None);
+    }
+
+    /// One question is the shape, and the counts bound what is walked: 64
+    /// answers and 16 authority records are read, one more of either is not.
+    #[test]
+    fn the_counts_a_cacheable_answer_may_carry() {
+        let a = |msg: &mut Vec<u8>, last: u8| {
+            add_answer_ttl(msg, TYPE_A, 300, &[10, 0, 0, last]);
+        };
+
+        let mut two_questions = response_skeleton(1);
+        two_questions[5] = 2;
+        a(&mut two_questions, 1);
+        assert_eq!(cache_ttl(&two_questions), None, "one question is the shape");
+
+        let mut full = response_skeleton(64);
+        for last in 1..=64u8 {
+            a(&mut full, last);
+        }
+        assert_eq!(cache_ttl(&full), Some(300), "sixty-four answers are read");
+
+        let mut over = response_skeleton(65);
+        for last in 1..=65u8 {
+            a(&mut over, last);
+        }
+        assert_eq!(cache_ttl(&over), None, "sixty-five are not");
+
+        // An authority section of sixteen is walked past; seventeen is not.
+        let mut ns_full = response_skeleton(1);
+        ns_full[9] = 16;
+        a(&mut ns_full, 1);
+        for _ in 0..16 {
+            add_answer_ttl(&mut ns_full, 2, 300, &[0xc0, 0x0c]);
+        }
+        assert_eq!(cache_ttl(&ns_full), Some(300));
+
+        let mut ns_over = response_skeleton(1);
+        ns_over[9] = 17;
+        a(&mut ns_over, 1);
+        for _ in 0..17 {
+            add_answer_ttl(&mut ns_over, 2, 300, &[0xc0, 0x0c]);
+        }
+        assert_eq!(cache_ttl(&ns_over), None, "seventeen are not");
+    }
+
+    /// Aging covers the authority section as well as the answers — a negative
+    /// answer's SOA lives there — and a message that is not one question with
+    /// an answer is left alone.
+    #[test]
+    fn a_cached_answer_ages_its_authority_records_too() {
+        let mut msg = response_skeleton(1);
+        add_answer_ttl(&mut msg, TYPE_A, 300, &[1, 2, 3, 4]);
+        msg[9] = 1;
+        add_answer_ttl(&mut msg, 2, 300, &[0xc0, 0x0c]);
+        assert_eq!(
+            age_ttls(&mut msg, 100),
+            2,
+            "the answer and the authority record"
+        );
+        assert_eq!(
+            u32::from_be_bytes([msg[35], msg[36], msg[37], msg[38]]),
+            200
+        );
+
+        let mut two = response_skeleton(1);
+        two[5] = 2;
+        add_answer_ttl(&mut two, TYPE_A, 300, &[1, 2, 3, 4]);
+        assert_eq!(age_ttls(&mut two, 100), 0, "one question is the shape");
+    }
+
+    /// Clamping walks each answer at its own length: three records of three
+    /// different RDATA lengths are three records, and a wrong stride finds
+    /// something that is not one.
+    #[test]
+    fn clamping_walks_every_answer_at_its_own_length() {
+        let mut msg = response_skeleton(3);
+        add_answer_ttl(&mut msg, TYPE_A, 300, &[1, 2, 3, 4]);
+        add_answer_ttl(&mut msg, TYPE_AAAA, 300, &[0u8; 16]);
+        add_answer_ttl(&mut msg, TYPE_A, 300, &[5, 6, 7, 8]);
+        assert_eq!(clamp_answer_ttl(&mut msg, 60), 3);
+        assert_eq!(cache_ttl(&msg), Some(60), "every record was lowered");
+
+        let mut two_questions = response_skeleton(1);
+        two_questions[5] = 2;
+        add_answer_ttl(&mut two_questions, TYPE_A, 300, &[1, 2, 3, 4]);
+        assert_eq!(clamp_answer_ttl(&mut two_questions, 60), 0);
+    }
+
     #[test]
     fn a_negative_answer_lives_as_long_as_its_soa_allows() {
         let mut msg = response_skeleton(0);
