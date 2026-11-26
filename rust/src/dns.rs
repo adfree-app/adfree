@@ -1373,6 +1373,59 @@ mod tests {
         assert_eq!(cache_ttl(&response_skeleton(0)), None);
     }
 
+    /// The name walk is the code that reads untrusted labels and pointers, so
+    /// each way a name can be malformed has to be a refusal: a label that runs
+    /// past the buffer, a label type this message cannot carry, and a pointer
+    /// that loops.
+    #[test]
+    fn a_name_walk_follows_pointers_and_refuses_garbage() {
+        // "a"."b" then the root: five bytes, no compression.
+        let plain = [1u8, b'a', 1, b'b', 0];
+        assert_eq!(name_field_len(&plain, 0), Some(5));
+        // A pointer field is two bytes long, whatever it points at.
+        let pointed = [1u8, b'a', 1, b'b', 0, 0xc0, 0x00];
+        assert_eq!(name_field_len(&pointed, 5), Some(2));
+        // Two pointers in a row still measure the field, and the walk is what
+        // proves the target is a name at all.
+        let chain = [1u8, b'a', 0, 0xc0, 0x00, 0xc0, 0x03];
+        assert_eq!(name_field_len(&chain, 5), Some(2));
+        // A pointer to itself never ends; the jump count is what stops it.
+        assert_eq!(name_field_len(&[0xc0, 0x00], 0), None);
+        // Label types 0x40 and 0x80 are reserved: neither a length nor a
+        // pointer, so the message is not read further.
+        assert_eq!(name_field_len(&[0x40, 0x00], 0), None);
+        assert_eq!(name_field_len(&[0x80, 0x00], 0), None);
+        // A label that claims more bytes than the buffer holds.
+        assert_eq!(name_field_len(&[5, b'a'], 0), None);
+        // A pointer past the end of the message.
+        assert_eq!(name_field_len(&[0xc0, 0xff], 0), None);
+    }
+
+    /// Neither name the encoder writes is longer than the wire allows, and a
+    /// name with an empty label is not one a resolver would read.
+    #[test]
+    fn a_name_is_written_only_when_a_resolver_could_read_it() {
+        let mut out = Vec::new();
+        assert!(write_name(&mut out, "example.com.").is_some());
+        assert_eq!(out, b"\x07example\x03com\x00");
+
+        // 253 bytes is the longest name on the wire; 254 is not.
+        let label = "a".repeat(63);
+        let longest = format!("{label}.{label}.{label}.{}", "b".repeat(61));
+        assert_eq!(longest.len(), 253);
+        assert!(write_name(&mut Vec::new(), &longest).is_some());
+        let longer = format!("{label}.{label}.{label}.{}", "b".repeat(62));
+        assert_eq!(longer.len(), 254);
+        assert!(write_name(&mut Vec::new(), &longer).is_none());
+
+        // An empty name, a lone dot, and a doubled dot name no host.
+        assert!(write_name(&mut Vec::new(), "").is_none());
+        assert!(write_name(&mut Vec::new(), ".").is_none());
+        assert!(write_name(&mut Vec::new(), "a..b").is_none());
+        // A label over 63 bytes is truncated by the wire format, so refused.
+        assert!(write_name(&mut Vec::new(), &"a".repeat(64)).is_none());
+    }
+
     /// The predicate is the header, and each bit of it is a way to be wrong:
     /// a query is not an answer, a reply for an opcode this cache does not
     /// speak has no answer shape to hold, and a truncated reply is not a
