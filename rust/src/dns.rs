@@ -1591,6 +1591,64 @@ mod tests {
         assert_eq!(ech_public_name(&junk), None);
     }
 
+    /// The count bounds are inclusive and they are what keeps a hostile
+    /// response from making the walk unbounded: four questions and sixty-four
+    /// answers are read, a fifth question or a sixty-fifth answer takes the
+    /// whole message out of the walk — so the `ech` behind them is not
+    /// stripped and not named.
+    #[test]
+    fn a_message_past_the_count_bounds_is_not_walked_for_ech() {
+        let https = |msg: &mut Vec<u8>| {
+            add_answer(msg, TYPE_HTTPS, &svcb_rdata(&[(5, CF_ECH_CONFIG)]));
+        };
+
+        let mut five = response_skeleton(1);
+        five[5] = 5;
+        for _ in 1..5 {
+            five.extend_from_slice(&[0xc0, 0x0c, 0x00, 0x41, 0x00, 0x01]);
+        }
+        https(&mut five);
+        assert!(!strip_ech(&mut five), "a fifth question is past the bound");
+        assert_eq!(ech_public_name(&five), None);
+
+        let mut over = response_skeleton(65);
+        https(&mut over);
+        for _ in 1..65 {
+            add_answer(&mut over, TYPE_A, &[1, 2, 3, 4]);
+        }
+        assert!(
+            !strip_ech(&mut over),
+            "a sixty-fifth answer is past the bound"
+        );
+        assert_eq!(ech_public_name(&over), None);
+
+        let mut full = response_skeleton(64);
+        https(&mut full);
+        for _ in 1..64 {
+            add_answer(&mut full, TYPE_A, &[1, 2, 3, 4]);
+        }
+        assert_eq!(
+            ech_public_name(&full),
+            Some("cloudflare-ech.com".to_string()),
+            "the sixty-fourth answer is still read"
+        );
+        assert!(strip_ech(&mut full));
+    }
+
+    /// A parameter whose declared length runs past the record is not read, and
+    /// the key is not rewritten over the bytes that are actually there. Four
+    /// bytes of the value are missing: enough that the length check has to be
+    /// the one that stops it, not the record's end.
+    #[test]
+    fn a_parameter_that_runs_past_its_record_is_left_alone() {
+        let mut msg = response_skeleton(1);
+        let rdata = [0x00, 0x01, 0x00, 0x00, 0x05, 0x00, 0x06, 0xaa, 0xbb];
+        add_answer(&mut msg, TYPE_HTTPS, &rdata);
+        let before = msg.clone();
+        assert!(!strip_ech(&mut msg));
+        assert_eq!(msg, before, "the key is not rewritten over the record end");
+    }
+
     /// `ech_config_list` hands the upstream half exactly the bytes `dig` shows:
     /// the SvcParam value, length prefix included.
     #[test]
