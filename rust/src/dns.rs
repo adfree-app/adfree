@@ -1094,6 +1094,39 @@ mod tests {
         assert!(parse_query(&body).is_none());
     }
 
+    /// A refusal copies the client's RD bit and nothing else about its flags,
+    /// and the zero answer is shaped like the question: an address family the
+    /// name asked about, filled with zeroes.
+    #[test]
+    fn a_refusal_and_a_zero_answer_are_shaped_by_the_question() {
+        let qname = [&b"\x07example"[..], &b"\x03com"[..]].concat();
+
+        // A stub that leaves RD clear does not get it back set.
+        let mut quiet = make_query(&qname, TYPE_A);
+        quiet[2] = 0x00;
+        let q = parse_query(&quiet).unwrap();
+        let msg = block_message(&q, BlockMode::Refused).unwrap();
+        assert_eq!(msg[2] & 0x01, 0, "RD is the client's, and it was clear");
+        assert_eq!(msg[3] & 0x0f, RCODE_REFUSED as u8, "REFUSED");
+        assert_eq!(&msg[6..8], &0u16.to_be_bytes(), "no answer record");
+        assert_eq!(&msg[8..10], &1u16.to_be_bytes(), "an SOA instead");
+
+        // AAAA is answered with sixteen zero bytes, A with four.
+        let six = make_query(&qname, TYPE_AAAA);
+        let q = parse_query(&six).unwrap();
+        let msg = block_message(&q, BlockMode::ZeroIp).unwrap();
+        let learned = parse_answers(&msg);
+        assert_eq!(learned.len(), 1);
+        assert_eq!(learned[0].ip.as_ip().to_string(), "::");
+
+        let four = make_query(&qname, TYPE_A);
+        let q = parse_query(&four).unwrap();
+        let msg = block_message(&q, BlockMode::ZeroIp).unwrap();
+        let learned = parse_answers(&msg);
+        assert_eq!(learned.len(), 1);
+        assert_eq!(learned[0].ip.as_ip().to_string(), "0.0.0.0");
+    }
+
     #[test]
     fn nodata_answers_the_question_with_no_records() {
         let qname = [&b"\x07example"[..], &b"\x03com"[..]].concat();
