@@ -1602,6 +1602,20 @@ mod tests {
             add_answer(msg, TYPE_HTTPS, &svcb_rdata(&[(5, CF_ECH_CONFIG)]));
         };
 
+        // Four questions are walked, and the answer behind them is found.
+        let mut four = response_skeleton(1);
+        four[5] = 4;
+        for _ in 1..4 {
+            four.extend_from_slice(&[0xc0, 0x0c, 0x00, 0x41, 0x00, 0x01]);
+        }
+        https(&mut four);
+        assert_eq!(
+            ech_public_name(&four),
+            Some("cloudflare-ech.com".to_string()),
+            "four questions are walked"
+        );
+        assert!(strip_ech(&mut four), "and its ech is stripped");
+
         let mut five = response_skeleton(1);
         five[5] = 5;
         for _ in 1..5 {
